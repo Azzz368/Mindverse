@@ -3,6 +3,10 @@ export type GenerateTextInput = { prompt: string; systemPrompt?: string; model?:
 export type GenerateTextOutput = { text: string; raw?: unknown };
 export type GenerateImageInput = { prompt: string; negativePrompt?: string; model?: string; size?: string; aspectRatio?: string; referenceImageUrl?: string };
 export type GenerateImageOutput = { imageUrl?: string; taskId?: string; status: "completed" | "pending" | "failed"; raw?: unknown };
+export type GenerateImageRevisionInput = { sourceImageUrl: string; annotations: unknown[]; instruction?: string; prompt?: string; model?: string; size?: string };
+export type GenerateImageRevisionOutput = GenerateImageOutput;
+export type EditImageWithAnnotationsInput = { sourceImageUrl: string; prompt: string; maskImageUrl?: string; size?: string; quality?: "low" | "medium" | "high" | "auto"; outputFormat?: "png" | "jpeg" | "webp" };
+export type EditImageWithAnnotationsOutput = { revisedImageUrl?: string; status: "completed" | "failed"; raw?: unknown };
 export type GenerateVideoInput = { prompt: string; negativePrompt?: string; model?: string; image?: string; endImage?: string; video?: string; useImageInput?: boolean; duration?: number; resolution?: string; aspectRatio?: string; fps?: string };
 export type GenerateVideoOutput = { videoUrl?: string; taskId?: string; status: "completed" | "pending" | "failed"; raw?: unknown };
 export type GenerateAudioInput = { text: string; model?: string; voice?: string; responseFormat?: "mp3" | "wav" | "aac" | "flac"; emotion?: string; volume?: number };
@@ -14,6 +18,8 @@ export interface AIProvider {
   name: AIProviderName;
   generateText(input: GenerateTextInput): Promise<GenerateTextOutput>;
   generateImage(input: GenerateImageInput): Promise<GenerateImageOutput>;
+  generateImageRevision(input: GenerateImageRevisionInput): Promise<GenerateImageRevisionOutput>;
+  editImageWithAnnotations(input: EditImageWithAnnotationsInput): Promise<EditImageWithAnnotationsOutput>;
   generateVideo(input: GenerateVideoInput): Promise<GenerateVideoOutput>;
   generateAudio(input: GenerateAudioInput): Promise<GenerateAudioOutput>;
   generateStoryboard(input: GenerateStoryboardInput): Promise<GenerateStoryboardOutput>;

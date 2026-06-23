@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { normalizeAIError } from "@/lib/ai/errors";
 import { getAIProvider } from "@/lib/ai/provider";
-import type { GenerateAudioInput, GenerateImageInput, GenerateStoryboardInput, GenerateTextInput, GenerateVideoInput } from "@/lib/ai/types";
+import type { GenerateAudioInput, GenerateImageInput, GenerateImageRevisionInput, GenerateStoryboardInput, GenerateTextInput, GenerateVideoInput } from "@/lib/ai/types";
 
-type RunnableNodeType = "text" | "image" | "video" | "audio" | "storyboard";
-const isRunnable = (value: unknown): value is RunnableNodeType => ["text", "image", "video", "audio", "storyboard"].includes(String(value));
+type RunnableNodeType = "text" | "image" | "image-revision" | "video" | "audio" | "storyboard";
+const isRunnable = (value: unknown): value is RunnableNodeType => ["text", "image", "image-revision", "video", "audio", "storyboard"].includes(String(value));
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { nodeType?: unknown; input?: unknown };
@@ -12,6 +12,7 @@ export async function POST(request: Request) {
     const provider = getAIProvider();
     const output = body.nodeType === "text" ? await provider.generateText(body.input as GenerateTextInput)
       : body.nodeType === "image" ? await provider.generateImage(body.input as GenerateImageInput)
+      : body.nodeType === "image-revision" ? await provider.generateImageRevision(body.input as GenerateImageRevisionInput)
       : body.nodeType === "video" ? await provider.generateVideo(body.input as GenerateVideoInput)
       : body.nodeType === "audio" ? await provider.generateAudio(body.input as GenerateAudioInput)
       : await provider.generateStoryboard(body.input as GenerateStoryboardInput);

@@ -1,6 +1,7 @@
 import "server-only";
 import { request302, request302OpenAI } from "./302aiClient";
-import type { AIProvider, GenerateAudioInput, GenerateAudioOutput, GenerateImageInput, GenerateImageOutput, GenerateStoryboardInput, GenerateStoryboardOutput, GenerateTextInput, GenerateTextOutput, GenerateVideoInput, GenerateVideoOutput, StoryboardScene } from "./types";
+import { AIProviderError } from "./errors";
+import type { AIProvider, EditImageWithAnnotationsInput, EditImageWithAnnotationsOutput, GenerateAudioInput, GenerateAudioOutput, GenerateImageInput, GenerateImageOutput, GenerateStoryboardInput, GenerateStoryboardOutput, GenerateTextInput, GenerateTextOutput, GenerateVideoInput, GenerateVideoOutput, StoryboardScene } from "./types";
 
 type RecordValue = Record<string, unknown>;
 const compact = (value: RecordValue) => Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined && item !== ""));
@@ -12,6 +13,17 @@ const normalizeScenes = (value: unknown, fallback: string): StoryboardScene[] =>
   const scenes = object(value).scenes;
   if (!Array.isArray(scenes)) return [{ sceneNumber: 1, description: fallback, visualPrompt: fallback, camera: "Creative framing", duration: 5 }];
   return scenes.map((scene, index) => { const item = object(scene); return { sceneNumber: Number(item.sceneNumber) || index + 1, description: string(item.description) || fallback, visualPrompt: string(item.visualPrompt) || string(item.description) || fallback, camera: string(item.camera) || "Creative framing", duration: Number(item.duration) || 5 }; });
+};
+const imageExtension = (contentType: string | null) => contentType?.includes("jpeg") ? "jpg" : contentType?.includes("webp") ? "webp" : contentType?.includes("gif") ? "gif" : "png";
+const downloadImage = async (url: string, field: "image" | "mask") => {
+  if (!/^https:\/\//i.test(url) && !/^data:image\//i.test(url)) throw new AIProviderError("Only HTTPS image URLs or data:image URLs can be used for image editing.", "INVALID_IMAGE_URL", 400);
+  let response: Response;
+  try { response = await fetch(url, { cache: "no-store" }); }
+  catch (error) { throw new AIProviderError(`Could not download the ${field === "image" ? "source image" : "mask image"} for editing: ${error instanceof Error ? error.message : "unknown network error"}`, "IMAGE_DOWNLOAD_FAILED", 400); }
+  if (!response.ok) throw new AIProviderError(`Could not download the ${field === "image" ? "source image" : "mask image"} for editing (HTTP ${response.status}).`, "IMAGE_DOWNLOAD_FAILED", 400);
+  const blob = await response.blob();
+  if (!blob.size) throw new AIProviderError(`The ${field === "image" ? "source image" : "mask image"} is empty.`, "IMAGE_DOWNLOAD_FAILED", 400);
+  return { blob, filename: `${field}.${imageExtension(blob.type || response.headers.get("content-type"))}` };
 };
 
 export const ai302Provider: AIProvider = {
@@ -42,6 +54,28 @@ export const ai302Provider: AIProvider = {
     const taskId = string(raw.task_id) || string(raw.taskId);
     return { imageUrl, taskId, status: imageUrl ? "completed" : taskId ? "pending" : "failed", raw };
   },
+  async editImageWithAnnotations(input: EditImageWithAnnotationsInput): Promise<EditImageWithAnnotationsOutput> {
+    const image = await downloadImage(input.sourceImageUrl, "image");
+    const form = new FormData();
+    form.append("image", image.blob, image.filename);
+    form.append("prompt", input.prompt);
+    form.append("model", "gpt-image-2");
+    form.append("quality", input.quality || "auto");
+    form.append("size", (input.size || "1024x1024").replace(/脳/g, "x"));
+    form.append("n", "1");
+    form.append("background", "auto");
+    form.append("output_format", input.outputFormat || "png");
+    form.append("output_compression", "100");
+    form.append("partial_images", "0");
+    if (input.maskImageUrl) { const mask = await downloadImage(input.maskImageUrl, "mask"); form.append("mask", mask.blob, mask.filename); }
+    const raw = await request302OpenAI<RecordValue>("/images/edits?response_format=url", { method: "POST", body: form });
+    const first = Array.isArray(raw.data) ? object(raw.data[0]) : {};
+    const encoded = string(first.b64_json) || string(first.base64) || string(first.data);
+    const format = string(raw.output_format) || input.outputFormat || "png";
+    const revisedImageUrl = string(first.url) || string(raw.image_url) || (encoded ? `data:image/${format};base64,${encoded}` : undefined);
+    return { revisedImageUrl, status: revisedImageUrl ? "completed" : "failed", raw };
+  },
+  async generateImageRevision(input) { const edited = await this.editImageWithAnnotations({ sourceImageUrl: input.sourceImageUrl, prompt: input.prompt || input.instruction || "Revise this image.", size: input.size }); return { imageUrl: edited.revisedImageUrl, status: edited.status, raw: edited.raw }; },
   async generateVideo(input: GenerateVideoInput): Promise<GenerateVideoOutput> {
     const model = input.model || process.env.AI_302_VIDEO_MODEL || "minimaxi-t2v-01";
     // T2V models reject an image payload. For them the upstream image's creative context is already folded into the prompt by the canvas.
