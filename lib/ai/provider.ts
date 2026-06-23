@@ -1,2 +1,6 @@
+import "server-only";
+import { ai302Provider } from "./302aiProvider";
 import { mockAIProvider } from "./mockProvider";
-export const aiProvider = mockAIProvider; // Set AI_PROVIDER later to select a production adapter.
+import type { AIProvider } from "./types";
+
+export function getAIProvider(): AIProvider { return process.env.AI_PROVIDER?.toLowerCase() === "302ai" ? ai302Provider : mockAIProvider; }

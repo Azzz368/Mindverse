@@ -2,11 +2,11 @@ import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/types
 
 const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "status">> = {
   prompt: { prompt: "Describe an atmospheric creative direction", negativePrompt: "", style: "Cinematic", aspectRatio: "16:9" },
-  text: { instruction: "Turn this brief into an engaging creative draft", inputText: "" },
-  image: { prompt: "A cinematic editorial image", model: "Mock Vision", size: "1024×1024", referenceImageUrl: "" },
-  video: { prompt: "A gentle cinematic movement", duration: 5, aspectRatio: "16:9", referenceImageUrl: "" },
-  audio: { prompt: "A warm, modern ambient bed", voiceStyle: "Atmospheric", duration: 12 },
-  storyboard: { storyBrief: "A small transformation told in light and motion", numberOfScenes: 3 },
+  text: { instruction: "Turn this brief into an engaging creative draft", inputText: "", model: "", temperature: 0.7 },
+  image: { prompt: "A cinematic editorial image", model: "", size: "1024x1024", referenceImageUrl: "" },
+  video: { prompt: "A gentle cinematic movement", duration: 5, aspectRatio: "16:9", referenceImageUrl: "", model: "", resolution: "", fps: "", videoInputMode: "text-to-video" },
+  audio: { prompt: "A warm, modern ambient bed", voiceStyle: "Atmospheric", duration: 12, model: "", voice: "", emotion: "", volume: 1 },
+  storyboard: { storyBrief: "A small transformation told in light and motion", numberOfScenes: 3, model: "" },
   reference: { imageUrl: "", notes: "Visual reference and art direction." },
   output: { format: "Creative package" },
 };
