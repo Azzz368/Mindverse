@@ -1,8 +1,22 @@
-import type { StoryboardScene } from "@/types/canvas";
+export type AIProviderName = "mock" | "302ai";
+export type GenerateTextInput = { prompt: string; systemPrompt?: string; model?: string; temperature?: number; upstreamContext?: unknown };
+export type GenerateTextOutput = { text: string; raw?: unknown };
+export type GenerateImageInput = { prompt: string; negativePrompt?: string; model?: string; size?: string; aspectRatio?: string; referenceImageUrl?: string };
+export type GenerateImageOutput = { imageUrl?: string; taskId?: string; status: "completed" | "pending" | "failed"; raw?: unknown };
+export type GenerateVideoInput = { prompt: string; negativePrompt?: string; model?: string; image?: string; endImage?: string; video?: string; useImageInput?: boolean; duration?: number; resolution?: string; aspectRatio?: string; fps?: string };
+export type GenerateVideoOutput = { videoUrl?: string; taskId?: string; status: "completed" | "pending" | "failed"; raw?: unknown };
+export type GenerateAudioInput = { text: string; model?: string; voice?: string; responseFormat?: "mp3" | "wav" | "aac" | "flac"; emotion?: string; volume?: number };
+export type GenerateAudioOutput = { audioUrl?: string; taskId?: string; status: "completed" | "pending" | "failed"; raw?: unknown };
+export type StoryboardScene = { sceneNumber: number; description: string; visualPrompt: string; camera: string; duration: number };
+export type GenerateStoryboardInput = { storyBrief: string; numberOfScenes: number; model?: string };
+export type GenerateStoryboardOutput = { scenes: StoryboardScene[]; rawText?: string; raw?: unknown };
 export interface AIProvider {
-  generateText(prompt: string): Promise<string>;
-  generateImage(prompt: string, size?: string): Promise<string>;
-  generateVideo(prompt: string, duration?: number): Promise<{ url: string; status: string }>;
-  generateAudio(prompt: string, duration?: number): Promise<{ url: string; status: string }>;
-  generateStoryboard(brief: string, scenes: number): Promise<StoryboardScene[]>;
+  name: AIProviderName;
+  generateText(input: GenerateTextInput): Promise<GenerateTextOutput>;
+  generateImage(input: GenerateImageInput): Promise<GenerateImageOutput>;
+  generateVideo(input: GenerateVideoInput): Promise<GenerateVideoOutput>;
+  generateAudio(input: GenerateAudioInput): Promise<GenerateAudioOutput>;
+  generateStoryboard(input: GenerateStoryboardInput): Promise<GenerateStoryboardOutput>;
+  listModels?(): Promise<Array<{ id: string; object?: string; [key: string]: unknown }>>;
+  pollTask?(type: "video" | "audio" | "image", taskId: string): Promise<unknown>;
 }
