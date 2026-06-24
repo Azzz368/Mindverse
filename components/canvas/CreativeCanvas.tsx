@@ -44,7 +44,7 @@ export function CreativeCanvas() {
   }, [onEdgesChange]);
 
   /* ── Feature 4: alignment snap guides ───────────────────────────── */
-  const handleNodeDrag = useCallback((_: React.MouseEvent, draggedNode: { id: string; position: { x: number; y: number } }) => {
+  const handleNodeDrag = useCallback((_: MouseEvent | TouchEvent, draggedNode: { id: string; position: { x: number; y: number } }) => {
     const allNodes = getNodes();
     const guides: AlignGuide[] = [];
     const nx = draggedNode.position.x;
@@ -57,7 +57,7 @@ export function CreativeCanvas() {
     setAlignGuides(guides);
   }, [getNodes]);
 
-  const handleNodeDragStop = useCallback((_: React.MouseEvent, draggedNode: { id: string; position: { x: number; y: number } }) => {
+  const handleNodeDragStop = useCallback((_: MouseEvent | TouchEvent, draggedNode: { id: string; position: { x: number; y: number } }) => {
     setAlignGuides([]);
     const allNodes = getNodes();
     let newX = draggedNode.position.x;
