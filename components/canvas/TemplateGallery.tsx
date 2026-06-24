@@ -1,14 +1,16 @@
 "use client";
 import { templates } from "@/lib/templates/templates";
 import { useCanvasStore } from "@/store/canvasStore";
+import { useLang } from "@/components/LangProvider";
 
 export function TemplateGallery() {
   const applyTemplate = useCanvasStore((state) => state.applyTemplate);
+  const { t } = useLang();
   return (
     <div className="border-b border-[#e7eaf0] bg-white px-4 py-2 dark:border-slate-800 dark:bg-[#0c1622]">
       <div className="flex items-center gap-2 overflow-x-auto">
         <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[.16em] text-[#939393] dark:text-slate-500">
-          Templates
+          {t.templates}
         </span>
         {templates.map((template) => (
           <button
