@@ -1,9 +1,186 @@
 import "server-only";
+import { TokenStarError } from "../errors";
 import { tokenstarFormRequest, tokenstarJsonRequest } from "./tokenstarClient";
-const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
-const idFrom = (raw: unknown) => { const root = record(raw), data = record(root.data); return typeof root.id === "string" ? root.id : typeof root.GroupId === "string" ? root.GroupId : typeof root.AssetId === "string" ? root.AssetId : typeof data.id === "string" ? data.id : typeof data.GroupId === "string" ? data.GroupId : typeof data.AssetId === "string" ? data.AssetId : undefined; };
-export async function createAssetGroup(name: string) { const raw = await tokenstarJsonRequest("/volc/asset/CreateAssetGroup", { model: "volc-asset", Name: name }); return { groupId: idFrom(raw), raw }; }
-export async function listAssetGroups(filterName?: string) { const raw = await tokenstarJsonRequest("/volc/asset/ListAssetGroups", { model: "volc-asset", ...(filterName ? { Filter: { Name: filterName } } : {}), PageNumber: 1, PageSize: 10 }); return { raw }; }
-export async function createAssetFromUrl(input: { groupId: string; name: string; assetType: "Image" | "Video" | "Audio"; url: string }) { const raw = await tokenstarJsonRequest("/volc/asset/CreateAsset", { model: "volc-asset", GroupId: input.groupId, Name: input.name, AssetType: input.assetType, URL: input.url }); const assetId = idFrom(raw); return { assetId, assetUrl: assetId ? `asset://${assetId}` : undefined, raw }; }
-export async function createAssetFromFile(input: { groupId: string; name: string; assetType: "Image" | "Video" | "Audio"; file: Blob }) { const form = new FormData(); form.append("model", input.assetType === "Video" ? "volc-asset-video" : input.assetType === "Audio" ? "volc-asset-audio" : "volc-asset"); form.append("file", input.file, "asset"); form.append("GroupId", input.groupId); form.append("Name", input.name); form.append("AssetType", input.assetType); const raw = await tokenstarFormRequest("/volc/asset/CreateAsset", form); const assetId = idFrom(raw); return { assetId, assetUrl: assetId ? `asset://${assetId}` : undefined, raw }; }
-export async function listAssets(input: { groupId?: string; name?: string }) { const raw = await tokenstarJsonRequest("/volc/asset/ListAssets", { model: "volc-asset", Filter: { ...(input.name ? { Name: input.name } : {}), ...(input.groupId ? { GroupIds: [input.groupId], GroupType: "AIGC" } : {}) }, PageNumber: 1, PageSize: 10 }); return { raw }; }
+
+export type TokenStarAssetType = "Image" | "Video" | "Audio";
+export type TokenStarAsset = {
+  assetId: string;
+  name?: string;
+  groupId?: string;
+  assetType?: string;
+  status?: string;
+  raw: Record<string, unknown>;
+};
+export type TokenStarAssetGroup = {
+  groupId: string;
+  name?: string;
+  status?: string;
+  raw: Record<string, unknown>;
+};
+
+const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : undefined;
+const key = (value: string) => value.replace(/[_-]/g, "").toLowerCase();
+const read = (value: Record<string, unknown>, names: string[]) => {
+  const namesByKey = new Set(names.map(key));
+  return Object.entries(value).find(([name, item]) => namesByKey.has(key(name)) && text(item))?.[1] as string | undefined;
+};
+
+const valuesFor = (raw: unknown, names: string[]) => {
+  const found: string[] = [];
+  const seen = new Set<object>();
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const item = record(value);
+    const valueForKey = read(item, names);
+    if (valueForKey) found.push(valueForKey);
+    Object.values(item).forEach(visit);
+  };
+  visit(raw);
+  return [...new Set(found)];
+};
+
+const idFrom = (raw: unknown, names: string[], prefix: string) => {
+  const values = valuesFor(raw, names);
+  return values.find((value) => value.toLowerCase().startsWith(prefix)) || values[0];
+};
+
+const groupIdFrom = (raw: unknown) => idFrom(raw, ["GroupId", "group_id", "MaterialGroupId", "material_group_id"], "group-");
+const assetIdFrom = (raw: unknown) => idFrom(raw, ["AssetId", "asset_id", "id"], "asset-");
+
+const groupRecordsFrom = (raw: unknown) => {
+  const groups: TokenStarAssetGroup[] = [];
+  const seen = new Set<object>();
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const item = record(value);
+    const directId = read(item, ["GroupId", "group_id", "MaterialGroupId", "material_group_id"]);
+    const fallbackId = read(item, ["id"]);
+    const groupId = directId || (fallbackId?.toLowerCase().startsWith("group-") ? fallbackId : undefined);
+    if (groupId) groups.push({ groupId, name: read(item, ["Name", "name"]), status: read(item, ["Status", "status", "State", "state"]), raw: item });
+    Object.values(item).forEach(visit);
+  };
+  visit(raw);
+  return [...new Map(groups.map((group) => [group.groupId, group])).values()];
+};
+
+const assetRecordsFrom = (raw: unknown) => {
+  const assets: TokenStarAsset[] = [];
+  const seen = new Set<object>();
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const item = record(value);
+    const assetId = read(item, ["AssetId", "asset_id"]) || (() => { const value = read(item, ["id"]); return value?.toLowerCase().startsWith("asset-") ? value : undefined; })();
+    if (assetId) assets.push({
+      assetId,
+      name: read(item, ["Name", "name"]),
+      groupId: read(item, ["GroupId", "group_id"]),
+      assetType: read(item, ["AssetType", "asset_type", "Type", "type"]),
+      status: read(item, ["Status", "status", "State", "state"]),
+      raw: item,
+    });
+    Object.values(item).forEach(visit);
+  };
+  visit(raw);
+  return [...new Map(assets.map((asset) => [asset.assetId, asset])).values()];
+};
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const numberFromEnv = (name: string, fallback: number) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+const normalizedStatus = (value: string | undefined) => value?.trim().toUpperCase();
+const isFailedStatus = (value: string | undefined) => ["FAILED", "FAILURE", "ERROR", "CANCELLED", "CANCELED", "REJECTED"].includes(normalizedStatus(value) || "");
+const isReadyStatus = (value: string | undefined) => !value || ["READY", "AVAILABLE", "ACTIVE", "COMPLETED", "SUCCESS", "SUCCEEDED", "DONE"].includes(normalizedStatus(value) || "");
+
+export async function createAssetGroup(name: string) {
+  const raw = await tokenstarJsonRequest("/volc/asset/CreateAssetGroup", { model: "volc-asset", Name: name });
+  return { groupId: groupIdFrom(raw), raw };
+}
+
+export async function listAssetGroups(filterName?: string) {
+  const raw = await tokenstarJsonRequest("/volc/asset/ListAssetGroups", { model: "volc-asset", ...(filterName ? { Filter: { Name: filterName } } : {}), PageNumber: 1, PageSize: 10 });
+  return { raw, groups: groupRecordsFrom(raw) };
+}
+
+export async function createAssetFromUrl(input: { groupId: string; name: string; assetType: TokenStarAssetType; url: string }) {
+  const raw = await tokenstarJsonRequest("/volc/asset/CreateAsset", { model: "volc-asset", GroupId: input.groupId, Name: input.name, AssetType: input.assetType, URL: input.url });
+  const assetId = assetIdFrom(raw);
+  return { assetId, assetUrl: assetId ? `asset://${assetId}` : undefined, raw };
+}
+
+export async function createAssetFromFile(input: { groupId: string; name: string; assetType: TokenStarAssetType; file: Blob }) {
+  const form = new FormData();
+  const extension = input.file.type.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "bin";
+  form.append("file", input.file, `asset.${extension}`);
+  form.append("GroupId", input.groupId);
+  form.append("Name", input.name);
+  if (input.assetType !== "Image") {
+    form.append("model", input.assetType === "Video" ? "volc-asset-video" : "volc-asset-audio");
+    form.append("AssetType", input.assetType);
+  }
+  const raw = await tokenstarFormRequest("/volc/asset/CreateAsset", form);
+  const assetId = assetIdFrom(raw);
+  return { assetId, assetUrl: assetId ? `asset://${assetId}` : undefined, raw };
+}
+
+export async function listAssets(input: { groupId?: string; name?: string }) {
+  const raw = await tokenstarJsonRequest("/volc/asset/ListAssets", { model: "volc-asset", Filter: { ...(input.name ? { Name: input.name } : {}), ...(input.groupId ? { GroupIds: [input.groupId], GroupType: "AIGC" } : {}) }, PageNumber: 1, PageSize: 10 });
+  return { raw, assets: assetRecordsFrom(raw) };
+}
+
+export async function waitForAsset(input: { groupId: string; name: string; assetType: TokenStarAssetType; assetId?: string }) {
+  const attempts = Math.max(1, Math.floor(numberFromEnv("TOKENSTAR_ASSET_MAX_POLL_ATTEMPTS", 20)));
+  const intervalMs = Math.max(250, Math.floor(numberFromEnv("TOKENSTAR_ASSET_POLL_INTERVAL_MS", 1500)));
+  let lastStatus: string | undefined;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const listed = await listAssets({ groupId: input.groupId, name: input.name });
+    const asset = listed.assets.find((candidate) => candidate.assetId === input.assetId)
+      || listed.assets.find((candidate) => candidate.name === input.name && (!candidate.assetType || candidate.assetType.toLowerCase() === input.assetType.toLowerCase()));
+    if (asset) {
+      lastStatus = asset.status;
+      if (isFailedStatus(asset.status)) throw new TokenStarError(`TokenStar rejected ${input.assetType.toLowerCase()} asset \"${input.name}\" (status: ${asset.status}).`, 422);
+      if (isReadyStatus(asset.status)) return { ...asset, assetUrl: `asset://${asset.assetId}` };
+    }
+    if (attempt < attempts - 1) await delay(intervalMs);
+  }
+  throw new TokenStarError(`TokenStar asset \"${input.name}\" was not ready after ${attempts} checks${lastStatus ? ` (last status: ${lastStatus})` : ""}.`, 504);
+}
+
+export async function waitForAssetGroup(input: { name: string; groupId?: string }) {
+  const attempts = Math.max(1, Math.floor(numberFromEnv("TOKENSTAR_ASSET_MAX_POLL_ATTEMPTS", 20)));
+  const intervalMs = Math.max(250, Math.floor(numberFromEnv("TOKENSTAR_ASSET_POLL_INTERVAL_MS", 1500)));
+  let lastStatus: string | undefined;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const filtered = await listAssetGroups(input.name);
+    const listed = filtered.groups.length ? filtered : await listAssetGroups();
+    const group = listed.groups.find((candidate) => candidate.groupId === input.groupId)
+      || listed.groups.find((candidate) => candidate.name === input.name);
+    if (group) {
+      lastStatus = group.status;
+      if (isFailedStatus(group.status)) throw new TokenStarError(`TokenStar rejected asset group \"${input.name}\" (status: ${group.status}).`, 422);
+      if (isReadyStatus(group.status)) return group;
+    }
+    if (attempt < attempts - 1) await delay(intervalMs);
+  }
+  throw new TokenStarError(`TokenStar asset group \"${input.name}\" was not available after ${attempts} checks${lastStatus ? ` (last status: ${lastStatus})` : ""}.`, 504);
+}
