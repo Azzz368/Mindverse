@@ -1,6 +1,6 @@
 import "server-only";
 import { TokenStarError } from "../errors";
-const origin = () => (process.env.TOKENSTAR_API_ORIGIN || "https://api.tokenstar.world").replace(/\/$/, "");
+const origin = () => (process.env.TOKENSTAR_API_ORIGIN || "https://api.tokenstar.io").replace(/\/$/, "");
 const message = (value: unknown): string => {
   if (typeof value === "string") return value;
   if (!value || typeof value !== "object") return "TokenStar request failed.";
@@ -13,3 +13,5 @@ async function request<T>(path: string, init: RequestInit = {}) { const key = pr
 export const tokenstarJsonRequest = <T>(path: string, body?: unknown, method = "POST") => request<T>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
 export const tokenstarGet = <T>(path: string) => request<T>(path, { method: "GET" });
 export const tokenstarFormRequest = <T>(path: string, formData: FormData) => request<T>(path, { method: "POST", body: formData });
+export const tokenstarActionRequest = <T>(path: string, action: string, body?: unknown) => request<T>(path, { method: "POST", headers: { "X-TC-Action": action }, body: body === undefined ? undefined : JSON.stringify(body) });
+export const tokenstarActionGet = <T>(path: string, action: string) => request<T>(path, { method: "GET", headers: { "X-TC-Action": action } });

@@ -89,6 +89,9 @@ export interface Strings {
   fieldImagePrompt: string;
   fieldSize: string;
   fieldReferenceImageUrl: string;
+  fieldKlingMode: string;
+  fieldKlingElementId: string;
+  fieldReferenceVideoUrl: string;
   langToggle: string;
   serverDefault: string;
 }
@@ -174,6 +177,9 @@ const zh: Strings = {
   fieldImagePrompt: "图像提示词",
   fieldSize: "尺寸",
   fieldReferenceImageUrl: "参考图像 URL",
+  fieldKlingMode: "Kling 模式",
+  fieldKlingElementId: "主体元素 ID（elem_xxx，逗号分隔多个）",
+  fieldReferenceVideoUrl: "参考视频 URL（Kling Omni 视频编辑）",
   langToggle: "EN",
   serverDefault: "服务器默认",
 };
@@ -259,6 +265,9 @@ const en: Strings = {
   fieldImagePrompt: "Image prompt",
   fieldSize: "Size",
   fieldReferenceImageUrl: "Reference image URL",
+  fieldKlingMode: "Kling mode",
+  fieldKlingElementId: "Subject element ID(s) (elem_xxx, comma-separated)",
+  fieldReferenceVideoUrl: "Reference video URL (Kling Omni video edit)",
   langToggle: "中文",
   serverDefault: "Server default",
 };
