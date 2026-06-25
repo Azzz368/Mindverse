@@ -3,7 +3,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { LangProvider } from "@/components/LangProvider";
 
-export const metadata: Metadata = { title: "Lumen Flow", description: "Creative AI workflow canvas" };
+export const metadata: Metadata = { title: "Mindverse", description: "Creative AI workflow canvas" };
 
 const themeScript = `try{const t=localStorage.getItem('theme');const d=window.matchMedia('(prefers-color-scheme: dark)').matches;if(t==='dark'||(!t&&d))document.documentElement.classList.add('dark')}catch(e){}`;
 

@@ -15,7 +15,7 @@ export function TopBar() {
     const blob = new Blob([exportCanvasJson()], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.href = url; link.download = "lumen-flow-canvas.json"; link.click();
+    link.href = url; link.download = "mindverse-canvas.json"; link.click();
     URL.revokeObjectURL(url);
   };
 
@@ -29,7 +29,7 @@ export function TopBar() {
   return (
     <header className="flex h-14 items-center gap-3 border-b border-[#e7eaf0] bg-white px-4 dark:border-slate-800 dark:bg-[#0c1622]">
       <a href="/" className="mr-2 text-sm font-bold tracking-tight text-[#030303] dark:text-cyan-300">
-        LUMEN FLOW
+        MINDVERSE
       </a>
       <Input
         className="max-w-sm border-transparent bg-transparent px-2 font-medium focus:border-[#c9ccd1] dark:focus:border-slate-700"

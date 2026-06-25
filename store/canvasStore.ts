@@ -8,6 +8,7 @@ import { promptsFromStoryboard } from "@/lib/workflow/storyPipeline";
 import type { CanvasNode, CanvasNodeData, CanvasSnapshot, ImageAnnotation, NodeOutput, NodeType, WorkflowEdge } from "@/types/canvas";
 
 type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; selectedNodeId: string | null; lastError: string | null;
+  ghostType: NodeType | null; setGhostType(type: NodeType | null): void; placeGhostNode(position: { x: number; y: number }): void;
   setProjectName(name: string): void; setSelectedNode(id: string | null): void; onNodesChange(changes: NodeChange<CanvasNode>[]): void; onEdgesChange(changes: EdgeChange<WorkflowEdge>[]): void; onConnect(connection: Connection): void;
   addNode(type: NodeType): void; updateNodeData(id: string, patch: Partial<CanvasNodeData>): void; removeNode(id: string): void; duplicateNode(id: string): void; createImageRevision(sourceId: string, annotations: ImageAnnotation[], instruction: string): Promise<void>; createKeyframeBatch(sourceId: string): void; setCanvas(nodes: CanvasNode[], edges: WorkflowEdge[]): void;
   runNode(id: string): Promise<void>; pollNode(id: string): Promise<void>; runWorkflow(): Promise<void>; saveCanvas(): void; loadCanvas(): void; clearCanvas(): void; exportCanvasJson(): string; importCanvasJson(raw: string): void; applyTemplate(template: Template): void; };
@@ -44,7 +45,9 @@ const canRunRemotely = (type: CanvasNode["data"]["nodeType"]) => ["text", "scrip
 const schedulePoll = (id: string, run: () => void, intervalMs = 3000) => { if (typeof window !== "undefined") window.setTimeout(run, Math.max(500, intervalMs)); };
 const restoreStatuses = (nodes: CanvasNode[]): CanvasNode[] => nodes.map((node) => { if (node.data.status !== "running") return node; const polling = ["pending", "running"].includes(asText(asRecord(node.data.output?.value).status)); const status: CanvasNodeData["status"] = polling ? "waiting" : "idle"; return { ...node, data: { ...node.data, status } }; });
 export const useCanvasStore = create<CanvasState>((set, get) => ({
-  projectName: "Untitled creative flow", nodes: initialNodes, edges: [], selectedNodeId: null, lastError: null,
+  projectName: "Untitled creative flow", nodes: initialNodes, edges: [], selectedNodeId: null, lastError: null, ghostType: null,
+  setGhostType: (ghostType) => set({ ghostType }),
+  placeGhostNode: (position) => { const { ghostType } = get(); if (!ghostType) return; const node = makeNode(ghostType, position); set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id, ghostType: null })); },
   setProjectName: (projectName) => set({ projectName }), setSelectedNode: (selectedNodeId) => set({ selectedNodeId }),
   onNodesChange: (changes) => set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) as CanvasNode[] })), onEdgesChange: (changes) => set((state) => ({ edges: applyEdgeChanges(changes, state.edges) })),
   onConnect: (connection) => set((state) => ({ edges: addEdge({ ...connection, id: `edge-${crypto.randomUUID()}`, animated: true }, state.edges) })),

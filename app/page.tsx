@@ -9,7 +9,7 @@ export default function Home() {
       </div>
       <section className="mx-auto max-w-4xl pt-20 text-center">
         <p className="mb-5 text-sm font-semibold uppercase tracking-[.22em] text-[#676f7b] dark:text-cyan-300">
-          Lumen Flow
+          Mindverse
         </p>
         <h1 className="text-5xl font-semibold tracking-tight text-[#030303] dark:text-slate-100 sm:text-7xl">
           把创意变成
