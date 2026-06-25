@@ -137,6 +137,16 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
       <div style={{ width: cardSize.w, ...(cardSize.h > 0 ? { height: cardSize.h } : {}) }}
         className={`relative rounded-xl border bg-white shadow-md shadow-black/5 dark:bg-[#101c29] dark:shadow-xl dark:shadow-black/20 ${cardSize.h > 0 ? "flex flex-col" : ""} ${selected ? "border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"}`}>
         <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400"/>
+        {/* Extra reference-image input handle for image nodes (offset down) */}
+        {data.nodeType === "image" && (
+          <Handle
+            id="ref-image"
+            type="target"
+            position={Position.Left}
+            style={{ top: "62%", background: "#7c3aed", borderColor: "#fff", width: 10, height: 10, borderWidth: 2 }}
+            title="参考图输入"
+          />
+        )}
         <div className="flex shrink-0 items-center gap-2 border-b border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
           <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[#f0f1f3] text-sm text-[#030303] dark:bg-cyan-400/10 dark:text-cyan-300">{icons[data.nodeType]}</span>
           <div className="min-w-0 flex-1">

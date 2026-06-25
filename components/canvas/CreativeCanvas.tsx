@@ -29,7 +29,7 @@ function GhostNode({ type, x, y }: { type: NodeType; x: number; y: number }) {
 }
 
 export function CreativeCanvas() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, ghostType, setGhostType, placeGhostNode } = useCanvasStore();
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, ghostType, setGhostType, placeGhostNode, addMediaNode } = useCanvasStore();
   const { theme } = useTheme();
   const { getNodes, screenToFlowPosition } = useReactFlow();
   const { x: viewX, y: viewY, zoom } = useViewport();
@@ -104,8 +104,30 @@ export function CreativeCanvas() {
     }
   }, [ghostType, screenToFlowPosition, placeGhostNode, setSelectedNode]);
 
+  /* File drop onto canvas */
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
+    if (!files.length) return;
+    const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    files.forEach((file, i) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        addMediaNode(reader.result as string, { x: flowPos.x + i * 60, y: flowPos.y + i * 40 });
+      };
+      reader.readAsDataURL(file);
+    });
+  }, [screenToFlowPosition, addMediaNode]);
+
   return (
-    <div className={`relative h-full flex-1 ${ghostType ? "cursor-crosshair" : ""}`}>
+    <div className={`relative h-full flex-1 ${ghostType ? "cursor-crosshair" : ""}`}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}

@@ -4,7 +4,7 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   prompt: { prompt: "Describe an atmospheric creative direction", negativePrompt: "", style: "Cinematic", aspectRatio: "16:9" },
   text: { instruction: "Turn this brief into an engaging creative draft", inputText: "", model: "", temperature: 0.7 },
   script: { storyBrief: "A fictional creative story", scriptTone: "Cinematic, warm, fictional", numberOfScenes: 3, model: "" },
-  image: { prompt: "A cinematic editorial image", model: "", size: "1024x1024", referenceImageUrl: "" },
+  image: { prompt: "A cinematic editorial image", model: "gpt-image-2", size: "1024x1024", referenceImageUrl: "" },
   video: { prompt: "A gentle cinematic movement", duration: 5, aspectRatio: "16:9", referenceImageUrl: "", model: "", resolution: "", fps: "", videoInputMode: "text-to-video", videoProvider: "kling", klingMode: "image-to-video", tokenstarMode: "text-to-video", generateAudio: true, referenceImageAssetUrl: "", referenceVideoAssetUrl: "", referenceAudioAssetUrl: "" },
   audio: { prompt: "A warm, modern ambient bed", voiceStyle: "Atmospheric", duration: 12, model: "", voice: "", emotion: "", volume: 1 },
   storyboard: { storyBrief: "A small transformation told in light and motion", numberOfScenes: 3, model: "" },
@@ -13,7 +13,8 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   output: { format: "Creative package" },
 };
 export function makeNode(type: NodeType, position = { x: 140, y: 120 }): CanvasNode {
-  return { id: `${type}-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: type, title: `New ${type[0].toUpperCase()}${type.slice(1)}`, status: "idle", ...defaults[type] } };
+  const title = type === "image" ? "gpt-image-2" : `New ${type[0].toUpperCase()}${type.slice(1)}`;
+  return { id: `${type}-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: type, title, status: "idle", ...defaults[type] } };
 }
 export type Template = { id: string; name: string; description: string; types: NodeType[] };
 export const templates: Template[] = [
