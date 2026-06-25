@@ -10,7 +10,7 @@ import type { NodeType, WorkflowEdge } from "@/types/canvas";
 type AlignGuide = { type: "v" | "h"; pos: number };
 const SNAP_THRESHOLD = 10;
 
-const icons: Record<string, string> = { prompt: "鉁?, text: "T", image: "鈼?, video: "鈻?, audio: "鈾?, storyboard: "鈻?, reference: "鈱?, output: "鈫? };
+const icons: Record<string, string> = { prompt: "*", text: "T", image: "#", video: "\u25B6", audio: "~", storyboard: "\u25A6", reference: "/", output: "\u2197" };
 
 function GhostNode({ type, x, y }: { type: NodeType; x: number; y: number }) {
   return (
