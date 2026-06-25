@@ -9,7 +9,7 @@ import { useLang } from "@/components/LangProvider";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/types/canvas";
 import type { Strings } from "@/lib/i18n/strings";
 
-const icons: Record<string, string> = { prompt: "✦", text: "T", image: "◈", video: "▶", audio: "♫", storyboard: "▦", reference: "⌁", output: "↗" };
+const icons: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", audio: "\u266B", storyboard: "\u25A6", reference: "\u2141", output: "\u2197" };
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value : "";
 
