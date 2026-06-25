@@ -18,7 +18,7 @@ export type CanvasNodeData = {
   instruction?: string; inputText?: string;
   model?: string; size?: string; referenceImageUrl?: string; temperature?: number;
   duration?: number; voiceStyle?: string; voice?: string; emotion?: string; volume?: number; resolution?: string; fps?: string; videoInputMode?: "text-to-video" | "image-to-video";
-  videoProvider?: "mock" | "302ai" | "302-sora2" | "tokenstar" | "kling"; tokenstarMode?: "text-to-video" | "asset-video"; generateAudio?: boolean; referenceImageAssetUrl?: string; referenceVideoAssetUrl?: string; referenceAudioAssetUrl?: string; klingMode?: "text-to-video" | "image-to-video" | "omni"; klingElementId?: string; referenceVideoUrl?: string; taskId?: string; resultUrl?: string; rawStatus?: string; lastPollAt?: string;
+  videoProvider?: "mock" | "302ai" | "302-sora2" | "tokenstar" | "kling"; tokenstarMode?: "text-to-video" | "asset-video" | "kling-image" | "kling-reference" | "kling-text" | "kling-omni"; generateAudio?: boolean; referenceImageAssetUrl?: string; referenceVideoAssetUrl?: string; referenceAudioAssetUrl?: string; klingMode?: "text-to-video" | "image-to-video" | "reference-image" | "omni"; klingElementId?: string; referenceVideoUrl?: string; taskId?: string; resultUrl?: string; rawStatus?: string; lastPollAt?: string;
   storyBrief?: string; numberOfScenes?: number;
   scriptTone?: string; targetShotCount?: number; storyboardImagePrompts?: StoryboardImagePrompt[]; batchId?: string; shotNumber?: number; sourceStoryboardNodeId?: string;
   imageUrl?: string; notes?: string; format?: string; generationContext?: string;

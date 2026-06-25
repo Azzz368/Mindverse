@@ -2,17 +2,19 @@ import "server-only";
 import { TokenStarError } from "../errors";
 import { tokenstarActionGet, tokenstarActionRequest } from "./tokenstarClient";
 
-export type KlingVideoMode = "text-to-video" | "image-to-video" | "omni";
+export type KlingVideoMode = "text-to-video" | "image-to-video" | "reference-image" | "omni";
 
 const SUBMIT_ACTION: Record<KlingVideoMode, string> = {
   "text-to-video": "SubmitTextToVideoJob",
   "image-to-video": "SubmitImageToVideoJob",
+  "reference-image": "SubmitImageToVideoJob",
   "omni": "SubmitVideoEditKlingJob",
 };
 
 const DESCRIBE_ACTION: Record<KlingVideoMode, string> = {
   "text-to-video": "DescribeTextToVideoJob",
   "image-to-video": "DescribeImageToVideoJob",
+  "reference-image": "DescribeImageToVideoJob",
   "omni": "DescribeVideoEditKlingJob",
 };
 
@@ -84,9 +86,16 @@ export async function createKlingVideo(input: KlingCreateInput): Promise<KlingVi
   if (input.resolution) body.resolution = input.resolution;
 
   if (mode === "image-to-video") {
-    if (!input.imageUrl) throw new TokenStarError("Kling image-to-video requires a reference image URL. Connect an image node or set a first-frame URL.", 400);
+    if (!input.imageUrl) throw new TokenStarError("Kling image-to-video (首帧) requires a reference image URL. Connect an image node or set a first-frame URL.", 400);
     body.Image = { Url: input.imageUrl };
-    if (input.elementIds?.length) body.ElementList = input.elementIds.map((id) => ({ ElementId: id }));
+    // first-frame mode: no ElementList
+  }
+
+  if (mode === "reference-image") {
+    if (!input.elementIds?.length) throw new TokenStarError("Kling reference-image (参考图) requires at least one subject ElementId. Create an element first via the element API.", 400);
+    // Optional: also use connected image as first frame
+    if (input.imageUrl) body.Image = { Url: input.imageUrl };
+    body.ElementList = input.elementIds.map((id) => ({ ElementId: id }));
   }
 
   if (mode === "omni") {

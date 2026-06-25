@@ -74,3 +74,36 @@ button { cursor: pointer; }
 }
 .react-flow__minimap { background: var(--flow-minimap); }
 .react-flow__minimap-mask { fill: var(--flow-mask); }
+
+/* ── Collision loader (running / waiting animation) ──────────────── */
+:root { --cball: #030303; --cball-hit: #aaa; }
+html.dark { --cball: #e2e8f0; --cball-hit: #64748b; }
+
+.collision-loader {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cball {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cball);
+  flex-shrink: 0;
+}
+.cball-a { animation: cball-a 1.6s ease-in-out infinite; }
+.cball-b { animation: cball-b 1.6s ease-in-out infinite; }
+
+/* Ball A swings right to collide with B */
+@keyframes cball-a {
+  0%, 55%, 100% { transform: translateX(0); }
+  32%           { transform: translateX(12px); }
+}
+/* Ball B flashes gray on impact then flies right and returns */
+@keyframes cball-b {
+  0%, 30%  { transform: translateX(0);    background: var(--cball); }
+  33%      { transform: translateX(0);    background: var(--cball-hit); }
+  55%      { transform: translateX(12px); background: var(--cball); }
+  88%      { transform: translateX(0);    background: var(--cball); }
+  100%     { transform: translateX(0);    background: var(--cball); }
+}
