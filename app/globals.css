@@ -82,11 +82,13 @@ html.dark { --cball: #e2e8f0; --cball-hit: #64748b; }
 .collision-loader {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  overflow: hidden;
+  max-width: 22px;
 }
 .cball {
-  width: 8px;
-  height: 8px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--cball);
   flex-shrink: 0;
@@ -97,13 +99,13 @@ html.dark { --cball: #e2e8f0; --cball-hit: #64748b; }
 /* Ball A swings right to collide with B */
 @keyframes cball-a {
   0%, 55%, 100% { transform: translateX(0); }
-  32%           { transform: translateX(12px); }
+  32%           { transform: translateX(7px); }
 }
 /* Ball B flashes gray on impact then flies right and returns */
 @keyframes cball-b {
-  0%, 30%  { transform: translateX(0);    background: var(--cball); }
-  33%      { transform: translateX(0);    background: var(--cball-hit); }
-  55%      { transform: translateX(12px); background: var(--cball); }
-  88%      { transform: translateX(0);    background: var(--cball); }
-  100%     { transform: translateX(0);    background: var(--cball); }
+  0%, 30%  { transform: translateX(0);   background: var(--cball); }
+  33%      { transform: translateX(0);   background: var(--cball-hit); }
+  55%      { transform: translateX(7px); background: var(--cball); }
+  88%      { transform: translateX(0);   background: var(--cball); }
+  100%     { transform: translateX(0);   background: var(--cball); }
 }

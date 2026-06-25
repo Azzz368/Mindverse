@@ -163,7 +163,7 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
         </div>
         <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400"/>
         {settingsOpen && <NodeSettingsPanel data={data} nodeId={id} onClose={() => setSettingsOpen(false)} />}
-        <ResizeHandle onResize={(dx, dy) => setCardSize(prev => ({ w: Math.max(220, prev.w + dx), h: prev.h > 0 ? Math.max(180, prev.h + dy) : 0 }))} />
+        <ResizeHandle onResize={(dx, dy) => setCardSize(prev => ({ w: Math.max(220, prev.w + dx), h: Math.max(180, (prev.h > 0 ? prev.h : 240) + dy) }))} />
       </div>
       {viewUrl && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[9999] grid place-items-center bg-black/85 p-8" onClick={() => setViewUrl("")}>
