@@ -73,7 +73,7 @@ export function NodeToolbar() {
           onClick={() => fileRef.current?.click()}
           className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-semibold transition text-[#939393] hover:bg-[#f0f1f3] hover:text-[#676f7b] dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-400"
         >
-          添加 图片素材
+          {t.uploadImage}
         </button>
         <input
           ref={fileRef}
@@ -114,8 +114,8 @@ export function NodeToolbar() {
         ))}
       </div>
       {(ghostType || ghostMediaUrl) && (
-        <p className="mt-3 rounded-md bg-[#f0f1f3] px-2 py-1.5 text-[10px] leading-4 text-[#676f7b] dark:bg-slate-800 dark:text-slate-400">
-          左键单击画布放置节点<br/>右键单击取消
+        <p className="mt-3 whitespace-pre-line rounded-md bg-[#f0f1f3] px-2 py-1.5 text-[10px] leading-4 text-[#676f7b] dark:bg-slate-800 dark:text-slate-400">
+          {t.placementHint}
         </p>
       )}
     </aside>

@@ -1,4 +1,5 @@
 import "server-only";
+import { Buffer } from "node:buffer";
 import { AIProviderError } from "./errors";
 
 type RecordValue = Record<string, unknown>;
@@ -41,6 +42,27 @@ const isSupportedFirstFrame = (image: string) => {
 const klingImageValue = (image: string) => {
   const dataMatch = /^data:image\/(?:jpe?g|png);base64,(.+)$/i.exec(image);
   return dataMatch ? dataMatch[1] : image;
+};
+
+// Kling can sometimes fail to download third-party HTTPS images (302.ai temporary/protected URLs),
+// producing an "empty content" error. To be safe we fetch the image server-side and inline it as
+// raw base64. Data URLs are stripped of their prefix; jpg/png/webp are accepted by Kling.
+const resolveKlingImage = async (image: string, label: string): Promise<string> => {
+  if (/^data:image\//i.test(image)) return klingImageValue(image);
+  if (!/^https?:\/\//i.test(image)) throw new AIProviderError(`Kling ${label} must be an HTTPS image URL or a JPG/PNG base64 data URL.`, "INVALID_KLING_FIRST_FRAME", 400);
+  try {
+    const res = await fetch(image, { cache: "no-store", redirect: "follow" });
+    if (!res.ok) throw new AIProviderError(`Kling could not download the ${label} (HTTP ${res.status}). Make sure the image URL is publicly accessible.`, "KLING_IMAGE_DOWNLOAD_ERROR", 422);
+    const contentType = (res.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
+    if (contentType === "image/svg+xml") throw new AIProviderError(`Kling ${label} cannot be an SVG. Mock/preview images produce SVG and are not supported — run a real image model first.`, "KLING_IMAGE_FORMAT", 422);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (!buffer.length) throw new AIProviderError(`Kling ${label} downloaded as an empty file.`, "KLING_IMAGE_EMPTY", 422);
+    if (buffer.length > 10 * 1024 * 1024) throw new AIProviderError(`Kling ${label} exceeds the 10MB limit (${Math.round(buffer.length / 1024 / 1024)}MB).`, "KLING_IMAGE_TOO_LARGE", 422);
+    return buffer.toString("base64");
+  } catch (error) {
+    if (error instanceof AIProviderError) throw error;
+    throw new AIProviderError(`Kling could not retrieve the ${label}: ${error instanceof Error ? error.message : "unknown error"}`, "KLING_IMAGE_DOWNLOAD_ERROR", 422);
+  }
 };
 
 const durationFor = (value: number | undefined) => {
@@ -116,10 +138,14 @@ export async function createKlingImageVideo(input: { prompt: string; image: stri
   if (!input.image && !input.imageTail) throw new AIProviderError("Kling image-to-video requires a first-frame image (or an end-frame image). Connect a completed Image node or set a reference image URL.", "INVALID_KLING_FIRST_FRAME", 400);
   if (input.image && !isSupportedFirstFrame(input.image)) throw new AIProviderError("Kling image-to-video requires an HTTPS image URL or a JPG/PNG base64 data URL for the first frame.", "INVALID_KLING_FIRST_FRAME", 400);
   if (input.imageTail && !isSupportedFirstFrame(input.imageTail)) throw new AIProviderError("Kling end-frame image must be an HTTPS image URL or a JPG/PNG base64 data URL.", "INVALID_KLING_FIRST_FRAME", 400);
+  const [imageValue, imageTailValue] = await Promise.all([
+    input.image ? resolveKlingImage(input.image, "first-frame image") : Promise.resolve(undefined),
+    input.imageTail ? resolveKlingImage(input.imageTail, "end-frame image") : Promise.resolve(undefined),
+  ]);
   const body = compact({
     model_name: input.modelName || process.env.KLING_VIDEO_MODEL || "kling-v2-6",
-    image: input.image ? klingImageValue(input.image) : undefined,
-    image_tail: input.imageTail ? klingImageValue(input.imageTail) : undefined,
+    image: imageValue,
+    image_tail: imageTailValue,
     prompt: input.prompt.trim(),
     negative_prompt: input.negativePrompt?.trim() || undefined,
     duration: durationFor(input.duration),

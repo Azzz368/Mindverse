@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnnotatedCustomNode } from "./AnnotatedCustomNode";
 import { useCanvasStore } from "@/store/canvasStore";
 import { useTheme } from "@/components/ThemeProvider";
+import { useLang } from "@/components/LangProvider";
 import type { NodeType, WorkflowEdge } from "@/types/canvas";
 
 type AlignGuide = { type: "v" | "h"; pos: number };
@@ -49,6 +50,7 @@ function GhostMediaNode({ dataUrl, x, y }: { dataUrl: string; x: number; y: numb
 type CtxMenu = { x: number; y: number; nodeIds: string[] };
 function ContextMenu({ menu, onClose }: { menu: CtxMenu; onClose(): void }) {
   const { setGroupColor, setGroupLocked, runNode, nodes } = useCanvasStore();
+  const { t } = useLang();
   const [showColors, setShowColors] = useState(false);
   const allLocked = menu.nodeIds.every(id => nodes.find(n => n.id === id)?.data.locked);
 
@@ -60,7 +62,7 @@ function ContextMenu({ menu, onClose }: { menu: CtxMenu; onClose(): void }) {
         <button className="flex w-full items-center gap-2 px-3 py-2 text-xs text-[#1a1a1a] hover:bg-[#f0f1f3] dark:text-slate-200 dark:hover:bg-slate-800"
           onClick={() => setShowColors(v => !v)}>
           <span className="h-3 w-3 rounded-full border border-[#c9ccd1]" style={{ background: "linear-gradient(135deg,#c9a9a6,#a0b4c0,#a6b89a)" }}/>
-          卡组颜色
+          {t.groupColor}
         </button>
         {showColors && (
           <div className="flex flex-wrap gap-1.5 px-3 pb-2">
@@ -77,13 +79,13 @@ function ContextMenu({ menu, onClose }: { menu: CtxMenu; onClose(): void }) {
         <button className="flex w-full items-center gap-2 px-3 py-2 text-xs text-[#1a1a1a] hover:bg-[#f0f1f3] dark:text-slate-200 dark:hover:bg-slate-800"
           onClick={async () => { onClose(); for (const id of menu.nodeIds) await runNode(id); }}>
           <span className="text-emerald-500">&#9654;</span>
-          运行当前卡组
+          {t.runGroup}
         </button>
         {/* Lock / unlock */}
         <button className="flex w-full items-center gap-2 px-3 py-2 text-xs text-[#1a1a1a] hover:bg-[#f0f1f3] dark:text-slate-200 dark:hover:bg-slate-800"
           onClick={() => { setGroupLocked(menu.nodeIds, !allLocked); onClose(); }}>
           <span>{allLocked ? "🔓" : "🔒"}</span>
-          {allLocked ? "解锁卡组" : "锁定卡组"}
+          {allLocked ? t.unlockGroup : t.lockGroup}
         </button>
       </div>
     </div>

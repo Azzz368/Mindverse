@@ -26,6 +26,14 @@ export interface Strings {
   // Node card
   duplicate: string;
   delete: string;
+  runNode: string;
+  uploadImage: string;
+  placementHint: string;
+  groupColor: string;
+  runGroup: string;
+  lockGroup: string;
+  unlockGroup: string;
+  settingsTitle: string;
   waitingGeneration: string;
   revisionOf: string;
   viewFullImage: string;
@@ -120,6 +128,14 @@ const zh: Strings = {
   mockProviderNote: "Mock AI 模拟 · 本地优先画布",
   duplicate: "复制",
   delete: "删除",
+  runNode: "运行",
+  uploadImage: "添加 图片素材",
+  placementHint: "左键单击画布放置节点\n右键单击取消",
+  groupColor: "卡组颜色",
+  runGroup: "运行当前卡组",
+  lockGroup: "锁定卡组",
+  unlockGroup: "解锁卡组",
+  settingsTitle: "设置",
   waitingGeneration: "等待生成中…",
   revisionOf: "源图像的修订版",
   viewFullImage: "查看完整图像",
@@ -208,6 +224,14 @@ const en: Strings = {
   mockProviderNote: "Mock AI provider · local-first canvas",
   duplicate: "Duplicate",
   delete: "Delete",
+  runNode: "Run",
+  uploadImage: "Add image asset",
+  placementHint: "Left-click canvas to place\nRight-click to cancel",
+  groupColor: "Group color",
+  runGroup: "Run this group",
+  lockGroup: "Lock group",
+  unlockGroup: "Unlock group",
+  settingsTitle: "Settings",
   waitingGeneration: "Waiting for generation…",
   revisionOf: "Revision of source image",
   viewFullImage: "View full image",

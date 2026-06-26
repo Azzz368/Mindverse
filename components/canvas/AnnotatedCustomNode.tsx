@@ -10,6 +10,7 @@ import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/types/canvas
 import type { Strings } from "@/lib/i18n/strings";
 
 const icons: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", audio: "\u266B", storyboard: "\u25A6", reference: "\u2141", output: "\u2197" };
+const RUNNABLE_TYPES = new Set(["prompt", "text", "script", "image", "video", "audio", "storyboard", "storyboardImage", "output"]);
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value : "";
 
@@ -24,6 +25,7 @@ function CollisionLoader() {
 
 function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; nodeId: string; onClose(): void }) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
+  const { t } = useLang();
   const set = (patch: Partial<CanvasNodeData>) => updateNodeData(nodeId, patch);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sel = "w-full rounded-lg border border-[#e7eaf0] bg-white px-2.5 py-1.5 text-xs text-[#030303] focus:outline-none dark:border-slate-700 dark:bg-[#0c1622] dark:text-slate-100";
@@ -37,7 +39,7 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
       onWheel={e => { e.stopPropagation(); scrollRef.current?.scrollBy({ top: e.deltaY }); }}>
       <div className="flex shrink-0 items-center gap-1.5 border-b border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
         <button onClick={onClose} className="text-[#676f7b] hover:text-[#030303] dark:text-slate-400 dark:hover:text-slate-100 text-sm leading-none">←</button>
-        <p className="truncate text-xs font-semibold text-[#030303] dark:text-slate-100">{data.title} · 设置</p>
+        <p className="truncate text-xs font-semibold text-[#030303] dark:text-slate-100">{data.title} · {t.settingsTitle}</p>
       </div>
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3">
         <label className={wrap}><span className={lbl}>标题</span><input className={inp} value={data.title} onChange={e => set({ title: e.target.value })} /></label>
@@ -150,7 +152,7 @@ function ResizeHandle({ onResize }: { onResize(dx: number, dy: number): void }) 
 }
 
 export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode>) {
-  const removeNode = useCanvasStore((s) => s.removeNode), duplicateNode = useCanvasStore((s) => s.duplicateNode), createImageRevision = useCanvasStore((s) => s.createImageRevision), createKeyframeBatch = useCanvasStore((s) => s.createKeyframeBatch);
+  const removeNode = useCanvasStore((s) => s.removeNode), duplicateNode = useCanvasStore((s) => s.duplicateNode), createImageRevision = useCanvasStore((s) => s.createImageRevision), createKeyframeBatch = useCanvasStore((s) => s.createKeyframeBatch), runNode = useCanvasStore((s) => s.runNode);
   const { t } = useLang();
   const [viewUrl, setViewUrl] = useState(""), [annotatingUrl, setAnnotatingUrl] = useState(""), [settingsOpen, setSettingsOpen] = useState(false);
   const [cardSize, setCardSize] = useState({ w: 280, h: 0 });
@@ -186,7 +188,7 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
             <p className="text-[10px] uppercase tracking-widest text-[#939393] dark:text-slate-500">{data.nodeType}</p>
           </div>
           <button onClick={e => { e.stopPropagation(); setSettingsOpen(true); }}
-            className="nodrag mr-0.5 grid h-5 w-5 shrink-0 place-items-center rounded text-[#939393] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-cyan-300" title="设置">
+            className="nodrag mr-0.5 grid h-5 w-5 shrink-0 place-items-center rounded text-[#939393] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-cyan-300" title={t.settingsTitle}>
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
               <circle cx="8" cy="8" r="2.5"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06"/>
             </svg>
@@ -209,9 +211,20 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
             </button>
           )}
         </div>
-        <div className="nodrag flex shrink-0 justify-end gap-1 border-t border-[#e7eaf0] px-2 py-1.5 dark:border-slate-800">
+        <div className="nodrag flex shrink-0 items-center justify-end gap-1 border-t border-[#e7eaf0] px-2 py-1.5 dark:border-slate-800">
           <button onClick={() => duplicateNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-cyan-200">{t.duplicate}</button>
           <button onClick={() => removeNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-rose-200">{t.delete}</button>
+          {RUNNABLE_TYPES.has(data.nodeType) && (
+            <button
+              onClick={(e) => { e.stopPropagation(); void runNode(id); }}
+              disabled={isGenerating}
+              className="ml-1 flex items-center gap-1 rounded-md bg-[#030303] px-2.5 py-1 text-[10px] font-semibold text-white transition hover:bg-[#1a1a1a] disabled:opacity-40 dark:bg-cyan-600 dark:hover:bg-cyan-500"
+              title={t.runNode}
+            >
+              <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><path d="M2 1.5v7l6-3.5z"/></svg>
+              {t.runNode}
+            </button>
+          )}
         </div>
         <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400"/>
         {settingsOpen && <NodeSettingsPanel data={data} nodeId={id} onClose={() => setSettingsOpen(false)} />}
