@@ -154,9 +154,9 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
 
   return (
     <>
-      <div style={{ width: cardSize.w, ...(cardSize.h > 0 ? { height: cardSize.h } : {}) }}
-        className={`relative rounded-xl border bg-white shadow-md shadow-black/5 dark:bg-[#101c29] dark:shadow-xl dark:shadow-black/20 ${cardSize.h > 0 ? "flex flex-col" : ""} ${selected ? "border-[#030303] dark:border-cyan-400" : data.groupColor ? "border-transparent" : "border-[#e7eaf0] dark:border-slate-700"}`}
-        style={data.groupColor ? { borderColor: data.groupColor, borderWidth: 2 } : {}}>
+      <div
+        style={{ width: cardSize.w, ...(cardSize.h > 0 ? { height: cardSize.h } : {}), ...(data.groupColor ? { borderColor: data.groupColor, borderWidth: 2 } : {}) }}
+        className={`relative rounded-xl border bg-white shadow-md shadow-black/5 dark:bg-[#101c29] dark:shadow-xl dark:shadow-black/20 ${cardSize.h > 0 ? "flex flex-col" : ""} ${selected ? "border-[#030303] dark:border-cyan-400" : data.groupColor ? "border-transparent" : "border-[#e7eaf0] dark:border-slate-700"}`}>
         {/* Group colour top strip */}
         {data.groupColor && (
           <div className="rounded-t-xl h-1.5 w-full" style={{ background: data.groupColor }} />

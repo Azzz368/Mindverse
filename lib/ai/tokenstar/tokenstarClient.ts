@@ -21,4 +21,6 @@ export const tokenstarJsonRequest = <T>(path: string, body?: unknown, method = "
 export const tokenstarGet = <T>(path: string) => request<T>(path, { method: "GET" });
 export const tokenstarFormRequest = <T>(path: string, formData: FormData) => request<T>(path, { method: "POST", body: formData });
 export const tokenstarActionRequest = <T>(path: string, action: string, body?: unknown) => request<T>(path, { method: "POST", headers: { "X-TC-Action": action }, body: body === undefined ? undefined : JSON.stringify(body) });
+// alias used by colleague's code — same as tokenstarActionRequest
+export const tokenstarActionJsonRequest = tokenstarActionRequest;
 export const tokenstarActionGet = <T>(path: string, action: string) => request<T>(path, { method: "GET", headers: { "X-TC-Action": action } });
