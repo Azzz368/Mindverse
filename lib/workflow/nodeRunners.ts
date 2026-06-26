@@ -1,6 +1,7 @@
 import "server-only";
 import { getAIProvider } from "@/lib/ai/provider";
-import { parseScript, promptsFromStoryboard, scriptInstruction } from "@/lib/workflow/storyPipeline";
+import { parseScript, promptsFromStoryboard } from "@/lib/workflow/storyPipeline";
+import { scriptInstructionFromSkill } from "@/lib/workflow/storySkillPrompts";
 import type { CanvasNode, NodeOutput } from "@/types/canvas";
 
 const output = (kind: string, summary: string, value: unknown): NodeOutput => ({ kind, summary, value, createdAt: new Date().toISOString() });
@@ -11,7 +12,7 @@ export async function runCanvasNode(node: CanvasNode, inputs: unknown[] = []): P
   switch (d.nodeType) {
     case "prompt": return output("prompt", "Structured prompt prepared", { prompt: d.prompt, negativePrompt: d.negativePrompt, style: d.style, aspectRatio: d.aspectRatio });
     case "text": { const value = await aiProvider.generateText({ prompt, model: d.model, temperature: d.temperature, upstreamContext: inputs }); return output("text", value.text.slice(0, 90), { generatedText: value.text }); }
-    case "script": { const count = Math.max(1, Math.min(12, d.numberOfScenes ?? 3)); const value = await aiProvider.generateText({ prompt: scriptInstruction(prompt, d.scriptTone || "Cinematic, fictional", count), model: d.model, temperature: 0.5 }); const script = parseScript(value.text, prompt, count); return output("script", script.title, script); }
+    case "script": { const count = Math.max(1, Math.min(12, d.numberOfScenes ?? 3)); const value = await aiProvider.generateText({ prompt: scriptInstructionFromSkill(prompt, d.scriptTone || "电影化、虚构", count), model: d.model, temperature: 0.5 }); const script = parseScript(value.text, prompt, count); return output("script", script.title, script); }
     case "image": { const value = await aiProvider.generateImage({ prompt, negativePrompt: d.negativePrompt, model: d.model, size: d.size, aspectRatio: d.aspectRatio, referenceImageUrl: d.referenceImageUrl }); return output("image", value.imageUrl ? "Image generated" : value.taskId ? `Image task ${value.taskId} pending` : "Image generation did not return a result", value); }
     case "video": { const value = await aiProvider.generateVideo({ prompt, negativePrompt: d.negativePrompt, model: d.model, image: d.referenceImageUrl, duration: d.duration, resolution: d.resolution, aspectRatio: d.aspectRatio, fps: d.fps }); return output("video", value.videoUrl ? "Video generated" : value.taskId ? `Video task ${value.taskId} pending` : "Video request submitted", value); }
     case "audio": { const value = await aiProvider.generateAudio({ text: prompt, model: d.model, voice: d.voice, emotion: d.emotion, volume: d.volume, responseFormat: "mp3" }); return output("audio", value.audioUrl ? "Audio generated" : "Audio task complete", value); }

@@ -19,7 +19,11 @@ export type TokenStarAssetGroup = {
 };
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : undefined;
+const text = (value: unknown) => {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return undefined;
+};
 const key = (value: string) => value.replace(/[_-]/g, "").toLowerCase();
 const read = (value: Record<string, unknown>, names: string[]) => {
   const namesByKey = new Set(names.map(key));
@@ -46,13 +50,21 @@ const valuesFor = (raw: unknown, names: string[]) => {
   return [...new Set(found)];
 };
 
-const idFrom = (raw: unknown, names: string[], prefix: string) => {
-  const values = valuesFor(raw, names);
-  return values.find((value) => value.toLowerCase().startsWith(prefix)) || values[0];
+const summary = (value: unknown) => {
+  try {
+    return JSON.stringify(value).slice(0, 1000);
+  } catch {
+    return String(value).slice(0, 1000);
+  }
 };
 
-const groupIdFrom = (raw: unknown) => idFrom(raw, ["GroupId", "group_id", "MaterialGroupId", "material_group_id"], "group-");
-const assetIdFrom = (raw: unknown) => idFrom(raw, ["AssetId", "asset_id", "id"], "asset-");
+const idFrom = (raw: unknown, names: string[], prefixes: string[], fallbackToFirst = true) => {
+  const values = valuesFor(raw, names);
+  return values.find((value) => prefixes.some((prefix) => value.toLowerCase().startsWith(prefix))) || (fallbackToFirst ? values[0] : undefined);
+};
+
+const groupIdFrom = (raw: unknown) => idFrom(raw, ["GroupId", "group_id", "AssetGroupId", "asset_group_id", "MaterialGroupId", "material_group_id", "Id", "id"], ["group-", "ag_"], false);
+const assetIdFrom = (raw: unknown) => idFrom(raw, ["AssetId", "asset_id", "Id", "id"], ["asset-", "asset_", "as_", "mat_"]);
 
 const groupRecordsFrom = (raw: unknown) => {
   const groups: TokenStarAssetGroup[] = [];
@@ -67,8 +79,8 @@ const groupRecordsFrom = (raw: unknown) => {
     }
     const item = record(value);
     const directId = read(item, ["GroupId", "group_id", "MaterialGroupId", "material_group_id"]);
-    const fallbackId = read(item, ["id"]);
-    const groupId = directId || (fallbackId?.toLowerCase().startsWith("group-") ? fallbackId : undefined);
+    const fallbackId = read(item, ["Id", "id"]);
+    const groupId = directId || (/^(group-|ag_)/i.test(fallbackId || "") ? fallbackId : undefined);
     if (groupId) groups.push({ groupId, name: read(item, ["Name", "name"]), status: read(item, ["Status", "status", "State", "state"]), raw: item });
     Object.values(item).forEach(visit);
   };
@@ -88,7 +100,7 @@ const assetRecordsFrom = (raw: unknown) => {
       return;
     }
     const item = record(value);
-    const assetId = read(item, ["AssetId", "asset_id"]) || (() => { const value = read(item, ["id"]); return value?.toLowerCase().startsWith("asset-") ? value : undefined; })();
+    const assetId = read(item, ["AssetId", "asset_id"]) || (() => { const value = read(item, ["Id", "id"]); return /^(asset-|asset_|as_|mat_)/i.test(value || "") ? value : undefined; })();
     if (assetId) assets.push({
       assetId,
       name: read(item, ["Name", "name"]),
@@ -110,11 +122,13 @@ const numberFromEnv = (name: string, fallback: number) => {
 };
 const normalizedStatus = (value: string | undefined) => value?.trim().toUpperCase();
 const isFailedStatus = (value: string | undefined) => ["FAILED", "FAILURE", "ERROR", "CANCELLED", "CANCELED", "REJECTED"].includes(normalizedStatus(value) || "");
-const isReadyStatus = (value: string | undefined) => !value || ["READY", "AVAILABLE", "ACTIVE", "COMPLETED", "SUCCESS", "SUCCEEDED", "DONE"].includes(normalizedStatus(value) || "");
+const isReadyStatus = (value: string | undefined) => ["READY", "AVAILABLE", "ACTIVE", "COMPLETED", "SUCCESS", "SUCCEEDED", "DONE"].includes(normalizedStatus(value) || "");
 
 export async function createAssetGroup(name: string) {
   const raw = await tokenstarJsonRequest("/volc/asset/CreateAssetGroup", { model: "volc-asset", Name: name });
-  return { groupId: groupIdFrom(raw), raw };
+  const groupId = groupIdFrom(raw);
+  if (!groupId) throw new TokenStarError(`TokenStar CreateAssetGroup did not return a recognizable group id for "${name}". Expected a value like group-... or ag_... in GroupId, AssetGroupId, MaterialGroupId, or id. Response: ${summary(raw)}`, 502);
+  return { groupId, raw };
 }
 
 export async function listAssetGroups(filterName?: string) {
@@ -123,8 +137,10 @@ export async function listAssetGroups(filterName?: string) {
 }
 
 export async function createAssetFromUrl(input: { groupId: string; name: string; assetType: TokenStarAssetType; url: string }) {
-  const raw = await tokenstarJsonRequest("/volc/asset/CreateAsset", { model: "volc-asset", GroupId: input.groupId, Name: input.name, AssetType: input.assetType, URL: input.url });
+  const model = input.assetType === "Video" ? "volc-asset-video" : input.assetType === "Audio" ? "volc-asset-audio" : "volc-asset";
+  const raw = await tokenstarJsonRequest("/volc/asset/CreateAsset", { model, GroupId: input.groupId, MaterialGroupId: input.groupId, Name: input.name, AssetType: input.assetType, URL: input.url });
   const assetId = assetIdFrom(raw);
+  if (!assetId) throw new TokenStarError(`TokenStar CreateAsset did not return a recognizable asset id for ${input.assetType} "${input.name}" in group "${input.groupId}". Response: ${summary(raw)}`, 502);
   return { assetId, assetUrl: assetId ? `asset://${assetId}` : undefined, raw };
 }
 
@@ -133,13 +149,17 @@ export async function createAssetFromFile(input: { groupId: string; name: string
   const extension = input.file.type.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "bin";
   form.append("file", input.file, `asset.${extension}`);
   form.append("GroupId", input.groupId);
+  form.append("group_id", input.groupId);
+  form.append("MaterialGroupId", input.groupId);
+  form.append("material_group_id", input.groupId);
+  form.append("AssetGroupId", input.groupId);
+  form.append("asset_group_id", input.groupId);
   form.append("Name", input.name);
-  if (input.assetType !== "Image") {
-    form.append("model", input.assetType === "Video" ? "volc-asset-video" : "volc-asset-audio");
-    form.append("AssetType", input.assetType);
-  }
+  form.append("model", input.assetType === "Video" ? "volc-asset-video" : input.assetType === "Audio" ? "volc-asset-audio" : "volc-asset");
+  form.append("AssetType", input.assetType);
   const raw = await tokenstarFormRequest("/volc/asset/CreateAsset", form);
   const assetId = assetIdFrom(raw);
+  if (!assetId) throw new TokenStarError(`TokenStar CreateAsset did not return a recognizable asset id for ${input.assetType} "${input.name}" in group "${input.groupId}". Response: ${summary(raw)}`, 502);
   return { assetId, assetUrl: assetId ? `asset://${assetId}` : undefined, raw };
 }
 
@@ -149,26 +169,30 @@ export async function listAssets(input: { groupId?: string; name?: string }) {
 }
 
 export async function waitForAsset(input: { groupId: string; name: string; assetType: TokenStarAssetType; assetId?: string }) {
-  const attempts = Math.max(1, Math.floor(numberFromEnv("TOKENSTAR_ASSET_MAX_POLL_ATTEMPTS", 20)));
-  const intervalMs = Math.max(250, Math.floor(numberFromEnv("TOKENSTAR_ASSET_POLL_INTERVAL_MS", 1500)));
+  const attempts = Math.max(1, Math.floor(numberFromEnv("TOKENSTAR_ASSET_MAX_POLL_ATTEMPTS", 80)));
+  const intervalMs = Math.max(250, Math.floor(numberFromEnv("TOKENSTAR_ASSET_POLL_INTERVAL_MS", 5000)));
+  const missingStatusMinChecks = Math.max(1, Math.floor(numberFromEnv("TOKENSTAR_ASSET_MISSING_STATUS_MIN_CHECKS", 4)));
   let lastStatus: string | undefined;
+  let lastListed: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const listed = await listAssets({ groupId: input.groupId, name: input.name });
+    lastListed = listed.raw;
     const asset = listed.assets.find((candidate) => candidate.assetId === input.assetId)
       || listed.assets.find((candidate) => candidate.name === input.name && (!candidate.assetType || candidate.assetType.toLowerCase() === input.assetType.toLowerCase()));
     if (asset) {
       lastStatus = asset.status;
       if (isFailedStatus(asset.status)) throw new TokenStarError(`TokenStar rejected ${input.assetType.toLowerCase()} asset \"${input.name}\" (status: ${asset.status}).`, 422);
       if (isReadyStatus(asset.status)) return { ...asset, assetUrl: `asset://${asset.assetId}` };
+      if (!asset.status && attempt + 1 >= missingStatusMinChecks) return { ...asset, assetUrl: `asset://${asset.assetId}` };
     }
     if (attempt < attempts - 1) await delay(intervalMs);
   }
-  throw new TokenStarError(`TokenStar asset \"${input.name}\" was not ready after ${attempts} checks${lastStatus ? ` (last status: ${lastStatus})` : ""}.`, 504);
+  throw new TokenStarError(`TokenStar asset \"${input.name}\" was not ready after ${attempts} checks${lastStatus ? ` (last status: ${lastStatus})` : ""}. Last ListAssets response: ${summary(lastListed)}`, 504);
 }
 
 export async function waitForAssetGroup(input: { name: string; groupId?: string }) {
-  const attempts = Math.max(1, Math.floor(numberFromEnv("TOKENSTAR_ASSET_MAX_POLL_ATTEMPTS", 20)));
-  const intervalMs = Math.max(250, Math.floor(numberFromEnv("TOKENSTAR_ASSET_POLL_INTERVAL_MS", 1500)));
+  const attempts = Math.max(1, Math.floor(numberFromEnv("TOKENSTAR_ASSET_GROUP_MAX_POLL_ATTEMPTS", 12)));
+  const intervalMs = Math.max(250, Math.floor(numberFromEnv("TOKENSTAR_ASSET_GROUP_POLL_INTERVAL_MS", 5000)));
   let lastStatus: string | undefined;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const filtered = await listAssetGroups(input.name);

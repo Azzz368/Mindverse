@@ -5,7 +5,7 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   text: { instruction: "Turn this brief into an engaging creative draft", inputText: "", model: "", temperature: 0.7 },
   script: { storyBrief: "A fictional creative story", scriptTone: "Cinematic, warm, fictional", numberOfScenes: 3, model: "" },
   image: { prompt: "A cinematic editorial image", model: "", size: "1024x1024", referenceImageUrl: "" },
-  video: { prompt: "A gentle cinematic movement", duration: 5, aspectRatio: "16:9", referenceImageUrl: "", model: "", resolution: "", fps: "", videoInputMode: "text-to-video", tokenstarMode: "text-to-video", generateAudio: true, referenceImageAssetUrl: "", referenceVideoAssetUrl: "", referenceAudioAssetUrl: "" },
+  video: { prompt: "A gentle cinematic movement", duration: 5, aspectRatio: "16:9", referenceImageUrl: "", model: "", resolution: "", fps: "", videoInputMode: "text-to-video", tokenstarMode: "text-to-video", generateAudio: true, referenceImageAssetUrl: "", referenceVideoAssetUrl: "", referenceAudioAssetUrl: "", klingElementId: "" },
   audio: { prompt: "A warm, modern ambient bed", voiceStyle: "Atmospheric", duration: 12, model: "", voice: "", emotion: "", volume: 1 },
   storyboard: { storyBrief: "A small transformation told in light and motion", numberOfScenes: 3, model: "" },
   storyboardImage: { aspectRatio: "16:9", negativePrompt: "arrows, labels, UI, watermark, text overlay" },

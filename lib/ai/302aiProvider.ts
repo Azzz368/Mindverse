@@ -1,6 +1,8 @@
 import "server-only";
 import { request302, request302OpenAI } from "./302aiClient";
 import { AIProviderError } from "./errors";
+import { normalizeProfessionalStoryboard } from "@/lib/workflow/storyPipeline";
+import { professionalStoryboardInstructionFromSkill } from "@/lib/workflow/storySkillPrompts";
 import type { AIProvider, EditImageWithAnnotationsInput, EditImageWithAnnotationsOutput, GenerateAudioInput, GenerateAudioOutput, GenerateImageInput, GenerateImageOutput, GenerateStoryboardInput, GenerateStoryboardOutput, GenerateTextInput, GenerateTextOutput, GenerateVideoInput, GenerateVideoOutput, StoryboardScene } from "./types";
 
 type RecordValue = Record<string, unknown>;
@@ -9,11 +11,6 @@ const object = (value: unknown): RecordValue => value && typeof value === "objec
 const string = (value: unknown) => typeof value === "string" ? value : undefined;
 const taskStatus = (value: unknown): "completed" | "pending" | "failed" => ["completed", "success", "succeeded", "done"].includes(String(value).toLowerCase()) ? "completed" : ["failed", "error", "cancelled"].includes(String(value).toLowerCase()) ? "failed" : "pending";
 const cleanJson = (value: string) => value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-const normalizeScenes = (value: unknown, fallback: string): StoryboardScene[] => {
-  const scenes = object(value).scenes;
-  if (!Array.isArray(scenes)) return [{ sceneNumber: 1, description: fallback, visualPrompt: fallback, camera: "Creative framing", duration: 5 }];
-  return scenes.map((scene, index) => { const item = object(scene); return { sceneNumber: Number(item.sceneNumber) || index + 1, description: string(item.description) || fallback, visualPrompt: string(item.visualPrompt) || string(item.description) || fallback, camera: string(item.camera) || "Creative framing", duration: Number(item.duration) || 5 }; });
-};
 const imageExtension = (contentType: string | null) => contentType?.includes("jpeg") ? "jpg" : contentType?.includes("webp") ? "webp" : contentType?.includes("gif") ? "gif" : "png";
 const downloadImage = async (url: string, field: "image" | "mask") => {
   if (!/^https:\/\//i.test(url) && !/^data:image\//i.test(url)) throw new AIProviderError("Only HTTPS image URLs or data:image URLs can be used for image editing.", "INVALID_IMAGE_URL", 400);
@@ -35,12 +32,17 @@ export const ai302Provider: AIProvider = {
     return { text: content, raw };
   },
   async generateStoryboard(input: GenerateStoryboardInput): Promise<GenerateStoryboardOutput> {
-    const result = await this.generateText({ model: input.model || process.env.AI_302_STORYBOARD_MODEL || process.env.AI_302_TEXT_MODEL, temperature: 0.3, systemPrompt: "You create production-ready storyboards. Return only valid JSON, with no Markdown.", prompt: `Create exactly ${input.numberOfScenes} storyboard scenes for this brief. Return strict JSON only: {"scenes":[{"sceneNumber":1,"description":"...","visualPrompt":"...","camera":"...","duration":5}]}. Brief: ${input.storyBrief}` });
-    try { return { scenes: normalizeScenes(JSON.parse(cleanJson(result.text)), result.text), rawText: result.text, raw: result.raw }; }
-    catch { return { scenes: normalizeScenes({}, result.text), rawText: result.text, raw: result.raw }; }
+    const result = await this.generateText({ model: input.model || process.env.AI_302_STORYBOARD_MODEL || process.env.AI_302_TEXT_MODEL, temperature: 0.35, systemPrompt: "你是 ProfessionalStoryboardSkill。只返回严格 JSON，不要 Markdown。全部内容使用简体中文。", prompt: professionalStoryboardInstructionFromSkill(input.storyBrief, input.numberOfScenes) });
+    try { return { scenes: normalizeProfessionalStoryboard(JSON.parse(cleanJson(result.text)), result.text, input.numberOfScenes), rawText: result.text, raw: result.raw }; }
+    catch { return { scenes: normalizeProfessionalStoryboard({}, result.text, input.numberOfScenes), rawText: result.text, raw: result.raw }; }
   },
   async generateImage(input: GenerateImageInput): Promise<GenerateImageOutput> {
-    const prompt = input.referenceImageUrl ? `${input.prompt}\nReference image context: ${input.referenceImageUrl}` : input.prompt; // TODO: use image editing once a reference-image endpoint is selected.
+    if (input.referenceImageUrl) {
+      const prompt = [input.prompt, input.negativePrompt ? `Avoid: ${input.negativePrompt}` : ""].filter(Boolean).join("\n");
+      const edited = await this.editImageWithAnnotations({ sourceImageUrl: input.referenceImageUrl, prompt, model: input.model, size: input.size });
+      return { imageUrl: edited.revisedImageUrl, status: edited.status, raw: { mode: "image-to-image", sourceImageUrl: input.referenceImageUrl, editRaw: edited.raw } };
+    }
+    const prompt = input.prompt;
     const model = input.model || process.env.AI_302_IMAGE_MODEL || "gpt-image-2";
     const size = (input.size || "1024x1024").replace(/×/g, "x");
     const isGptImage = /^gpt-image-/i.test(model);
@@ -59,7 +61,7 @@ export const ai302Provider: AIProvider = {
     const form = new FormData();
     form.append("image", image.blob, image.filename);
     form.append("prompt", input.prompt);
-    form.append("model", "gpt-image-2");
+    form.append("model", input.model || process.env.AI_302_IMAGE_EDIT_MODEL || "gpt-image-2");
     form.append("quality", input.quality || "auto");
     form.append("size", (input.size || "1024x1024").replace(/脳/g, "x"));
     form.append("n", "1");
@@ -75,7 +77,7 @@ export const ai302Provider: AIProvider = {
     const revisedImageUrl = string(first.url) || string(raw.image_url) || (encoded ? `data:image/${format};base64,${encoded}` : undefined);
     return { revisedImageUrl, status: revisedImageUrl ? "completed" : "failed", raw };
   },
-  async generateImageRevision(input) { const edited = await this.editImageWithAnnotations({ sourceImageUrl: input.sourceImageUrl, prompt: input.prompt || input.instruction || "Revise this image.", size: input.size }); return { imageUrl: edited.revisedImageUrl, status: edited.status, raw: edited.raw }; },
+  async generateImageRevision(input) { const edited = await this.editImageWithAnnotations({ sourceImageUrl: input.sourceImageUrl, prompt: input.prompt || input.instruction || "Revise this image.", model: input.model, size: input.size }); return { imageUrl: edited.revisedImageUrl, status: edited.status, raw: edited.raw }; },
   async generateVideo(input: GenerateVideoInput): Promise<GenerateVideoOutput> {
     const model = input.model || process.env.AI_302_VIDEO_MODEL || "minimaxi-t2v-01";
     // T2V models reject an image payload. For them the upstream image's creative context is already folded into the prompt by the canvas.
