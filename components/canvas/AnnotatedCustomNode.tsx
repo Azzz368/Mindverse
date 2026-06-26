@@ -115,28 +115,34 @@ function NodePreview({ node, t, onView, onAnnotate }: { node: CanvasNode; t: Str
 
 function ResizeHandle({ onResize }: { onResize(dx: number, dy: number): void }) {
   const startRef = useRef<{ x: number; y: number } | null>(null);
-  const activeRef = useRef(false); // only fire after crossing dead zone
+  const lastRef = useRef<{ x: number; y: number } | null>(null);
+  const activeRef = useRef(false);
   return (
-    <div className="nodrag absolute bottom-0 right-0 z-10 h-5 w-5 cursor-se-resize"
+    <div className="nodrag absolute -bottom-1 -right-1 z-20 h-6 w-6 cursor-se-resize touch-none"
       onMouseDown={e => {
         e.stopPropagation();
+        e.preventDefault();
         startRef.current = { x: e.clientX, y: e.clientY };
+        lastRef.current = { x: e.clientX, y: e.clientY };
         activeRef.current = false;
         const onMove = (ev: MouseEvent) => {
-          if (!startRef.current) return;
-          const dx = ev.clientX - startRef.current.x;
-          const dy = ev.clientY - startRef.current.y;
-          // 6px dead zone before activating resize
-          if (!activeRef.current && Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+          if (!startRef.current || !lastRef.current) return;
+          // 3px dead zone measured from the original press point
+          const totalDx = ev.clientX - startRef.current.x;
+          const totalDy = ev.clientY - startRef.current.y;
+          if (!activeRef.current && Math.abs(totalDx) < 3 && Math.abs(totalDy) < 3) return;
           activeRef.current = true;
-          onResize(dx, dy);
-          startRef.current = { x: ev.clientX, y: ev.clientY };
+          // incremental delta from last move (no jump on activation)
+          const dx = ev.clientX - lastRef.current.x;
+          const dy = ev.clientY - lastRef.current.y;
+          lastRef.current = { x: ev.clientX, y: ev.clientY };
+          if (dx !== 0 || dy !== 0) onResize(dx, dy);
         };
-        const onUp = () => { startRef.current = null; activeRef.current = false; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+        const onUp = () => { startRef.current = null; lastRef.current = null; activeRef.current = false; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
         window.addEventListener("mousemove", onMove);
         window.addEventListener("mouseup", onUp);
       }}>
-      <svg width="10" height="10" viewBox="0 0 10 10" className="absolute bottom-1 right-1 text-[#c9ccd1] dark:text-slate-600">
+      <svg width="10" height="10" viewBox="0 0 10 10" className="pointer-events-none absolute bottom-1.5 right-1.5 text-[#c9ccd1] dark:text-slate-600">
         <path d="M9 1L1 9M9 5L5 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
       </svg>
     </div>
@@ -144,13 +150,14 @@ function ResizeHandle({ onResize }: { onResize(dx: number, dy: number): void }) 
 }
 
 export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode>) {
-  const removeNode = useCanvasStore((s) => s.removeNode), duplicateNode = useCanvasStore((s) => s.duplicateNode), createImageRevision = useCanvasStore((s) => s.createImageRevision);
+  const removeNode = useCanvasStore((s) => s.removeNode), duplicateNode = useCanvasStore((s) => s.duplicateNode), createImageRevision = useCanvasStore((s) => s.createImageRevision), createKeyframeBatch = useCanvasStore((s) => s.createKeyframeBatch);
   const { t } = useLang();
   const [viewUrl, setViewUrl] = useState(""), [annotatingUrl, setAnnotatingUrl] = useState(""), [settingsOpen, setSettingsOpen] = useState(false);
   const [cardSize, setCardSize] = useState({ w: 280, h: 0 });
   const node = { id, data } as CanvasNode;
   const isGenerating = data.status === "running" || data.status === "waiting";
   const isWaiting = record(data.output?.value).status === "pending";
+  const keyframePrompts = data.nodeType === "storyboardImage" && Array.isArray((record(data.output?.value)).prompts) ? (record(data.output?.value).prompts as unknown[]) : [];
 
   return (
     <>
@@ -191,6 +198,16 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
           {isWaiting && !isGenerating && <p className="mt-2 text-[10px] text-sky-600 dark:text-sky-200">{t.waitingGeneration}</p>}
           {data.error && <p className="mt-2 text-[11px] text-rose-600 dark:text-rose-300">{data.error}</p>}
           {data.revisionOf && <p className="mt-2 text-[10px] text-violet-600 dark:text-violet-200">{t.revisionOf}</p>}
+          {data.nodeType === "storyboardImage" && (
+            <button
+              type="button"
+              disabled={!keyframePrompts.length}
+              onClick={(e) => { e.stopPropagation(); createKeyframeBatch(id); }}
+              className="nodrag mt-3 w-full rounded-md border border-violet-300 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700 disabled:opacity-40 dark:border-violet-400/60 dark:bg-violet-400/10 dark:text-violet-100"
+            >
+              {t.generateKeyframes(keyframePrompts.length || 0)}
+            </button>
+          )}
         </div>
         <div className="nodrag flex shrink-0 justify-end gap-1 border-t border-[#e7eaf0] px-2 py-1.5 dark:border-slate-800">
           <button onClick={() => duplicateNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-cyan-200">{t.duplicate}</button>
@@ -200,10 +217,10 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
         {settingsOpen && <NodeSettingsPanel data={data} nodeId={id} onClose={() => setSettingsOpen(false)} />}
         <ResizeHandle onResize={(dx, dy) => setCardSize(prev => {
           const newW = Math.max(220, prev.w + dx);
-          // Only lock height if already in fixed-height mode, or user is clearly dragging down
+          // Lock height into fixed mode on any downward intent; incremental deltas keep it smooth
           const newH = prev.h > 0
             ? Math.max(180, prev.h + dy)
-            : dy > 4 ? Math.max(180, 240 + dy) : 0;
+            : dy > 0 ? Math.max(180, 240 + dy) : 0;
           return { w: newW, h: newH };
         })} />
       </div>
