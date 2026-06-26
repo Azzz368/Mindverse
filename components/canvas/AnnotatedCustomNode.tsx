@@ -84,6 +84,15 @@ function NodePreview({ node, t, onView, onAnnotate }: { node: CanvasNode; t: Str
   );
   if (node.data.nodeType === "audio" && audioUrl) return <audio className="mt-2 w-full" controls src={audioUrl}/>;
   if (node.data.nodeType === "video" && videoUrl) return <video className="mt-2 h-32 w-full rounded-md object-cover" controls src={videoUrl}/>;
+  /* Reference node with a dropped/uploaded image */
+  if (node.data.nodeType === "reference" && node.data.imageUrl) return (
+    <div className="mt-2">
+      <button onClick={() => onView(node.data.imageUrl!)} className="block w-full overflow-hidden rounded-md border border-violet-200 hover:border-violet-400 dark:border-violet-700 dark:hover:border-violet-400">
+        <img src={node.data.imageUrl} alt="Reference" className="h-28 w-full object-cover"/>
+      </button>
+      <p className="mt-1 text-[9px] text-[#939393] dark:text-slate-500">{node.data.notes || "\u53ef\u8fde\u63a5\u5230\u56fe\u50cf\u6216\u89c6\u9891\u8282\u70b9\u4f5c\u4e3a\u53c2\u8003\u56fe"}</p>
+    </div>
+  );
   if (node.data.nodeType === "storyboard" && Array.isArray(value)) return (
     <div className="mt-2 max-h-48 space-y-2 overflow-y-auto pr-1">
       {value.map((scene) => { const item = record(scene); return (
