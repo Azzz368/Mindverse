@@ -3,7 +3,7 @@ import { AIProviderError } from "./errors";
 
 type RecordValue = Record<string, unknown>;
 type KlingTaskStatus = "completed" | "pending" | "running" | "failed";
-type KlingTask = { taskId?: string; videoUrl?: string; status: KlingTaskStatus; rawStatus?: string; raw: unknown };
+type KlingTask = { taskId?: string; videoUrl?: string; resultUrl?: string; status: KlingTaskStatus; rawStatus?: string; raw: unknown };
 
 const record = (value: unknown): RecordValue => value && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : {};
 const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -50,17 +50,20 @@ const resolutionFor = (value: string | undefined) => {
   return resolution;
 };
 
-const statusFor = (rawStatus: string | undefined, hasResult: boolean): KlingTaskStatus => {
+const statusFor = (rawStatus: string | undefined, hasResult: boolean, hasTask = false): KlingTaskStatus => {
   const status = rawStatus?.toLowerCase();
-  if (hasResult || status === "succeeded" || status === "success" || status === "completed") return "completed";
   if (status === "failed" || status === "error" || status === "cancelled" || status === "canceled") return "failed";
-  if (status === "processing" || status === "running") return "running";
+  if (hasResult) return "completed";
+  if (status === "succeeded" || status === "success" || status === "completed") return hasTask ? "running" : "pending";
+  if (status === "processing" || status === "running" || status === "submitted" || status === "queued") return "running";
   return "pending";
 };
 
 const firstResultUrl = (raw: unknown) => {
   const seen = new Set<object>();
+  const videoLikeUrl = (value: string) => /^https?:\/\//i.test(value) && (/\/video/i.test(value) || /\.(?:mp4|mov|m4v|webm)(?:[?#]|$)/i.test(value));
   const visit = (value: unknown, path: string[] = []): string | undefined => {
+    if (typeof value === "string" && videoLikeUrl(value)) return value;
     if (!value || typeof value !== "object") return undefined;
     if (seen.has(value)) return undefined;
     seen.add(value);
@@ -72,7 +75,7 @@ const firstResultUrl = (raw: unknown) => {
       return undefined;
     }
     const item = record(value);
-    for (const key of ["video_url", "videoUrl", "result_url", "resultUrl"]) {
+    for (const key of ["video_url", "videoUrl", "result_url", "resultUrl", "resource_url", "resourceUrl", "download_url", "downloadUrl", "file_url", "fileUrl"]) {
       const found = text(item[key]);
       if (found && /^https?:\/\//i.test(found)) return found;
     }
@@ -93,7 +96,7 @@ const normalizeTask = (raw: unknown, fallbackTaskId?: string): KlingTask => {
   const taskId = text(data.id) || text(root.id) || text(data.task_id) || text(root.task_id) || fallbackTaskId;
   const rawStatus = text(data.status) || text(root.status);
   const videoUrl = firstResultUrl(raw);
-  return { taskId, videoUrl, status: statusFor(rawStatus, Boolean(videoUrl)), rawStatus, raw };
+  return { taskId, videoUrl, resultUrl: videoUrl, status: statusFor(rawStatus, Boolean(videoUrl), Boolean(taskId)), rawStatus, raw };
 };
 
 const pathForTask = (taskId: string) => {
