@@ -47,15 +47,15 @@ Use `videoProvider=kling` in a VideoNode, or set `AI_VIDEO_PROVIDER=kling` on th
 AI_VIDEO_PROVIDER=kling
 KLING_API_KEY=********
 KLING_API_ORIGIN=https://api-singapore.klingai.com
-KLING_IMAGE_TO_VIDEO_PATH=/image-to-video/kling-3.0-turbo
-KLING_IMAGE_TO_VIDEO_POLL_PATH_TEMPLATE=/image-to-video/kling-3.0-turbo/{taskId}
+KLING_IMAGE_TO_VIDEO_PATH=/v1/videos/image2video
+KLING_IMAGE_TO_VIDEO_POLL_PATH_TEMPLATE=/v1/videos/image2video/{taskId}
 KLING_DEFAULT_DURATION=5
 KLING_DEFAULT_RESOLUTION=720p
 KLING_WATERMARK_ENABLED=false
 KLING_POLL_INTERVAL_MS=5000
 ```
 
-`KLING_API_KEY` must be filled only in `.env.local` or the Render environment. The create endpoint uses `POST /image-to-video/kling-3.0-turbo` with `contents` containing `prompt` and `first_frame`, and `settings` containing `resolution` and `duration`. If Kling changes the query endpoint, update `KLING_IMAGE_TO_VIDEO_POLL_PATH_TEMPLATE` without changing application code.
+`KLING_API_KEY` must be filled only in `.env.local` or the Render environment. The create endpoint uses `POST /v1/videos/image2video` with official Kling fields (`model_name`, `image`, `prompt`, `duration`, `mode`, `sound`). If Kling changes the query endpoint, update `KLING_IMAGE_TO_VIDEO_POLL_PATH_TEMPLATE` without changing application code.
 
 ## TokenStar Seedance video
 
