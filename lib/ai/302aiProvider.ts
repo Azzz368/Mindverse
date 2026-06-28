@@ -40,9 +40,19 @@ export const ai302Provider: AIProvider = {
     catch { return { scenes: normalizeScenes({}, result.text), rawText: result.text, raw: result.raw }; }
   },
   async generateImage(input: GenerateImageInput): Promise<GenerateImageOutput> {
-    const prompt = input.referenceImageUrl ? `${input.prompt}\nReference image context: ${input.referenceImageUrl}` : input.prompt; // TODO: use image editing once a reference-image endpoint is selected.
     const model = input.model || process.env.AI_302_IMAGE_MODEL || "gpt-image-2";
     const size = (input.size || "1024x1024").replace(/×/g, "x");
+    if (input.referenceImageUrl) {
+      const edited = await this.editImageWithAnnotations({
+        sourceImageUrl: input.referenceImageUrl,
+        prompt: input.prompt,
+        size,
+        quality: "low",
+        outputFormat: "png",
+      });
+      return { imageUrl: edited.revisedImageUrl, status: edited.status, raw: edited.raw };
+    }
+    const prompt = input.prompt;
     const isGptImage = /^gpt-image-/i.test(model);
     const raw = isGptImage
       ? await request302OpenAI<RecordValue>("/images/generations", { method: "POST", body: JSON.stringify(compact({ prompt, model, n: 1, size, quality: "auto", background: "auto", moderation: "auto", output_format: "png" })) })
@@ -60,15 +70,12 @@ export const ai302Provider: AIProvider = {
     form.append("image", image.blob, image.filename);
     form.append("prompt", input.prompt);
     form.append("model", "gpt-image-2");
-    form.append("quality", input.quality || "auto");
+    form.append("quality", input.quality || "low");
     form.append("size", (input.size || "1024x1024").replace(/脳/g, "x"));
     form.append("n", "1");
-    form.append("background", "auto");
     form.append("output_format", input.outputFormat || "png");
-    form.append("output_compression", "100");
-    form.append("partial_images", "0");
     if (input.maskImageUrl) { const mask = await downloadImage(input.maskImageUrl, "mask"); form.append("mask", mask.blob, mask.filename); }
-    const raw = await request302OpenAI<RecordValue>("/images/edits?response_format=url", { method: "POST", body: form });
+    const raw = await request302OpenAI<RecordValue>("/images/edits", { method: "POST", body: form });
     const first = Array.isArray(raw.data) ? object(raw.data[0]) : {};
     const encoded = string(first.b64_json) || string(first.base64) || string(first.data);
     const format = string(raw.output_format) || input.outputFormat || "png";

@@ -7,7 +7,8 @@ import { buildTemplate, makeNode, type Template } from "@/lib/templates/template
 import { promptsFromStoryboard } from "@/lib/workflow/storyPipeline";
 import type { CanvasNode, CanvasNodeData, CanvasSnapshot, ImageAnnotation, NodeOutput, NodeType, WorkflowEdge } from "@/types/canvas";
 
-type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; selectedNodeId: string | null; lastError: string | null;
+type AgentStatus = "idle" | "planning" | "building" | "running" | "completed" | "error";
+type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; selectedNodeId: string | null; lastError: string | null; agentStatus: AgentStatus; agentMessage: string | null;
   ghostType: NodeType | null; setGhostType(type: NodeType | null): void; placeGhostNode(position: { x: number; y: number }): void;
   ghostMediaUrl: string | null; setGhostMedia(dataUrl: string): void; placeGhostMedia(position: { x: number; y: number }): void;
   addMediaNode(dataUrl: string, position: { x: number; y: number }): void;
@@ -16,7 +17,7 @@ type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEd
   setGroupLocked(nodeIds: string[], locked: boolean): void;
   setProjectName(name: string): void; setSelectedNode(id: string | null): void; onNodesChange(changes: NodeChange<CanvasNode>[]): void; onEdgesChange(changes: EdgeChange<WorkflowEdge>[]): void; onConnect(connection: Connection): void;
   addNode(type: NodeType): void; updateNodeData(id: string, patch: Partial<CanvasNodeData>): void; removeNode(id: string): void; duplicateNode(id: string): void; createImageRevision(sourceId: string, annotations: ImageAnnotation[], instruction: string): Promise<void>; createKeyframeBatch(sourceId: string): void; setCanvas(nodes: CanvasNode[], edges: WorkflowEdge[]): void;
-  runNode(id: string): Promise<void>; pollNode(id: string): Promise<void>; runWorkflow(): Promise<void>; saveCanvas(): void; loadCanvas(): void; clearCanvas(): void; exportCanvasJson(): string; importCanvasJson(raw: string): void; applyTemplate(template: Template): void; };
+  runNode(id: string): Promise<void>; pollNode(id: string): Promise<void>; runWorkflow(): Promise<void>; runAgentWorkflow(brief: string): Promise<void>; saveCanvas(): void; loadCanvas(): void; clearCanvas(): void; exportCanvasJson(): string; importCanvasJson(raw: string): void; applyTemplate(template: Template): void; };
 const initialNodes: CanvasNode[] = [];
 const isSnapshot = (value: unknown): value is CanvasSnapshot => Boolean(value && typeof value === "object" && Array.isArray((value as CanvasSnapshot).nodes) && Array.isArray((value as CanvasSnapshot).edges));
 const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -56,8 +57,9 @@ const schedulePoll = (id: string, run: () => void, intervalMs = 3000) => {
   pollTimers.set(id, timer);
 };
 const restoreStatuses = (nodes: CanvasNode[]): CanvasNode[] => nodes.map((node) => { if (node.data.status !== "running") return node; const polling = ["pending", "running"].includes(asText(asRecord(node.data.output?.value).status)); const status: CanvasNodeData["status"] = polling ? "waiting" : "idle"; return { ...node, data: { ...node.data, status } }; });
+const edgeFor = (source: CanvasNode, target: CanvasNode): WorkflowEdge => ({ id: `edge-${source.id}-${target.id}`, source: source.id, target: target.id, animated: true });
 export const useCanvasStore = create<CanvasState>((set, get) => ({
-  projectName: "Untitled creative flow", nodes: initialNodes, edges: [], selectedNodeId: null, lastError: null, ghostType: null, ghostMediaUrl: null,
+  projectName: "Untitled creative flow", nodes: initialNodes, edges: [], selectedNodeId: null, lastError: null, agentStatus: "idle", agentMessage: null, ghostType: null, ghostMediaUrl: null,
   setGhostType: (ghostType) => set({ ghostType }),
   placeGhostNode: (position) => { const { ghostType } = get(); if (!ghostType) return; const node = makeNode(ghostType, position); set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id, ghostType: null })); },
   setGhostMedia: (dataUrl) => set({ ghostMediaUrl: dataUrl }),
@@ -79,6 +81,128 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   runNode: async (id) => { const state = get(), node = state.nodes.find((item) => item.id === id); if (!node) return; set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "running", error: undefined } } : item), lastError: null })); try { const upstream = get().edges.filter((edge) => edge.target === id).map((edge) => get().nodes.find((item) => item.id === edge.source)).filter((item): item is CanvasNode => Boolean(item && (item.data.output || item.data.imageUrl))); const inputs = upstream.map((source) => source.data.output?.value).filter((value): value is NonNullable<typeof value> => value !== undefined); let result: NodeOutput; let intervalMs = 3000; const generationContext = promptFrom(node, upstream); if (canRunRemotely(node.data.nodeType)) { const response = await fetch("/api/ai/run-node", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nodeType: node.data.nodeType, input: inputFor(node, upstream) }) }); const payload = await response.json() as { ok?: boolean; output?: unknown; error?: { message?: unknown }; polling?: { intervalMs?: unknown } }; if (!response.ok || !payload.ok) throw new Error(asText(payload.error?.message) || "AI request failed."); intervalMs = Number(payload.polling?.intervalMs) || intervalMs; result = outputFromProvider(node.data.nodeType, payload.output); } else if (node.data.nodeType === "storyboardImage") { const storyboard = upstream.find((item) => item.data.nodeType === "storyboard"); const prompts = promptsFromStoryboard(storyboard?.data.output?.value, node.data.aspectRatio, node.data.negativePrompt); if (!prompts.length) throw new Error("Connect and run a Storyboard node before generating image prompts."); result = makeOutput("storyboardImage", `${prompts.length} image prompts prepared`, { prompts }); } else if (node.data.nodeType === "prompt") { if (!node.data.prompt) throw new Error("Add a prompt or input before running this node."); result = makeOutput("prompt", "Structured prompt prepared", { prompt: node.data.prompt, negativePrompt: node.data.negativePrompt, style: node.data.style, aspectRatio: node.data.aspectRatio }); } else if (node.data.nodeType === "reference") result = makeOutput("reference", "Reference material available", { imageUrl: node.data.imageUrl, notes: node.data.notes }); else result = makeOutput("output", `${inputs.length} upstream result${inputs.length === 1 ? "" : "s"} collected as ${node.data.format || "Creative package"}`, outputFor(node.data.format, upstream)); const taskState = asText(asRecord(result.value).status); const polling = taskState === "pending" || taskState === "running"; set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: taskState === "failed" ? "error" : taskState === "running" ? "running" : polling ? "waiting" : "success", output: result, generationContext, rawStatus: asText(asRecord(result.value).rawStatus) || taskState || item.data.rawStatus, storyboardImagePrompts: node.data.nodeType === "storyboardImage" ? (asRecord(result.value).prompts as CanvasNodeData["storyboardImagePrompts"]) : item.data.storyboardImagePrompts } } : item) })); if (polling) schedulePoll(id, () => void get().pollNode(id), intervalMs); } catch (error) { const message = error instanceof Error ? error.message : "Node execution failed"; set((current) => ({ lastError: message, nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "error", error: message } } : item) })); throw error; } },
   pollNode: async (id) => { const node = get().nodes.find((item) => item.id === id); const value = asRecord(node?.data.output?.value); const taskId = asText(value.taskId); if (!node || !taskId || !["image", "video", "audio"].includes(node.data.nodeType)) return; set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "running", error: undefined } } : item) })); try { const response = await fetch("/api/ai/poll-task", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: node.data.nodeType, taskId, provider: node.data.nodeType === "video" ? node.data.videoProvider : undefined, pollUrl: asText(value.pollUrl) || undefined, pollAction: node.data.nodeType === "video" ? (asText(value.pollAction) || undefined) : undefined }) }); const payload = await response.json() as { ok?: boolean; output?: unknown; error?: { message?: unknown }; polling?: { intervalMs?: unknown } }; if (!response.ok || !payload.ok) throw new Error(asText(payload.error?.message) || "Task polling failed."); const rawOutput = asRecord(payload.output); const result = outputFromProvider(node.data.nodeType, node.data.nodeType === "video" ? { ...rawOutput, videoUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl) } : payload.output); const state = asText(rawOutput.status); const intervalMs = Number(payload.polling?.intervalMs) || 3000; if (state === "pending" || state === "running") schedulePoll(id, () => void get().pollNode(id), intervalMs); set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: state === "failed" ? "error" : state === "completed" ? "success" : state === "running" ? "running" : "waiting", output: result, taskId, resultUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl), rawStatus: asText(rawOutput.rawStatus) || state, lastPollAt: new Date().toISOString() } } : item) })); } catch (error) { const message = error instanceof Error ? error.message : "Task polling failed"; set((current) => ({ lastError: message, nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "error", error: message } } : item) })); } },
   runWorkflow: async () => { try { set({ lastError: null }); const ordered = topologicalSort(get().nodes, get().edges); for (const node of ordered) await get().runNode(node.id); } catch (error) { if (error instanceof Error) set({ lastError: error.message }); } },
+  runAgentWorkflow: async (brief) => {
+    const idea = brief.trim();
+    if (!idea) {
+      set({ agentStatus: "error", agentMessage: "请输入一句创意后再启动 Agent。", lastError: "Agent brief is empty." });
+      return;
+    }
+    set({ agentStatus: "planning", agentMessage: "正在按模板搭建流程图...", lastError: null });
+    const groupId = `agent-${crypto.randomUUID()}`;
+    const groupColor = "#a8c4bc";
+    const makeTemplateNode = (type: NodeType, position: { x: number; y: number }, patch: Partial<CanvasNodeData>): CanvasNode => {
+      const node = makeNode(type, position);
+      return { ...node, data: { ...node.data, ...patch, status: "idle", output: undefined, error: undefined, groupId, groupColor } };
+    };
+    const negativePrompt = "arrows, labels, UI, watermark, text overlay";
+    const continuity = "single production storyboard frame, film still, no text, maintain character wardrobe, location, lighting, props, and story continuity";
+    const mainImage = makeTemplateNode("image", { x: 613.2296482571714, y: -554.2449289599219 }, {
+      title: "gpt-image-2",
+      prompt: `以这个背景，生成${idea}的图片`,
+      model: "gpt-image-2",
+      size: "1024x1024",
+      referenceImageUrl: "",
+    });
+    const storyboard = makeTemplateNode("storyboard", { x: -163, y: -12 }, {
+      title: "New Storyboard",
+      storyBrief: idea,
+      numberOfScenes: 3,
+      model: "",
+    });
+    const storyboardImage = makeTemplateNode("storyboardImage", { x: 230, y: -18 }, {
+      title: "New StoryboardImage",
+      aspectRatio: "16:9",
+      negativePrompt,
+    });
+    const shot1 = makeTemplateNode("image", { x: 617.990547772805, y: -171.3366443837011 }, {
+      title: "Shot 01 - Keyframe",
+      prompt: `${idea}的第一个关键帧。校园或主要场景开场，主角走入画面并与周围人物互动，现代建筑背景，阳光明媚，无文字和无 UI。中景，展示人物与环境的互动。对称构图，主角位于画面中央，周围人物在两侧。50mm定焦镜头，自然光，轻微跟随镜头，轻松愉快，保持人物、服装和场景连续。${continuity}`,
+      negativePrompt,
+      aspectRatio: "16:9",
+      size: "1536x1024",
+      model: "",
+      shotNumber: 1,
+      sourceStoryboardNodeId: storyboardImage.id,
+    });
+    const shot2 = makeTemplateNode("image", { x: 603.5370785454384, y: 115.19856370493375 }, {
+      title: "Shot 02 - Keyframe",
+      prompt: `${idea}的第二个关键帧。主角与周围人物在开放空间互动或合影，开心的表情，标志性背景，无文字和无 UI。特写或中近景，捕捉人物表情和互动。圆形构图，主角位于中心，人物围绕在周围。35mm广角镜头，自然光，欢乐、亲切、充满互动，保持人物、服装和场景连续。${continuity}`,
+      negativePrompt,
+      aspectRatio: "16:9",
+      size: "1536x1024",
+      model: "",
+      shotNumber: 2,
+      sourceStoryboardNodeId: storyboardImage.id,
+    });
+    const shot3 = makeTemplateNode("image", { x: 616.4406456459226, y: 461.6027416762248 }, {
+      title: "Shot 03 - Keyframe",
+      prompt: `${idea}的第三个关键帧。主角在室内或安静空间与人物交流，生动手势，温馨环境，无文字和无 UI。中景，对角线构图，主角在一侧，其他人物在对面形成对话氛围。50mm定焦镜头，轻微推镜，柔和室内灯光，温暖色调，动作节奏缓慢，保持人物、服装和场景连续。${continuity}`,
+      negativePrompt,
+      aspectRatio: "16:9",
+      size: "1536x1024",
+      model: "",
+      shotNumber: 3,
+      sourceStoryboardNodeId: storyboardImage.id,
+    });
+    const videoA = makeTemplateNode("video", { x: 1178.259822152543, y: 1.4588804763947536 }, {
+      title: "New Video",
+      prompt: "",
+      duration: 10,
+      aspectRatio: "16:9",
+      referenceImageUrl: "",
+      model: "",
+      resolution: "480p",
+      fps: "",
+      videoInputMode: "text-to-video",
+      videoProvider: "tokenstar",
+      tokenstarMode: "kling-image",
+      klingMode: "image-to-video",
+      generateAudio: true,
+      referenceImageAssetUrl: "",
+      referenceVideoAssetUrl: "",
+      referenceAudioAssetUrl: "",
+      klingElementId: "",
+    });
+    const videoB = makeTemplateNode("video", { x: 1181, y: -258 }, {
+      title: "New Video",
+      prompt: "",
+      duration: 10,
+      aspectRatio: "16:9",
+      referenceImageUrl: "",
+      model: "",
+      resolution: "480p",
+      fps: "",
+      videoInputMode: "text-to-video",
+      videoProvider: "tokenstar",
+      tokenstarMode: "kling-image",
+      klingMode: "image-to-video",
+      generateAudio: true,
+      referenceImageAssetUrl: "",
+      referenceVideoAssetUrl: "",
+      referenceAudioAssetUrl: "",
+      klingElementId: "",
+    });
+    const nodes = [mainImage, storyboard, storyboardImage, shot1, shot2, shot3, videoA, videoB];
+    const edges = [
+      edgeFor(storyboard, storyboardImage),
+      edgeFor(storyboardImage, shot1),
+      edgeFor(storyboardImage, shot2),
+      edgeFor(storyboardImage, shot3),
+      edgeFor(shot1, videoA),
+      edgeFor(shot2, videoA),
+      edgeFor(mainImage, videoB),
+      edgeFor(shot1, videoB),
+    ];
+    set({
+      projectName: `Agent: ${idea.slice(0, 32)}`,
+      nodes,
+      edges,
+      selectedNodeId: storyboard.id,
+      lastError: null,
+      agentStatus: "completed",
+      agentMessage: "已按导入模板搭建流程图。请检查节点参数后手动运行。",
+    });
+  },
   saveCanvas: () => { const { projectName, nodes, edges } = get(); canvasStorage.save({ version: 1, projectName, nodes, edges }); },
   loadCanvas: () => { try { const snapshot = canvasStorage.load(); if (!snapshot || !isSnapshot(snapshot)) throw new Error("No valid saved canvas found."); set({ projectName: snapshot.projectName || "Untitled creative flow", nodes: restoreStatuses(snapshot.nodes), edges: snapshot.edges, selectedNodeId: null, lastError: null }); } catch (error) { set({ lastError: error instanceof Error ? error.message : "Could not load canvas" }); } },
   clearCanvas: () => set({ nodes: [], edges: [], selectedNodeId: null, lastError: null }),

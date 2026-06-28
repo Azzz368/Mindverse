@@ -43,6 +43,14 @@ export function PropertyPanel() {
       [key]: key === "duration" || key === "numberOfScenes" || key === "targetShotCount" || key === "temperature" || key === "volume"
         ? Number(value) : key === "generateAudio" ? value === "true" : value,
     });
+  const uploadImageReference = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") updateNodeData(node.id, { referenceImageUrl: reader.result });
+    };
+    reader.readAsDataURL(file);
+  };
 
   const prompts = Array.isArray((node.data.output?.value as { prompts?: unknown })?.prompts)
     ? (node.data.output?.value as { prompts: unknown[] }).prompts : [];
@@ -66,6 +74,34 @@ export function PropertyPanel() {
           </label>
         ))}
       </div>
+      {node.data.nodeType === "image" && (
+        <div className="mt-5 rounded-lg border border-[#e7eaf0] bg-[#f7f9fc] p-3 dark:border-slate-800 dark:bg-slate-900/40">
+          <p className="text-xs font-semibold text-[#404040] dark:text-slate-200">图生图参考图</p>
+          <p className="mt-1 text-[11px] leading-4 text-[#676f7b] dark:text-slate-500">上传一张图片后，运行该 ImageNode 会基于这张图进行编辑生成。</p>
+          {node.data.referenceImageUrl && (
+            <div className="mt-3 overflow-hidden rounded-md border border-[#dde3ec] bg-white dark:border-slate-700 dark:bg-slate-950">
+              <img src={node.data.referenceImageUrl} alt="Image reference" className="max-h-40 w-full object-contain" />
+            </div>
+          )}
+          <label className="mt-3 block">
+            <span className="mb-1.5 block text-xs text-[#676f7b] dark:text-slate-400">上传图片</span>
+            <Input type="file" accept="image/*" onChange={(event) => uploadImageReference(event.target.files?.[0])} />
+          </label>
+          <label className="mt-3 block">
+            <span className="mb-1.5 block text-xs text-[#676f7b] dark:text-slate-400">或填写图片 URL</span>
+            <Input value={node.data.referenceImageUrl?.startsWith("data:") ? "" : String(node.data.referenceImageUrl ?? "")} placeholder={node.data.referenceImageUrl?.startsWith("data:") ? "已使用本地上传图片" : "https://..."} onChange={(event) => updateNodeData(node.id, { referenceImageUrl: event.target.value })} />
+          </label>
+          {node.data.referenceImageUrl && (
+            <button
+              type="button"
+              onClick={() => updateNodeData(node.id, { referenceImageUrl: "" })}
+              className="mt-3 w-full rounded-md border border-[#d9e1ec] bg-white px-3 py-2 text-xs font-semibold text-[#404040] hover:bg-[#f2f5f9] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+            >
+              清除参考图
+            </button>
+          )}
+        </div>
+      )}
       {node.data.nodeType === "storyboardImage" && (
         <button
           type="button"
