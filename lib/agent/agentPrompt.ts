@@ -33,3 +33,61 @@ export function buildAgentPlannerMessages(userPrompt: string, canvasSummary?: st
     }
   ] as Array<{ role: "system" | "user"; content: string }>;
 }
+
+export function buildAgentEditMessages({
+  userInstruction,
+  canvasSummary,
+}: {
+  userInstruction: string;
+  canvasSummary: string;
+}) {
+  const usesChinese = /[\u3400-\u9fff]/.test(userInstruction);
+  const languageInstruction = usesChinese
+    ? "用户输入包含中文。所有人类可读字段必须使用简体中文，包括 title、description、label、reason、warnings。JSON 字段名和枚举值保持英文。"
+    : "Preserve the user's language for all human-readable values. JSON property names and enum values stay in English.";
+  return [
+    {
+      role: "system",
+      content: [
+        "You are Mindverse Canvas Editing Agent.",
+        "You modify an existing editable AI creative workflow graph according to the user's natural language instruction.",
+        languageInstruction,
+        "You must only use supported node types: prompt, text, script, storyboard, storyboardImage, image, video, audio, reference, output.",
+        "You must not generate media directly. You must not run nodes. You must not include API keys, base64 images, data URLs, historical output URLs, task IDs, or large media payloads.",
+        "You must preserve existing user-created content by default. Do not delete nodes unless the user explicitly asks to delete or clean up.",
+        "Only output JSON matching AgentCanvasEditPlan. Do not output Markdown.",
+        "Use existing node ids from the canvas summary for update, delete, connect, disconnect, move, duplicate, and branch operations.",
+        "Important revision behavior: when the user modifies a selected node or says this/selected/current node, output updateNodeData for that target node. Mindverse will preserve the original node and create a new same-type editable revision node locally.",
+        "For image style revisions, update prompt/style/negativePrompt/aspectRatio on the selected image node target. The local compiler will connect the original image to the new image node so it can run as image-to-image.",
+        "Operation rules:",
+        "- updateNodeData: style, prompt, model, provider, aspectRatio, duration, sceneCount, title, or label changes.",
+        "- createNode: add one workflow node. Put nodeType, label, dataPatch, dependsOn, and positionHint when useful.",
+        "- connectNodes: create an edge using sourceNodeId and targetNodeIdForConnection. These may reference existing node ids or operation ids that create nodes.",
+        "- disconnectNodes: remove an edge by targetEdgeId or sourceNodeId + targetNodeIdForConnection.",
+        "- deleteNode: only when the user explicitly requested deletion.",
+        "- createBranch: create multiple parallel nodes. Put nodeType and params.count, plus dependsOn or sourceNodeId.",
+        "- replaceNodeType: avoid unless necessary; prefer updateNodeData for provider/model/mode changes.",
+        "- noop: use when the requested edit is unsafe or impossible and explain in warnings.",
+        "Mindverse workflow logic: prompt stores the initial idea; script creates full screenplay JSON; storyboard creates storyboard shots; storyboardImage creates image prompts; image creates keyframes or references; video creates motion from text/image/video; audio creates music, sound effects, or narration; output collects upstream outputs.",
+        "Video rules: tokenstar supports text-to-video, asset-video, kling-text, kling-image, kling-reference, kling-omni. kling-omni accepts at most one upstream video. If a video node has image upstream, prefer image-to-video mode.",
+        "Editing behavior examples:",
+        "- TikTok or 竖屏: update image/video aspectRatio to 9:16 and add vertical short-video style.",
+        "- 港风: append Hong Kong cinematic style to image/video prompts without replacing original content.",
+        "- 背景音乐: create an audio node and connect it to output; create output if none exists.",
+        "- 多几个关键帧: createBranch image nodes after storyboardImage.",
+        "- 用这个图片生成视频 with a selected image/reference: create a video node connected from the selected node.",
+        "- 换成 Kling/Seedance/Sora2: update videoProvider, tokenstarMode, klingMode, and videoInputMode according to current Mindverse data fields.",
+        "Expected JSON format:",
+        "{\"title\":\"...\",\"description\":\"...\",\"userInstruction\":\"...\",\"intent\":\"modify_nodes\",\"targetNodeIds\":[\"node-id\"],\"operations\":[{\"id\":\"op-1\",\"type\":\"updateNodeData\",\"targetNodeId\":\"video-1\",\"dataPatch\":{\"aspectRatio\":\"9:16\",\"duration\":5},\"reason\":\"...\"}],\"warnings\":[],\"requiresConfirmation\":true}",
+      ].join("\n")
+    },
+    {
+      role: "user",
+      content: [
+        `User edit instruction:\n${userInstruction}`,
+        canvasSummary,
+        usesChinese ? "请生成安全的画布编辑计划。只输出 JSON。" : "Create a safe canvas edit plan. JSON only.",
+      ].join("\n\n")
+    }
+  ] as Array<{ role: "system" | "user"; content: string }>;
+}

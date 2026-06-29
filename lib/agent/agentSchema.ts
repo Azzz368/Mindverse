@@ -38,10 +38,81 @@ export type CanvasPatch = {
   edges: WorkflowEdge[];
 };
 
+export type AgentEditOperationType =
+  | "createNode"
+  | "updateNodeData"
+  | "deleteNode"
+  | "connectNodes"
+  | "disconnectNodes"
+  | "replaceNodeType"
+  | "moveNode"
+  | "duplicateNode"
+  | "createBranch"
+  | "updateEdge"
+  | "noop";
+
+export type AgentCanvasEditIntent =
+  | "add_nodes"
+  | "modify_nodes"
+  | "delete_nodes"
+  | "reconnect"
+  | "change_style"
+  | "change_provider"
+  | "expand_workflow"
+  | "cleanup"
+  | "custom";
+
+export type AgentEditOperation = {
+  id: string;
+  type: AgentEditOperationType;
+  reason?: string;
+  targetNodeId?: string;
+  targetEdgeId?: string;
+  nodeType?: AgentStepKind;
+  label?: string;
+  dataPatch?: Record<string, unknown>;
+  sourceNodeId?: string;
+  targetNodeIdForConnection?: string;
+  dependsOn?: string[];
+  positionHint?: {
+    afterNodeId?: string;
+    column?: number;
+    row?: number;
+  };
+  params?: Record<string, unknown>;
+};
+
+export type AgentCanvasEditPlan = {
+  title: string;
+  description?: string;
+  userInstruction: string;
+  intent: AgentCanvasEditIntent;
+  targetNodeIds?: string[];
+  operations: AgentEditOperation[];
+  warnings?: string[];
+  requiresConfirmation?: boolean;
+};
+
+export type CanvasEditPatch = {
+  createNodes: CanvasNode[];
+  updateNodes: Array<{
+    id: string;
+    dataPatch?: Partial<CanvasNode["data"]>;
+    position?: { x: number; y: number };
+    type?: string;
+  }>;
+  deleteNodeIds: string[];
+  createEdges: WorkflowEdge[];
+  deleteEdgeIds: string[];
+  warnings?: string[];
+};
+
 const goals: AgentWorkflowGoal[] = ["story_to_video", "image_to_video", "storyboard_only", "ad_package", "custom"];
 const kinds: AgentStepKind[] = ["prompt", "text", "script", "storyboard", "storyboardImage", "image", "video", "audio", "reference", "output"];
 const aspectRatios = ["16:9", "9:16", "1:1"] as const;
 const videoProviders = ["tokenstar", "kling", "302ai", "302-sora2"] as const;
+const editOperationTypes: AgentEditOperationType[] = ["createNode", "updateNodeData", "deleteNode", "connectNodes", "disconnectNodes", "replaceNodeType", "moveNode", "duplicateNode", "createBranch", "updateEdge", "noop"];
+const editIntents: AgentCanvasEditIntent[] = ["add_nodes", "modify_nodes", "delete_nodes", "reconnect", "change_style", "change_provider", "expand_workflow", "cleanup", "custom"];
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown, fallback = "") => typeof value === "string" ? value.trim() : fallback;
 const stringArray = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : undefined;
@@ -116,5 +187,47 @@ export function validateAgentPlan(value: unknown): AgentWorkflowPlan {
     videoProvider,
     steps: normalizedSteps,
     warnings: stringArray(raw.warnings) || [],
+  };
+}
+
+export function validateAgentCanvasEditPlan(value: unknown): AgentCanvasEditPlan {
+  const raw = object(value);
+  const userInstruction = text(raw.userInstruction);
+  const intent = editIntents.includes(raw.intent as AgentCanvasEditIntent) ? raw.intent as AgentCanvasEditIntent : "custom";
+  const operations: AgentEditOperation[] = [];
+  if (Array.isArray(raw.operations)) raw.operations.forEach((item, index) => {
+    const op = object(item);
+    const type = editOperationTypes.includes(op.type as AgentEditOperationType) ? op.type as AgentEditOperationType : "noop";
+    const nodeType = kinds.includes(op.nodeType as AgentStepKind) ? op.nodeType as AgentStepKind : undefined;
+    operations.push({
+      id: safeId(text(op.id), `op-${index + 1}`),
+      type,
+      reason: text(op.reason) || undefined,
+      targetNodeId: text(op.targetNodeId) || undefined,
+      targetEdgeId: text(op.targetEdgeId) || undefined,
+      nodeType,
+      label: text(op.label) || undefined,
+      dataPatch: params(op.dataPatch),
+      sourceNodeId: text(op.sourceNodeId) || undefined,
+      targetNodeIdForConnection: text(op.targetNodeIdForConnection) || undefined,
+      dependsOn: stringArray(op.dependsOn),
+      positionHint: op.positionHint && typeof op.positionHint === "object" ? {
+        afterNodeId: text(object(op.positionHint).afterNodeId) || undefined,
+        column: Number.isFinite(Number(object(op.positionHint).column)) ? Number(object(op.positionHint).column) : undefined,
+        row: Number.isFinite(Number(object(op.positionHint).row)) ? Number(object(op.positionHint).row) : undefined,
+      } : undefined,
+      params: params(op.params),
+    });
+  });
+  if (!userInstruction) throw new Error("Agent edit plan is missing userInstruction.");
+  return {
+    title: text(raw.title, "Mindverse Canvas Edit"),
+    description: text(raw.description) || undefined,
+    userInstruction,
+    intent,
+    targetNodeIds: stringArray(raw.targetNodeIds),
+    operations: operations.length ? operations : [{ id: "op-1", type: "noop", reason: "No safe canvas edit operation was produced." }],
+    warnings: stringArray(raw.warnings) || [],
+    requiresConfirmation: typeof raw.requiresConfirmation === "boolean" ? raw.requiresConfirmation : true,
   };
 }
