@@ -1,7 +1,7 @@
 ﻿import "server-only";
 import { TokenStarError } from "../errors";
 import { tokenstarActionGet, tokenstarActionJsonRequest, tokenstarGet, tokenstarJsonRequest } from "./tokenstarClient";
-import { resolveAigcElement } from "./tokenstarElement";
+import { waitForAigcElement } from "./tokenstarElement";
 import { listAssets } from "./tokenstarAsset";
 import { createReferenceAssets } from "./tokenstarReferenceAssets";
 import type { NormalizedVideoTask, TokenStarContentItem, TokenStarCreateVideoInput, TokenStarCreateVideoResponse, TokenStarPollVideoResponse } from "./tokenstarTypes";
@@ -79,11 +79,11 @@ export async function createKlingImageVideo(input: TokenStarCreateVideoInput): P
 export async function createKlingOmniVideo(input: TokenStarCreateVideoInput): Promise<NormalizedVideoTask> {
   const image = input.image || input.referenceImageUrls?.find(Boolean);
   const videoUrls = unique([input.video || "", ...(input.referenceVideoUrls || [])]);
+  const elementIds = unique([...(input.klingElementIds || []), ...(input.klingElementId || "").split(",")]);
   const hasVideo = videoUrls.length > 0;
   if (!image && !hasVideo) throw new TokenStarError("Kling Omni requires a connected image or video URL.", 400);
   if (videoUrls.length > 1) throw new TokenStarError(`Kling Omni supports at most one video input. You connected ${videoUrls.length} videos, but TokenStar requires VideoList length 0~1. Use one base video per Omni node, or chain multiple Omni nodes sequentially.`, 400);
-  const elementImage = image || input.referenceImageUrls?.find(Boolean);
-  const elementId = await resolveAigcElement({ elementId: input.klingElementId, imageUrl: elementImage, name: input.klingElementName, description: input.klingElementDescription });
+  if (elementIds.length) await Promise.all(elementIds.map((elementId) => waitForAigcElement(elementId)));
   const duration = input.duration || 5;
   const prompt = input.prompt;
   const request = {
@@ -91,15 +91,15 @@ export async function createKlingOmniVideo(input: TokenStarCreateVideoInput): Pr
     Prompt: prompt,
     ...(image ? { ImageList: [{ ImageUrl: image, Type: "first_frame" }] } : {}),
     ...(hasVideo ? { VideoList: videoUrls.map((url) => ({ VideoUrl: url, ReferType: "base", KeepOriginalSound: "no" })) } : {}),
-    ...(input.ratio ? { AspectRatio: input.ratio } : {}),
-    Duration: duration,
+    ...(!hasVideo && input.ratio ? { AspectRatio: input.ratio } : {}),
+    ...(!hasVideo ? { Duration: duration } : {}),
     Mode: process.env.TOKENSTAR_KLING_MODE || "std",
-    Sound: hasVideo ? "off" : input.generateAudio === false ? "off" : "on",
+    Sound: "off",
     LogoAdd: 0,
-    ...(elementId ? { ElementList: [{ ElementId: elementId }] } : {}),
+    ...(elementIds.length ? { ElementList: elementIds.map((elementId) => ({ ElementId: elementId })) } : {}),
   };
   const raw = await tokenstarActionJsonRequest<TokenStarCreateVideoResponse>("/v1/video/generations", "SubmitVideoEditKlingJob", request);
-  return { ...normalizedKling(klingTaskId(record(raw)), raw, "DescribeVideoEditKlingJob"), request: { duration, videoCount: videoUrls.length, imageCount: image ? 1 : 0, videoUrls, prompt } };
+  return { ...normalizedKling(klingTaskId(record(raw)), raw, "DescribeVideoEditKlingJob"), request: { duration: hasVideo ? undefined : duration, videoCount: videoUrls.length, imageCount: image ? 1 : 0, elementCount: elementIds.length, videoUrls, prompt } };
 }
 export async function createSeedanceAssetVideo(input: TokenStarCreateVideoInput): Promise<NormalizedVideoTask> {
   const references = await createReferenceAssets({ imageUrls: input.referenceImageUrls, videoUrls: input.referenceVideoUrls, audioUrls: input.referenceAudioUrls });

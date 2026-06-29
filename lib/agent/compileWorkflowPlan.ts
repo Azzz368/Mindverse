@@ -8,6 +8,7 @@ const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value
 const bool = (value: unknown) => typeof value === "boolean" ? value : undefined;
 const safeId = (value: string) => value.trim().replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "step";
 const hasChinese = (value: string) => /[\u3400-\u9fff]/.test(value);
+const tokenstarMode = (value: string) => value === "kling-reference" || value === "kling-image-to-video" ? "kling-image" : value === "kling-text-to-video" ? "kling-text" : value;
 
 const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][number], upstreamKinds: NodeType[]): Partial<CanvasNodeData> => {
   const params = object(step.params);
@@ -25,7 +26,7 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
     const provider = text(params.videoProvider) || plan.videoProvider || "tokenstar";
     const hasImageInput = upstreamKinds.includes("image") || upstreamKinds.includes("reference");
     const hasVideoInput = upstreamKinds.includes("video");
-    const tokenstarMode = text(params.tokenstarMode) || (provider === "tokenstar" ? hasImageInput ? "kling-image" : hasVideoInput ? "kling-omni" : "text-to-video" : undefined);
+    const selectedTokenstarMode = tokenstarMode(text(params.tokenstarMode) || (provider === "tokenstar" ? hasVideoInput ? "kling-omni" : "kling-image" : ""));
     return {
       title: step.label,
       prompt: step.prompt || step.purpose || plan.userPrompt,
@@ -36,10 +37,10 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
       resolution: text(params.resolution) || "480p",
       fps: text(params.fps),
       referenceImageUrl: "",
-      videoInputMode: hasImageInput ? "image-to-video" : "text-to-video",
+      videoInputMode: provider === "tokenstar" && !hasVideoInput ? "image-to-video" : hasImageInput ? "image-to-video" : "text-to-video",
       videoProvider: provider === "kling" || provider === "302ai" || provider === "302-sora2" ? provider : "tokenstar",
-      tokenstarMode: tokenstarMode === "asset-video" || tokenstarMode === "kling-image" || tokenstarMode === "kling-reference" || tokenstarMode === "kling-text" || tokenstarMode === "kling-omni" ? tokenstarMode : "text-to-video",
-      klingMode: hasVideoInput ? "omni" : hasImageInput ? "image-to-video" : "text-to-video",
+      tokenstarMode: selectedTokenstarMode === "asset-video" || selectedTokenstarMode === "kling-image" || selectedTokenstarMode === "kling-text" || selectedTokenstarMode === "kling-omni" ? selectedTokenstarMode : "text-to-video",
+      klingMode: hasVideoInput ? "omni" : "image-to-video",
       generateAudio: bool(params.generateAudio) ?? plan.includeAudio ?? true,
       referenceImageAssetUrl: "",
       referenceVideoAssetUrl: "",

@@ -22,6 +22,7 @@ const safeNodeTypes: NodeType[] = ["prompt", "text", "script", "storyboard", "st
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : undefined;
+const normalizeTokenstarMode = (value: string) => value === "kling-reference" || value === "kling-image-to-video" ? "kling-image" : value === "kling-text-to-video" ? "kling-text" : value;
 
 const isNodeType = (value: unknown): value is NodeType => safeNodeTypes.includes(value as NodeType);
 const edgeIdFor = (source: string, target: string) => `edge-${source}-${target}`;
@@ -36,6 +37,10 @@ const sanitizeDataPatch = (value: unknown): Partial<CanvasNodeData> => {
   Object.entries(raw).forEach(([key, patchValue]) => {
     if (forbiddenPatchKeys.has(key)) return;
     if (key === "nodeType" || key === "status") return;
+    if (key === "tokenstarMode" && typeof patchValue === "string") {
+      clean[key] = normalizeTokenstarMode(patchValue.trim());
+      return;
+    }
     if (typeof patchValue === "string" || typeof patchValue === "number" || typeof patchValue === "boolean" || patchValue === undefined) {
       clean[key] = patchValue;
     }
