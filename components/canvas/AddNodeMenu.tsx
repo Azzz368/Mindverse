@@ -9,21 +9,22 @@ export function getIcon(type: string) {
   return map[type] || "T";
 }
 
+// 视频 1.png, 图像 2.png, 音频 3.png, 文本 4.png, 分镜系列 5.png, 参考图类 normal.png
 const ALL_CATEGORIES = ["New nodes", "Recently used", "Video", "Image", "Audio", "Text", "Storyboard"];
 
 const getTools = (t: Strings) => [
-  { id: "seedance-2.0", type: "video", cat: "Video", title: "Seedance 2.0", desc: t.toolDescSeedance, iconBg: "bg-rose-500", iconColor: "text-white" },
-  { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: t.toolDescGen45, iconBg: "bg-rose-600", iconColor: "text-white" },
-  { id: "storyboard-image", type: "storyboardImage", cat: "Storyboard", title: t.nodeNames["storyboardImage"], desc: t.toolDescStoryboardImage, iconBg: "bg-violet-100", iconColor: "text-violet-600" },
-  { id: "gpt-image-2", type: "image", cat: "Image", title: "GPT Image 2", desc: t.toolDescGptImage, iconBg: "bg-blue-500", iconColor: "text-white" },
-  { id: "upload-image", type: "upload_image", cat: "Image", title: t.uploadImage, desc: t.toolDescUploadImage, iconBg: "bg-slate-100", iconColor: "text-slate-600" },
-  { id: "audio-gen", type: "audio", cat: "Audio", title: t.nodeNames["audio"], desc: t.toolDescAudio, iconBg: "bg-amber-100", iconColor: "text-amber-600" },
-  { id: "claude", type: "text", cat: "Text", title: "Claude", desc: t.toolDescText, iconBg: "bg-emerald-500", iconColor: "text-white" },
-  { id: "prompt", type: "prompt", cat: "Text", title: t.nodeNames["prompt"], desc: t.toolDescPrompt, iconBg: "bg-purple-100", iconColor: "text-purple-600" },
-  { id: "script", type: "script", cat: "Storyboard", title: t.nodeNames["script"], desc: t.toolDescScript, iconBg: "bg-slate-800", iconColor: "text-white" },
-  { id: "storyboard", type: "storyboard", cat: "Storyboard", title: t.nodeNames["storyboard"], desc: t.toolDescStoryboard, iconBg: "bg-slate-800", iconColor: "text-white" },
-  { id: "reference", type: "reference", cat: "Image", title: t.nodeNames["reference"], desc: t.toolDescReference, iconBg: "bg-slate-100", iconColor: "text-slate-600" },
-  { id: "output", type: "output", cat: "Text", title: t.nodeNames["output"], desc: t.toolDescOutput, iconBg: "bg-slate-100", iconColor: "text-slate-600" },
+  { id: "seedance-2.0", type: "video", cat: "Video", title: "Seedance 2.0", desc: t.toolDescSeedance, iconSrc: "/icons/1.png" },
+  { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: t.toolDescGen45, iconSrc: "/icons/1.png" },
+  { id: "storyboard-image", type: "storyboardImage", cat: "Storyboard", title: t.nodeNames["storyboardImage"], desc: t.toolDescStoryboardImage, iconSrc: "/icons/5.png" },
+  { id: "gpt-image-2", type: "image", cat: "Image", title: "GPT Image 2", desc: t.toolDescGptImage, iconSrc: "/icons/2.png" },
+  { id: "upload-image", type: "upload_image", cat: "Image", title: t.uploadImage, desc: t.toolDescUploadImage, iconSrc: "/icons/normal.png" },
+  { id: "audio-gen", type: "audio", cat: "Audio", title: t.nodeNames["audio"], desc: t.toolDescAudio, iconSrc: "/icons/3.png" },
+  { id: "claude", type: "text", cat: "Text", title: "Claude", desc: t.toolDescText, iconSrc: "/icons/4.png" },
+  { id: "prompt", type: "prompt", cat: "Text", title: t.nodeNames["prompt"], desc: t.toolDescPrompt, iconSrc: "/icons/4.png" },
+  { id: "script", type: "script", cat: "Storyboard", title: t.nodeNames["script"], desc: t.toolDescScript, iconSrc: "/icons/5.png" },
+  { id: "storyboard", type: "storyboard", cat: "Storyboard", title: t.nodeNames["storyboard"], desc: t.toolDescStoryboard, iconSrc: "/icons/5.png" },
+  { id: "reference", type: "reference", cat: "Image", title: t.nodeNames["reference"], desc: t.toolDescReference, iconSrc: "/icons/normal.png" },
+  { id: "output", type: "output", cat: "Text", title: t.nodeNames["output"], desc: t.toolDescOutput, iconSrc: "/icons/4.png" },
 ];
 
 export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
@@ -123,8 +124,8 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
           <div className="space-y-2">
             {filtered.map(tool => (
               <button key={tool.id} onClick={() => handleToolClick(tool)} className="flex w-full items-center gap-3 rounded-xl border border-[#e7eaf0] p-2.5 text-left transition hover:border-[#c9ccd1] hover:shadow-sm dark:border-slate-700 dark:hover:border-slate-500">
-                <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg text-lg ${tool.iconBg} ${tool.iconColor}`}>
-                  {getIcon(tool.type)}
+                <div className="shrink-0 overflow-hidden rounded-lg">
+                  <img src={tool.iconSrc} alt="" className="h-10 w-10 object-cover" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="truncate text-xs font-bold text-[#030303] dark:text-slate-100">{tool.title}</p>
