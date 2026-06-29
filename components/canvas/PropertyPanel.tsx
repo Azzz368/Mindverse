@@ -25,6 +25,38 @@ function buildFields(t: Strings): Record<string, Field[]> {
   };
 }
 
+const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
+const text = (value: unknown) => typeof value === "string" ? value : "";
+
+function ScriptOutputPreview({ value }: { value: unknown }) {
+  const details = record(value);
+  const scenes = Array.isArray(details.scenes) ? details.scenes : [];
+  return (
+    <div className="mt-3 space-y-3">
+      {text(details.title) && <p className="text-sm font-semibold text-[#030303] dark:text-slate-100">{text(details.title)}</p>}
+      {text(details.logline) && <p className="text-xs leading-5 text-[#404040] dark:text-slate-300">{text(details.logline)}</p>}
+      {scenes.map((scene, index) => {
+        const item = record(scene);
+        const dialogue = Array.isArray(item.dialogue) ? item.dialogue.filter((line): line is string => typeof line === "string") : [];
+        return (
+          <div key={`${String(item.sceneNumber)}-${index}`} className="rounded-lg border border-[#e7eaf0] bg-[#f7f9fc] p-3 dark:border-slate-800 dark:bg-slate-900/40">
+            <p className="text-xs font-semibold text-[#030303] dark:text-slate-100">
+              Scene {String(item.sceneNumber || index + 1)} · {text(item.location)} · {text(item.timeOfDay)}
+            </p>
+            {text(item.action) && <p className="mt-2 text-xs leading-5 text-[#404040] dark:text-slate-300">{text(item.action)}</p>}
+            {!!dialogue.length && (
+              <div className="mt-2 space-y-1">
+                {dialogue.map((line) => <p key={line} className="text-xs leading-5 text-[#676f7b] dark:text-slate-400">{line}</p>)}
+              </div>
+            )}
+            {text(item.visualDirection) && <p className="mt-2 text-[11px] leading-4 text-[#939393] dark:text-slate-500">{text(item.visualDirection)}</p>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function PropertyPanel() {
   const { nodes, selectedNodeId, updateNodeData, createKeyframeBatch } = useCanvasStore();
   const { t } = useLang();
@@ -116,6 +148,7 @@ export function PropertyPanel() {
         <div className="mt-6 border-t border-[#e7eaf0] pt-4 dark:border-slate-800">
           <p className="text-xs font-semibold uppercase tracking-[.16em] text-[#939393] dark:text-slate-500">{t.lastOutput}</p>
           <p className="mt-2 text-xs leading-5 text-[#404040] dark:text-slate-300">{node.data.output.summary}</p>
+          {node.data.nodeType === "script" && <ScriptOutputPreview value={node.data.output.value} />}
         </div>
       )}
     </aside>

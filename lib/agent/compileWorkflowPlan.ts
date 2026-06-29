@@ -1,0 +1,97 @@
+import { makeNode } from "@/lib/templates/templates";
+import type { AgentWorkflowPlan, CanvasPatch } from "@/lib/agent/agentSchema";
+import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/types/canvas";
+
+const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
+const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
+const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : undefined;
+const bool = (value: unknown) => typeof value === "boolean" ? value : undefined;
+const safeId = (value: string) => value.trim().replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "step";
+const hasChinese = (value: string) => /[\u3400-\u9fff]/.test(value);
+
+const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][number], upstreamKinds: NodeType[]): Partial<CanvasNodeData> => {
+  const params = object(step.params);
+  const prompt = step.prompt || plan.userPrompt;
+  const aspectRatio = text(params.aspectRatio) || plan.aspectRatio || "16:9";
+  const zh = hasChinese(plan.userPrompt);
+  const cinematicStyle = zh ? "电影感、港风、完整叙事" : "Cinematic";
+  if (step.kind === "prompt") return { title: step.label, prompt, style: plan.style || text(params.style) || cinematicStyle, aspectRatio };
+  if (step.kind === "text") return { title: step.label, instruction: step.purpose || (zh ? "扩展创作方向。" : "Expand the creative direction."), inputText: prompt, model: text(params.model), temperature: number(params.temperature) ?? 0.7 };
+  if (step.kind === "script") return { title: step.label, storyBrief: prompt, scriptTone: plan.style || text(params.scriptTone) || (zh ? "电影感、喜剧节奏、完整可拍摄剧本" : "Cinematic, fictional"), numberOfScenes: number(params.numberOfScenes) || plan.sceneCount || 3, model: text(params.model) };
+  if (step.kind === "storyboard") return { title: step.label, storyBrief: prompt, numberOfScenes: number(params.numberOfScenes) || plan.sceneCount || 3, model: text(params.model) };
+  if (step.kind === "storyboardImage") return { title: step.label, aspectRatio, negativePrompt: text(params.negativePrompt) || "arrows, labels, UI, watermark, text overlay" };
+  if (step.kind === "image") return { title: step.label, prompt, negativePrompt: text(params.negativePrompt) || "arrows, labels, UI, watermark, text overlay", model: text(params.model) || "gpt-image-2", size: text(params.size) || "1536x1024", aspectRatio, referenceImageUrl: "", shotNumber: number(params.shotNumber) };
+  if (step.kind === "video") {
+    const provider = text(params.videoProvider) || plan.videoProvider || "tokenstar";
+    const hasImageInput = upstreamKinds.includes("image") || upstreamKinds.includes("reference");
+    const hasVideoInput = upstreamKinds.includes("video");
+    const tokenstarMode = text(params.tokenstarMode) || (provider === "tokenstar" ? hasImageInput ? "kling-image" : hasVideoInput ? "kling-omni" : "text-to-video" : undefined);
+    return {
+      title: step.label,
+      prompt: step.prompt || step.purpose || plan.userPrompt,
+      negativePrompt: text(params.negativePrompt),
+      duration: number(params.duration) || 10,
+      aspectRatio,
+      model: text(params.model),
+      resolution: text(params.resolution) || "480p",
+      fps: text(params.fps),
+      referenceImageUrl: "",
+      videoInputMode: hasImageInput ? "image-to-video" : "text-to-video",
+      videoProvider: provider === "kling" || provider === "302ai" || provider === "302-sora2" ? provider : "tokenstar",
+      tokenstarMode: tokenstarMode === "asset-video" || tokenstarMode === "kling-image" || tokenstarMode === "kling-reference" || tokenstarMode === "kling-text" || tokenstarMode === "kling-omni" ? tokenstarMode : "text-to-video",
+      klingMode: hasVideoInput ? "omni" : hasImageInput ? "image-to-video" : "text-to-video",
+      generateAudio: bool(params.generateAudio) ?? plan.includeAudio ?? true,
+      referenceImageAssetUrl: "",
+      referenceVideoAssetUrl: "",
+      referenceAudioAssetUrl: "",
+      klingElementId: "",
+      referenceVideoUrl: "",
+    };
+  }
+  if (step.kind === "audio") return { title: step.label, prompt, duration: number(params.duration) || 12, voiceStyle: text(params.voiceStyle) || (zh ? "氛围感" : "Atmospheric"), model: text(params.model), voice: text(params.voice), emotion: text(params.emotion), volume: number(params.volume) || 1 };
+  if (step.kind === "reference") return { title: step.label, imageUrl: "", notes: step.purpose || prompt };
+  return { title: step.label, format: text(params.format) || (zh ? "创作包" : "Creative package") };
+};
+
+export function compileWorkflowPlanToCanvas(plan: AgentWorkflowPlan): CanvasPatch {
+  const groupId = `agent-${crypto.randomUUID()}`;
+  const groupColor = "#a8c4bc";
+  const stepIdToNodeId = new Map<string, string>();
+  const nodes: CanvasNode[] = plan.steps.map((step, index) => {
+    const dependsOn = step.dependsOn || (index > 0 ? [plan.steps[index - 1].id] : []);
+    const upstreamKinds = dependsOn.map((id) => plan.steps.find((candidate) => candidate.id === id)?.kind).filter((kind): kind is NodeType => Boolean(kind));
+    const node = makeNode(step.kind, { x: index * 280, y: Math.max(0, upstreamKinds.includes("image") ? 1 : 0) * 180 });
+    const nodeId = `agent-${safeId(step.id)}-${crypto.randomUUID()}`;
+    stepIdToNodeId.set(step.id, nodeId);
+    const data: CanvasNodeData = {
+      ...node.data,
+      ...patchForStep(plan, step, upstreamKinds),
+      nodeType: step.kind,
+      status: "idle",
+      output: undefined,
+      error: undefined,
+      imageUrl: step.kind === "reference" ? "" : undefined,
+      taskId: undefined,
+      resultUrl: undefined,
+      rawStatus: undefined,
+      lastPollAt: undefined,
+      groupId,
+      groupColor,
+    };
+    return { ...node, id: nodeId, position: { x: index * 280, y: step.kind === "image" ? 180 + (nodesInColumn(plan.steps, index, "image") * 180) : step.kind === "video" ? 90 : 0 }, data };
+  });
+  const edges: WorkflowEdge[] = [];
+  plan.steps.forEach((step, index) => {
+    const dependencies = step.dependsOn?.length ? step.dependsOn : index > 0 ? [plan.steps[index - 1].id] : [];
+    dependencies.forEach((sourceStepId) => {
+      const source = stepIdToNodeId.get(sourceStepId);
+      const target = stepIdToNodeId.get(step.id);
+      if (source && target) edges.push({ id: `edge-${source}-${target}`, source, target, animated: true });
+    });
+  });
+  return { nodes, edges };
+}
+
+function nodesInColumn(steps: AgentWorkflowPlan["steps"], index: number, kind: NodeType) {
+  return steps.slice(0, index).filter((step) => step.kind === kind).length;
+}

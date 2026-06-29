@@ -93,7 +93,7 @@ function ContextMenu({ menu, onClose }: { menu: CtxMenu; onClose(): void }) {
 }
 
 export function CreativeCanvas() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, ghostType, setGhostType, placeGhostNode, addMediaNode, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia } = useCanvasStore();
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, ghostType, setGhostType, placeGhostNode, addMediaNode, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia, pendingAgentPatch, setPendingAgentPatch, placeAgentPatch } = useCanvasStore();
   const { theme } = useTheme();
   const { getNodes, screenToFlowPosition } = useReactFlow();
   const { x: viewX, y: viewY, zoom } = useViewport();
@@ -109,7 +109,7 @@ export function CreativeCanvas() {
   const bgColor   = isDark ? "#091019" : "#f5f5f5";
   const nodeColor = isDark ? "#0e7490" : "#404040";
   const maskColor = isDark ? "rgba(3,10,18,.72)" : "rgba(245,245,245,.65)";
-  const isGhosting = !!(ghostType || ghostMediaUrl);
+  const isGhosting = !!(ghostType || ghostMediaUrl || pendingAgentPatch);
 
   /* Track mouse for both ghost types */
   useEffect(() => {
@@ -121,11 +121,11 @@ export function CreativeCanvas() {
 
   /* Right-click = cancel ghost OR show context menu */
   useEffect(() => {
-    if (!ghostType && !ghostMediaUrl) return;
-    const onCtx = (e: MouseEvent) => { e.preventDefault(); setGhostType(null); _setGhostMedia(""); };
+    if (!ghostType && !ghostMediaUrl && !pendingAgentPatch) return;
+    const onCtx = (e: MouseEvent) => { e.preventDefault(); setGhostType(null); _setGhostMedia(""); setPendingAgentPatch(null); };
     window.addEventListener("contextmenu", onCtx);
     return () => window.removeEventListener("contextmenu", onCtx);
-  }, [ghostType, ghostMediaUrl, setGhostType, _setGhostMedia]);
+  }, [ghostType, ghostMediaUrl, pendingAgentPatch, setGhostType, _setGhostMedia, setPendingAgentPatch]);
 
   const handleReconnectStart = useCallback(() => { edgeReconnecting.current = false; }, []);
   const handleReconnect = useCallback((oldEdge: WorkflowEdge, newConnection: Connection) => {
@@ -163,7 +163,10 @@ export function CreativeCanvas() {
   /* Left-click on pane = place ghost or deselect */
   const handlePaneClick = useCallback((e: React.MouseEvent) => {
     setCtxMenu(null);
-    if (ghostType) {
+    if (pendingAgentPatch) {
+      const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      placeAgentPatch(flowPos);
+    } else if (ghostType) {
       const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       placeGhostNode(flowPos);
     } else if (ghostMediaUrl) {
@@ -172,7 +175,7 @@ export function CreativeCanvas() {
     } else {
       setSelectedNode(null);
     }
-  }, [ghostType, ghostMediaUrl, screenToFlowPosition, placeGhostNode, placeGhostMedia, setSelectedNode]);
+  }, [ghostType, ghostMediaUrl, pendingAgentPatch, screenToFlowPosition, placeGhostNode, placeGhostMedia, placeAgentPatch, setSelectedNode]);
 
   /* Right-click on selected nodes → context menu */
   const handleSelectionContextMenu = useCallback((e: React.MouseEvent) => {
