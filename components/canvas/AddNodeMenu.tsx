@@ -1,30 +1,33 @@
 ﻿import { useState, useRef, useMemo } from "react";
 import { useCanvasStore } from "@/store/canvasStore";
+import { useLang } from "@/components/LangProvider";
 import type { NodeType } from "@/types/canvas";
+import type { Strings } from "@/lib/i18n/strings";
 
 export function getIcon(type: string) {
   const map: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", audio: "\u266B", storyboard: "\u25A6", reference: "\u2141", output: "\u2197", upload_image: "+" };
   return map[type] || "T";
 }
 
-const CATEGORIES = ["New nodes", "Recently used", "Video", "Image", "Audio", "Text"];
+const ALL_CATEGORIES = ["New nodes", "Recently used", "Video", "Image", "Audio", "Text", "Storyboard"];
 
-const ALL_TOOLS = [
-  { id: "seedance-2.0", type: "video", cat: "Video", title: "Seedance 2.0", desc: "Text/Image/Video/Audio to Video", iconBg: "bg-rose-500", iconColor: "text-white" },
-  { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: "Text to Video", iconBg: "bg-rose-600", iconColor: "text-white" },
-  { id: "storyboard-image", type: "storyboardImage", cat: "Video", title: "Storyboard Image", desc: "Generate keyframes", iconBg: "bg-violet-100", iconColor: "text-violet-600" },
-  { id: "gpt-image-2", type: "image", cat: "Image", title: "GPT Image 2", desc: "Text/Image to Image", iconBg: "bg-blue-500", iconColor: "text-white" },
-  { id: "upload-image", type: "upload_image", cat: "Image", title: "Upload Image", desc: "Local file to Canvas", iconBg: "bg-slate-100", iconColor: "text-slate-600" },
-  { id: "audio-gen", type: "audio", cat: "Audio", title: "Audio Model", desc: "Text to Audio", iconBg: "bg-amber-100", iconColor: "text-amber-600" },
-  { id: "claude", type: "text", cat: "Text", title: "Claude", desc: "Text generation", iconBg: "bg-emerald-500", iconColor: "text-white" },
-  { id: "prompt", type: "prompt", cat: "Text", title: "Prompt", desc: "Creative direction", iconBg: "bg-purple-100", iconColor: "text-purple-600" },
-  { id: "script", type: "script", cat: "Text", title: "Script", desc: "A fictional story", iconBg: "bg-slate-800", iconColor: "text-white" },
-  { id: "storyboard", type: "storyboard", cat: "Text", title: "Storyboard", desc: "Light and motion", iconBg: "bg-slate-800", iconColor: "text-white" },
-  { id: "reference", type: "reference", cat: "Text", title: "Reference Notes", desc: "Visual reference", iconBg: "bg-slate-100", iconColor: "text-slate-600" },
-  { id: "output", type: "output", cat: "Text", title: "Output", desc: "Format output", iconBg: "bg-slate-100", iconColor: "text-slate-600" },
+const getTools = (t: Strings) => [
+  { id: "seedance-2.0", type: "video", cat: "Video", title: "Seedance 2.0", desc: t.toolDescSeedance, iconBg: "bg-rose-500", iconColor: "text-white" },
+  { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: t.toolDescGen45, iconBg: "bg-rose-600", iconColor: "text-white" },
+  { id: "storyboard-image", type: "storyboardImage", cat: "Storyboard", title: t.nodeNames["storyboardImage"], desc: t.toolDescStoryboardImage, iconBg: "bg-violet-100", iconColor: "text-violet-600" },
+  { id: "gpt-image-2", type: "image", cat: "Image", title: "GPT Image 2", desc: t.toolDescGptImage, iconBg: "bg-blue-500", iconColor: "text-white" },
+  { id: "upload-image", type: "upload_image", cat: "Image", title: t.uploadImage, desc: t.toolDescUploadImage, iconBg: "bg-slate-100", iconColor: "text-slate-600" },
+  { id: "audio-gen", type: "audio", cat: "Audio", title: t.nodeNames["audio"], desc: t.toolDescAudio, iconBg: "bg-amber-100", iconColor: "text-amber-600" },
+  { id: "claude", type: "text", cat: "Text", title: "Claude", desc: t.toolDescText, iconBg: "bg-emerald-500", iconColor: "text-white" },
+  { id: "prompt", type: "prompt", cat: "Text", title: t.nodeNames["prompt"], desc: t.toolDescPrompt, iconBg: "bg-purple-100", iconColor: "text-purple-600" },
+  { id: "script", type: "script", cat: "Storyboard", title: t.nodeNames["script"], desc: t.toolDescScript, iconBg: "bg-slate-800", iconColor: "text-white" },
+  { id: "storyboard", type: "storyboard", cat: "Storyboard", title: t.nodeNames["storyboard"], desc: t.toolDescStoryboard, iconBg: "bg-slate-800", iconColor: "text-white" },
+  { id: "reference", type: "reference", cat: "Image", title: t.nodeNames["reference"], desc: t.toolDescReference, iconBg: "bg-slate-100", iconColor: "text-slate-600" },
+  { id: "output", type: "output", cat: "Text", title: t.nodeNames["output"], desc: t.toolDescOutput, iconBg: "bg-slate-100", iconColor: "text-slate-600" },
 ];
 
 export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
+  const { t } = useLang();
   const [activeCat, setActiveCat] = useState("Video");
   const [search, setSearch] = useState("");
   const [keepOpen, setKeepOpen] = useState(false);
@@ -33,13 +36,15 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
   const setGhostMedia = useCanvasStore(s => s.setGhostMedia);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const filtered = useMemo(() => {
-    if (search.trim()) return ALL_TOOLS.filter(t => t.title.toLowerCase().includes(search.toLowerCase()) || t.desc.toLowerCase().includes(search.toLowerCase()));
-    if (activeCat === "New nodes" || activeCat === "Recently used") return ALL_TOOLS.slice(0, 6); // Mock
-    return ALL_TOOLS.filter(t => t.cat === activeCat);
-  }, [activeCat, search]);
+  const allTools = useMemo(() => getTools(t), [t]);
 
-  const handleToolClick = (tool: typeof ALL_TOOLS[0]) => {
+  const filtered = useMemo(() => {
+    if (search.trim()) return allTools.filter(tool => tool.title.toLowerCase().includes(search.toLowerCase()) || tool.desc.toLowerCase().includes(search.toLowerCase()));
+    if (activeCat === "New nodes" || activeCat === "Recently used") return allTools.slice(0, 6); // Mock
+    return allTools.filter(tool => tool.cat === activeCat);
+  }, [activeCat, search, allTools]);
+
+  const handleToolClick = (tool: ReturnType<typeof getTools>[0]) => {
     if (tool.type === "upload_image") {
       fileRef.current?.click();
       return;
@@ -86,7 +91,7 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
         <input 
           autoFocus
           className="flex-1 bg-transparent text-sm text-[#030303] placeholder-slate-400 outline-none dark:text-slate-100" 
-          placeholder="Search by name or type"
+          placeholder={t.menuSearch}
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
@@ -95,30 +100,33 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
       <div className="flex flex-1 min-h-0 bg-[#f8f9fa] dark:bg-[#0c1622]">
         {/* Left Categories */}
         <div className="w-40 shrink-0 overflow-y-auto py-2">
-          {CATEGORIES.map(c => (
-            <button key={c} onClick={() => { setActiveCat(c); setSearch(""); }}
-              className={`flex w-full items-center px-4 py-2 text-xs font-semibold ${
-                activeCat === c ? "relative text-[#030303] dark:text-cyan-300" : "text-[#676f7b] hover:text-[#030303] dark:text-slate-400 dark:hover:text-slate-200"
-              }`}
-            >
-              {activeCat === c && <div className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 bg-[#030303] dark:bg-cyan-400"/>}
-              {c}
-            </button>
-          ))}
+          {ALL_CATEGORIES.map(c => {
+            const catMap: Record<string, string> = { "New nodes": t.menuCategoryNew, "Recently used": t.menuCategoryRecent, "Video": t.menuCategoryVideo, "Image": t.menuCategoryImage, "Audio": t.menuCategoryAudio, "Text": t.menuCategoryText, "Storyboard": t.menuCategoryStoryboard };
+            return (
+              <button key={c} onClick={() => { setActiveCat(c); setSearch(""); }}
+                className={`flex w-full items-center px-4 py-2 text-xs font-semibold ${
+                  activeCat === c ? "relative text-[#030303] dark:text-cyan-300" : "text-[#676f7b] hover:text-[#030303] dark:text-slate-400 dark:hover:text-slate-200"
+                }`}
+              >
+                {activeCat === c && <div className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 bg-[#030303] dark:bg-cyan-400"/>}
+                {catMap[c] || c}
+              </button>
+            )
+          })}
         </div>
 
         {/* Right Content */}
         <div className="flex-1 overflow-y-auto bg-white p-3 dark:bg-[#101c29]">
-          {filtered.length === 0 && <p className="mt-10 text-center text-xs text-slate-400">No results found.</p>}
+          {filtered.length === 0 && <p className="mt-10 text-center text-xs text-slate-400">{t.menuNoResults}</p>}
           <div className="space-y-2">
-            {filtered.map(t => (
-              <button key={t.id} onClick={() => handleToolClick(t)} className="flex w-full items-center gap-3 rounded-xl border border-[#e7eaf0] p-2.5 text-left transition hover:border-[#c9ccd1] hover:shadow-sm dark:border-slate-700 dark:hover:border-slate-500">
-                <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg text-lg ${t.iconBg} ${t.iconColor}`}>
-                  {getIcon(t.type)}
+            {filtered.map(tool => (
+              <button key={tool.id} onClick={() => handleToolClick(tool)} className="flex w-full items-center gap-3 rounded-xl border border-[#e7eaf0] p-2.5 text-left transition hover:border-[#c9ccd1] hover:shadow-sm dark:border-slate-700 dark:hover:border-slate-500">
+                <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg text-lg ${tool.iconBg} ${tool.iconColor}`}>
+                  {getIcon(tool.type)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="truncate text-xs font-bold text-[#030303] dark:text-slate-100">{t.title}</p>
-                  <p className="truncate text-[10px] text-[#676f7b] dark:text-slate-500">{t.desc}</p>
+                  <p className="truncate text-xs font-bold text-[#030303] dark:text-slate-100">{tool.title}</p>
+                  <p className="truncate text-[10px] text-[#676f7b] dark:text-slate-500">{tool.desc}</p>
                 </div>
                 <span className="text-[#c9ccd1] dark:text-slate-600">\u276F</span>
               </button>
@@ -129,7 +137,7 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
 
       {/* Footer */}
       <div className="flex shrink-0 items-center justify-between border-t border-[#e7eaf0] bg-white px-4 py-3 dark:border-slate-800 dark:bg-[#101c29]">
-        <span className="text-xs text-[#676f7b] dark:text-slate-400">Keep open to add multiple nodes</span>
+        <span className="text-xs text-[#676f7b] dark:text-slate-400">{t.menuKeepOpen}</span>
         <button onClick={() => setKeepOpen(!keepOpen)} className={`relative h-5 w-9 rounded-full transition-colors ${keepOpen ? "bg-[#030303] dark:bg-cyan-500" : "bg-[#c9ccd1] dark:bg-slate-600"}`}>
           <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${keepOpen ? "translate-x-[18px]" : "translate-x-0.5"}`} />
         </button>

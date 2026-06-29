@@ -36,6 +36,29 @@ export interface Strings {
   settingsTitle: string;
   waitingGeneration: string;
   revisionOf: string;
+  // AddNodeMenu
+  menuSearch: string;
+  menuCategoryNew: string;
+  menuCategoryRecent: string;
+  menuCategoryVideo: string;
+  menuCategoryImage: string;
+  menuCategoryAudio: string;
+  menuCategoryText: string;
+  menuCategoryStoryboard: string;
+  menuKeepOpen: string;
+  menuNoResults: string;
+  toolDescSeedance: string;
+  toolDescGen45: string;
+  toolDescStoryboardImage: string;
+  toolDescGptImage: string;
+  toolDescUploadImage: string;
+  toolDescAudio: string;
+  toolDescText: string;
+  toolDescPrompt: string;
+  toolDescScript: string;
+  toolDescStoryboard: string;
+  toolDescReference: string;
+  toolDescOutput: string;
   viewFullImage: string;
   annotateRefine: string;
   configureNode: string;
@@ -138,6 +161,28 @@ const zh: Strings = {
   settingsTitle: "设置",
   waitingGeneration: "等待生成中…",
   revisionOf: "源图像的修订版",
+  menuSearch: "按名称或类型搜索",
+  menuCategoryNew: "新节点",
+  menuCategoryRecent: "最近使用",
+  menuCategoryVideo: "视频",
+  menuCategoryImage: "图像",
+  menuCategoryAudio: "音频",
+  menuCategoryText: "文本",
+  menuCategoryStoryboard: "分镜系列",
+  menuKeepOpen: "保持打开以添加多个节点",
+  menuNoResults: "未找到结果。",
+  toolDescSeedance: "文本/图像/视频/音频转视频",
+  toolDescGen45: "文本转视频",
+  toolDescStoryboardImage: "生成分镜关键帧",
+  toolDescGptImage: "文本/图像转图像",
+  toolDescUploadImage: "上传本地文件到画布",
+  toolDescAudio: "文本转音频",
+  toolDescText: "文本生成",
+  toolDescPrompt: "创意方向",
+  toolDescScript: "虚构故事剧本",
+  toolDescStoryboard: "光影与运动描述",
+  toolDescReference: "视觉参考",
+  toolDescOutput: "格式化输出",
   viewFullImage: "查看完整图像",
   annotateRefine: "标注 & 优化",
   configureNode: "在属性面板配置此节点。",
@@ -234,6 +279,28 @@ const en: Strings = {
   settingsTitle: "Settings",
   waitingGeneration: "Waiting for generation…",
   revisionOf: "Revision of source image",
+  menuSearch: "Search by name or type",
+  menuCategoryNew: "New nodes",
+  menuCategoryRecent: "Recently used",
+  menuCategoryVideo: "Video",
+  menuCategoryImage: "Image",
+  menuCategoryAudio: "Audio",
+  menuCategoryText: "Text",
+  menuCategoryStoryboard: "Storyboard",
+  menuKeepOpen: "Keep open to add multiple nodes",
+  menuNoResults: "No results found.",
+  toolDescSeedance: "Text/Image/Video/Audio to Video",
+  toolDescGen45: "Text to Video",
+  toolDescStoryboardImage: "Generate keyframes",
+  toolDescGptImage: "Text/Image to Image",
+  toolDescUploadImage: "Local file to Canvas",
+  toolDescAudio: "Text to Audio",
+  toolDescText: "Text generation",
+  toolDescPrompt: "Creative direction",
+  toolDescScript: "A fictional story",
+  toolDescStoryboard: "Light and motion",
+  toolDescReference: "Visual reference",
+  toolDescOutput: "Format output",
   viewFullImage: "View full image",
   annotateRefine: "Annotate & Refine",
   configureNode: "Configure this node in the inspector.",
