@@ -4,7 +4,6 @@ import { useEffect, useRef } from "react";
 import { BottomRunBar } from "./BottomRunBar";
 import { AgentWorkflowPanel } from "./AgentWorkflowPanel";
 import { CreativeCanvas } from "./CreativeCanvas";
-import { NodeToolbar } from "./NodeToolbar";
 import { TemplateGallery } from "./TemplateGallery";
 import { TopBar } from "./TopBar";
 import { useCanvasStore } from "@/store/canvasStore";
@@ -21,8 +20,7 @@ export function Workspace() {
       <main className="flex h-screen flex-col overflow-hidden">
         <TopBar />
         <TemplateGallery />
-        <div className="flex min-h-0 flex-1">
-          <NodeToolbar />
+        <div className="flex min-h-0 flex-1 relative">
           <CreativeCanvas />
         </div>
         <BottomRunBar />

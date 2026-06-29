@@ -3,6 +3,7 @@ import { Background, Controls, MiniMap, ReactFlow, useReactFlow, useViewport, ty
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnnotatedCustomNode } from "./AnnotatedCustomNode";
+import { AddNodeMenu } from "./AddNodeMenu";
 import { useCanvasStore } from "@/store/canvasStore";
 import { useTheme } from "@/components/ThemeProvider";
 import { useLang } from "@/components/LangProvider";
@@ -102,6 +103,7 @@ export function CreativeCanvas() {
   const [alignGuides, setAlignGuides] = useState<AlignGuide[]>([]);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
+  const [addMenu, setAddMenu] = useState<{ x: number; y: number } | null>(null);
 
   const isDark = theme === "dark";
   const edgeColor = isDark ? "#22d3ee" : "#404040";
@@ -163,6 +165,7 @@ export function CreativeCanvas() {
   /* Left-click on pane = place ghost or deselect */
   const handlePaneClick = useCallback((e: React.MouseEvent) => {
     setCtxMenu(null);
+    setAddMenu(null);
     if (pendingAgentPatch) {
       const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       placeAgentPatch(flowPos);
@@ -180,10 +183,18 @@ export function CreativeCanvas() {
   /* Right-click on selected nodes → context menu */
   const handleSelectionContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    setAddMenu(null);
     const selected = getNodes().filter(n => n.selected);
     if (!selected.length) return;
     setCtxMenu({ x: e.clientX, y: e.clientY, nodeIds: selected.map(n => n.id) });
   }, [getNodes]);
+
+  /* Right-click on pane = add node menu */
+  const handlePaneContextMenu = useCallback((e: MouseEvent | React.MouseEvent) => {
+    e.preventDefault();
+    setCtxMenu(null);
+    setAddMenu({ x: (e as MouseEvent).clientX ?? (e as React.MouseEvent).clientX, y: (e as MouseEvent).clientY ?? (e as React.MouseEvent).clientY });
+  }, []);
 
   /* File drop onto canvas */
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -217,6 +228,7 @@ export function CreativeCanvas() {
         onConnect={onConnect}
         onNodeClick={(_, node) => { if (!isGhosting) setSelectedNode(node.id); }}
         onPaneClick={handlePaneClick}
+        onPaneContextMenu={handlePaneContextMenu}
         onSelectionContextMenu={handleSelectionContextMenu}
         fitView
         deleteKeyCode={["Backspace", "Delete"]}
@@ -252,6 +264,9 @@ export function CreativeCanvas() {
 
       {/* Right-click context menu */}
       {ctxMenu && <ContextMenu menu={ctxMenu} onClose={() => setCtxMenu(null)} />}
+
+      {/* Add node menu */}
+      {addMenu && <AddNodeMenu x={addMenu.x} y={addMenu.y} onClose={() => setAddMenu(null)} />}
     </div>
   );
 }
