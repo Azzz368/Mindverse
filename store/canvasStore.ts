@@ -258,7 +258,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }
     set({ agentStatus: "planning", agentMessage: "正在按模板搭建流程图...", lastError: null });
     const groupId = `agent-${crypto.randomUUID()}`;
-    const groupColor = "#a8c4bc";
+    const groupColor = undefined;
     const makeTemplateNode = (type: NodeType, position: { x: number; y: number }, patch: Partial<CanvasNodeData>): CanvasNode => {
       const node = makeNode(type, position);
       return { ...node, data: { ...node.data, ...patch, status: "idle", output: undefined, error: undefined, groupId, groupColor } };
