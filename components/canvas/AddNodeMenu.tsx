@@ -87,7 +87,9 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
     >
       {/* Search */}
       <div className="flex shrink-0 items-center border-b border-[#e7eaf0] px-3 py-2.5 dark:border-slate-800">
-        <span className="mr-2 text-slate-400">\uD83D\uDD0D</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="mr-2 text-slate-400">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
         <input 
           autoFocus
           className="flex-1 bg-transparent text-sm text-[#030303] placeholder-slate-400 outline-none dark:text-slate-100" 
@@ -128,7 +130,9 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
                   <p className="truncate text-xs font-bold text-[#030303] dark:text-slate-100">{tool.title}</p>
                   <p className="truncate text-[10px] text-[#676f7b] dark:text-slate-500">{tool.desc}</p>
                 </div>
-                <span className="text-[#c9ccd1] dark:text-slate-600">\u276F</span>
+                <svg width="8" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#c9ccd1] dark:text-slate-600">
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
               </button>
             ))}
           </div>
