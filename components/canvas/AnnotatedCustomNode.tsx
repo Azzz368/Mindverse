@@ -10,14 +10,14 @@ import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/types/canvas
 import type { Strings } from "@/lib/i18n/strings";
 
 const GLOW_COLORS: Record<string, string> = {
-  video: "#f43f5e",
-  image: "#3b82f6",
-  audio: "#f59e0b",
-  text: "#10b981",
-  prompt: "#a855f7",
-  script: "#1e293b",
-  storyboard: "#1e293b",
-  storyboardImage: "#8b5cf6",
+  video: "#7322e3",
+  image: "#3bf657",
+  audio: "#f5510b",
+  text: "#ebe46b",
+  prompt: "#ebe46b",
+  script: "#3eedb8",
+  storyboard: "#3eedb8",
+  storyboardImage: "#3eedb8",
   reference: "#64748b",
   output: "#64748b",
 };
