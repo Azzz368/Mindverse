@@ -86,6 +86,23 @@ function NodePreview({ node, t, onView, onAnnotate }: { node: CanvasNode; t: Str
   );
   if (node.data.nodeType === "audio" && audioUrl) return <audio className="mt-2 w-full" controls src={audioUrl}/>;
   if (node.data.nodeType === "video" && videoUrl) return <video className="mt-2 h-32 w-full rounded-md object-cover" controls src={videoUrl}/>;
+  if (node.data.nodeType === "script" && Array.isArray(details.scenes)) return (
+    <div className="mt-2 max-h-56 space-y-2 overflow-y-auto pr-1">
+      <p className="text-[11px] font-semibold text-[#030303] dark:text-cyan-200">{text(details.title) || node.data.output?.summary}</p>
+      {text(details.logline) && <p className="text-[10px] leading-4 text-[#676f7b] dark:text-slate-400">{text(details.logline)}</p>}
+      {details.scenes.map((scene, index) => {
+        const item = record(scene);
+        const dialogue = Array.isArray(item.dialogue) ? item.dialogue.filter((line): line is string => typeof line === "string").slice(0, 2) : [];
+        return (
+          <div key={`${String(item.sceneNumber)}-${index}`} className="rounded-md border border-[#e7eaf0] bg-[#f8f9fa] p-2 dark:border-slate-700 dark:bg-slate-950/50">
+            <p className="text-[10px] font-semibold text-[#030303] dark:text-cyan-200">Scene {String(item.sceneNumber || index + 1)} · {text(item.location)}</p>
+            <p className="mt-1 text-[11px] leading-4 text-[#1a1a1a] dark:text-slate-200">{text(item.action)}</p>
+            {dialogue.map((line) => <p key={line} className="mt-1 text-[10px] leading-4 text-[#676f7b] dark:text-slate-400">{line}</p>)}
+          </div>
+        );
+      })}
+    </div>
+  );
   /* Reference node with a dropped/uploaded image */
   if (node.data.nodeType === "reference" && node.data.imageUrl) return (
     <div className="mt-2">

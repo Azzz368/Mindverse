@@ -24,9 +24,13 @@ AI_302_API_KEY=********
 AI_302_BASE_URL=https://api.302.ai/v1
 # Optional compatibility alias. If both are set, this value takes precedence.
 AI_302_OPENAI_BASE_URL=https://api.302.ai/v1
+AI_302_TEXT_MODEL=gpt-4o-mini
+AGENT_LLM_MODEL=gpt-4o
 ```
 
 The API key is read only by server-side code in `lib/ai` and the Next.js `/api/ai/*` routes. It is never sent by a client component, included in browser storage, or exposed with a `NEXT_PUBLIC_` variable. `.env.local` is ignored by Git; do not commit or paste it into GitHub.
+
+`AI_302_TEXT_MODEL` is the default for regular Text/Script/Storyboard generation. `AGENT_LLM_MODEL` is reserved for the Agent planner and should default to `gpt-4o` when LLM-based workflow planning is enabled.
 
 ### Supported 302.AI operations
 
