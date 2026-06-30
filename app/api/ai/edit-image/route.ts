@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { normalizeAIError } from "@/lib/ai/errors";
-import { getAIProvider } from "@/lib/ai/provider";
+import { getImageAIProvider } from "@/lib/ai/provider";
 
 type EditRequest = { sourceImageUrl?: unknown; prompt?: unknown; maskImageUrl?: unknown; annotationDocument?: unknown; annotationSnapshotDataUrl?: unknown; size?: unknown; quality?: unknown; outputFormat?: unknown };
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     const annotationDocument = text(body.annotationDocument);
     // annotationSnapshotDataUrl is deliberately not used as the main image: the source image must be edited directly.
     const mergedPrompt = [prompt, annotationDocument && `Annotation summary:\n${annotationDocument}`, finalImageInstruction].filter(Boolean).join("\n\n");
-    const provider = getAIProvider();
+    const provider = getImageAIProvider();
     const output = await provider.editImageWithAnnotations({
       sourceImageUrl,
       prompt: mergedPrompt,

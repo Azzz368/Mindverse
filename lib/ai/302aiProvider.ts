@@ -1,6 +1,7 @@
 import "server-only";
 import { request302, request302OpenAI } from "./302aiClient";
 import { AIProviderError } from "./errors";
+import { requestChatCompletion, storyboardModel, textModel, textProvider } from "./textLLMClient";
 import type { AIProvider, EditImageWithAnnotationsInput, EditImageWithAnnotationsOutput, GenerateAudioInput, GenerateAudioOutput, GenerateImageInput, GenerateImageOutput, GenerateStoryboardInput, GenerateStoryboardOutput, GenerateTextInput, GenerateTextOutput, GenerateVideoInput, GenerateVideoOutput, StoryboardScene } from "./types";
 
 type RecordValue = Record<string, unknown>;
@@ -15,6 +16,38 @@ const normalizeScenes = (value: unknown, fallback: string): StoryboardScene[] =>
   return scenes.map((scene, index) => { const item = object(scene); return { sceneNumber: Number(item.sceneNumber) || index + 1, description: string(item.description) || fallback, visualPrompt: string(item.visualPrompt) || string(item.description) || fallback, camera: string(item.camera) || "Creative framing", duration: Number(item.duration) || 5 }; });
 };
 const imageExtension = (contentType: string | null) => contentType?.includes("jpeg") ? "jpg" : contentType?.includes("webp") ? "webp" : contentType?.includes("gif") ? "gif" : "png";
+const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
+const dataImage = (value: string) => {
+  const match = /^data:([^;,]+);base64,(.+)$/i.exec(value);
+  return match ? { mime_type: match[1], data: match[2] } : undefined;
+};
+const aspectRatioFrom = (aspectRatio?: string, size?: string) => {
+  const normalized = aspectRatio?.replace(".", ":");
+  if (normalized && ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"].includes(normalized)) return normalized;
+  const [w, h] = (size || "").replace(/×/g, "x").split("x").map((item) => Number(item));
+  if (w && h) {
+    if (w === h) return "1:1";
+    if (w > h) return w / h > 1.9 ? "21:9" : w / h > 1.45 ? "16:9" : "3:2";
+    return h / w > 1.65 ? "9:16" : "2:3";
+  }
+  return undefined;
+};
+const geminiImageUrlFrom = (raw: RecordValue) => {
+  const candidates = Array.isArray(raw.candidates) ? raw.candidates : [];
+  for (const candidate of candidates) {
+    const partsValue = object(object(candidate).content).parts;
+    const parts = Array.isArray(partsValue) ? partsValue : [];
+    for (const part of parts) {
+      const item = object(part);
+      const url = string(item.url) || string(item.image_url) || string(item.file_url);
+      if (url) return url;
+      const inline = object(item.inline_data);
+      const encoded = string(inline.data);
+      if (encoded) return `data:${string(inline.mime_type) || "image/png"};base64,${encoded}`;
+    }
+  }
+  return string(raw.url) || string(raw.image_url);
+};
 const downloadImage = async (url: string, field: "image" | "mask") => {
   if (!/^https:\/\//i.test(url) && !/^data:image\//i.test(url)) throw new AIProviderError("Only HTTPS image URLs or data:image URLs can be used for image editing.", "INVALID_IMAGE_URL", 400);
   let response: Response;
@@ -29,19 +62,40 @@ const downloadImage = async (url: string, field: "image" | "mask") => {
 export const ai302Provider: AIProvider = {
   name: "302ai",
   async generateText(input: GenerateTextInput): Promise<GenerateTextOutput> {
-    const raw = await request302OpenAI<RecordValue>("/chat/completions", { method: "POST", body: JSON.stringify({ model: input.model || process.env.AI_302_TEXT_MODEL || "gpt-4o-mini", messages: [{ role: "system", content: input.systemPrompt || "You are a helpful creative AI assistant." }, { role: "user", content: input.prompt }], temperature: input.temperature ?? 0.7 }) });
+    const fallbackModel = input.model || process.env.AI_302_TEXT_MODEL || "gpt-4o-mini";
+    const raw = await requestChatCompletion<RecordValue>({ provider: textProvider(), body: { model: textModel(fallbackModel), messages: [{ role: "system", content: input.systemPrompt || "You are a helpful creative AI assistant." }, { role: "user", content: input.prompt }], temperature: input.temperature ?? 0.7 } });
     const choice = Array.isArray(raw.choices) ? object(raw.choices[0]) : {}; const content = string(object(choice.message).content) || string(object(choice.delta).content);
     if (!content) throw new Error("302.AI chat completion did not include message content.");
     return { text: content, raw };
   },
   async generateStoryboard(input: GenerateStoryboardInput): Promise<GenerateStoryboardOutput> {
-    const result = await this.generateText({ model: input.model || process.env.AI_302_STORYBOARD_MODEL || process.env.AI_302_TEXT_MODEL, temperature: 0.3, systemPrompt: "You create production-ready storyboards. Return only valid JSON, with no Markdown.", prompt: `Create exactly ${input.numberOfScenes} storyboard scenes for this brief. Return strict JSON only: {"scenes":[{"sceneNumber":1,"description":"...","visualPrompt":"...","camera":"...","duration":5}]}. Brief: ${input.storyBrief}` });
+    const fallbackModel = input.model || process.env.AI_302_STORYBOARD_MODEL || process.env.AI_302_TEXT_MODEL || "gpt-4o-mini";
+    const result = await this.generateText({ model: storyboardModel(fallbackModel), temperature: 0.3, systemPrompt: "You create production-ready storyboards. Return only valid JSON, with no Markdown.", prompt: `Create exactly ${input.numberOfScenes} storyboard scenes for this brief. Return strict JSON only: {"scenes":[{"sceneNumber":1,"description":"...","visualPrompt":"...","camera":"...","duration":5}]}. Brief: ${input.storyBrief}` });
     try { return { scenes: normalizeScenes(JSON.parse(cleanJson(result.text)), result.text), rawText: result.text, raw: result.raw }; }
     catch { return { scenes: normalizeScenes({}, result.text), rawText: result.text, raw: result.raw }; }
   },
   async generateImage(input: GenerateImageInput): Promise<GenerateImageOutput> {
     const model = input.model || process.env.AI_302_IMAGE_MODEL || "gpt-image-2";
     const size = (input.size || "1024x1024").replace(/×/g, "x");
+    if (model === GEMINI_IMAGE_MODEL) {
+      const imageUrls = (input.referenceImageUrls?.length ? input.referenceImageUrls : input.referenceImageUrl ? [input.referenceImageUrl] : []).slice(0, 2);
+      const imageParts = imageUrls.map((url) => {
+        const inlineImage = dataImage(url);
+        return inlineImage ? { inline_data: inlineImage } : { image_url: url };
+      });
+      const raw = await request302<RecordValue>(`/google/v1/models/${GEMINI_IMAGE_MODEL}?response_format=url`, {
+        method: "POST",
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: input.prompt }, ...imageParts] }],
+          generationConfig: compact({
+            responseModalities: ["TEXT", "IMAGE"],
+            imageConfig: compact({ aspectRatio: aspectRatioFrom(input.aspectRatio, size) }),
+          }),
+        }),
+      });
+      const imageUrl = geminiImageUrlFrom(raw);
+      return { imageUrl, status: imageUrl ? "completed" : "failed", raw };
+    }
     if (input.referenceImageUrl) {
       const edited = await this.editImageWithAnnotations({
         sourceImageUrl: input.referenceImageUrl,

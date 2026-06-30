@@ -107,6 +107,31 @@ export type CanvasEditPatch = {
   warnings?: string[];
 };
 
+export type AgentDialogueRole = "user" | "assistant";
+
+export type AgentDialogueMessage = {
+  role: AgentDialogueRole;
+  content: string;
+};
+
+export type AgentDialogueOption = {
+  id: string;
+  title: string;
+  summary: string;
+  tags?: string[];
+};
+
+export type AgentDialogueAction = "ask" | "offer_options" | "expand_option" | "finalize_brief";
+
+export type AgentDialogueResponse = {
+  stage: AgentDialogueAction;
+  title: string;
+  message: string;
+  options?: AgentDialogueOption[];
+  brief?: string;
+  suggestedNext?: string[];
+};
+
 const goals: AgentWorkflowGoal[] = ["story_to_video", "image_to_video", "storyboard_only", "ad_package", "custom"];
 const kinds: AgentStepKind[] = ["prompt", "text", "script", "storyboard", "storyboardImage", "image", "video", "audio", "reference", "output"];
 const aspectRatios = ["16:9", "9:16", "1:1"] as const;
@@ -229,5 +254,30 @@ export function validateAgentCanvasEditPlan(value: unknown): AgentCanvasEditPlan
     operations: operations.length ? operations : [{ id: "op-1", type: "noop", reason: "No safe canvas edit operation was produced." }],
     warnings: stringArray(raw.warnings) || [],
     requiresConfirmation: typeof raw.requiresConfirmation === "boolean" ? raw.requiresConfirmation : true,
+  };
+}
+
+export function validateAgentDialogueResponse(value: unknown): AgentDialogueResponse {
+  const raw = object(value);
+  const stages: AgentDialogueAction[] = ["ask", "offer_options", "expand_option", "finalize_brief"];
+  const stage = stages.includes(raw.stage as AgentDialogueAction) ? raw.stage as AgentDialogueAction : "ask";
+  const options = Array.isArray(raw.options) ? raw.options.map((item, index) => {
+    const option = object(item);
+    return {
+      id: safeId(text(option.id), `option-${index + 1}`),
+      title: text(option.title, `Option ${index + 1}`),
+      summary: text(option.summary),
+      tags: stringArray(option.tags),
+    };
+  }).filter((option) => option.summary) : undefined;
+  const message = text(raw.message);
+  if (!message) throw new Error("Agent dialogue response is missing message.");
+  return {
+    stage,
+    title: text(raw.title, "Story Probe"),
+    message,
+    options,
+    brief: text(raw.brief) || undefined,
+    suggestedNext: stringArray(raw.suggestedNext),
   };
 }

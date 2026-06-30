@@ -58,10 +58,16 @@ export function compileWorkflowPlanToCanvas(plan: AgentWorkflowPlan): CanvasPatc
   const groupId = `agent-${crypto.randomUUID()}`;
   const groupColor = "#a8c4bc";
   const stepIdToNodeId = new Map<string, string>();
+  const dependencyMap = buildDependencyMap(plan.steps);
+  const levelMap = buildLevelMap(plan.steps, dependencyMap);
+  const rowsByLevel = new Map<number, number>();
   const nodes: CanvasNode[] = plan.steps.map((step, index) => {
-    const dependsOn = step.dependsOn || (index > 0 ? [plan.steps[index - 1].id] : []);
+    const dependsOn = dependencyMap.get(step.id) || [];
     const upstreamKinds = dependsOn.map((id) => plan.steps.find((candidate) => candidate.id === id)?.kind).filter((kind): kind is NodeType => Boolean(kind));
-    const node = makeNode(step.kind, { x: index * 280, y: Math.max(0, upstreamKinds.includes("image") ? 1 : 0) * 180 });
+    const level = levelMap.get(step.id) || 0;
+    const row = rowsByLevel.get(level) || 0;
+    rowsByLevel.set(level, row + 1);
+    const node = makeNode(step.kind, positionFor(step.kind, level, row));
     const nodeId = `agent-${safeId(step.id)}-${crypto.randomUUID()}`;
     stepIdToNodeId.set(step.id, nodeId);
     const data: CanvasNodeData = {
@@ -79,11 +85,11 @@ export function compileWorkflowPlanToCanvas(plan: AgentWorkflowPlan): CanvasPatc
       groupId,
       groupColor,
     };
-    return { ...node, id: nodeId, position: { x: index * 280, y: step.kind === "image" ? 180 + (nodesInColumn(plan.steps, index, "image") * 180) : step.kind === "video" ? 90 : 0 }, data };
+    return { ...node, id: nodeId, data };
   });
   const edges: WorkflowEdge[] = [];
   plan.steps.forEach((step, index) => {
-    const dependencies = step.dependsOn?.length ? step.dependsOn : index > 0 ? [plan.steps[index - 1].id] : [];
+    const dependencies = dependencyMap.get(step.id) || (index > 0 ? [plan.steps[index - 1].id] : []);
     dependencies.forEach((sourceStepId) => {
       const source = stepIdToNodeId.get(sourceStepId);
       const target = stepIdToNodeId.get(step.id);
@@ -93,6 +99,76 @@ export function compileWorkflowPlanToCanvas(plan: AgentWorkflowPlan): CanvasPatc
   return { nodes, edges };
 }
 
-function nodesInColumn(steps: AgentWorkflowPlan["steps"], index: number, kind: NodeType) {
-  return steps.slice(0, index).filter((step) => step.kind === kind).length;
+function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
+  const byId = new Map(steps.map((step) => [step.id, step]));
+  const map = new Map<string, string[]>();
+  steps.forEach((step, index) => {
+    const explicit = (step.dependsOn || []).filter((id) => byId.has(id) && id !== step.id);
+    const previous = index > 0 ? [steps[index - 1].id] : [];
+    const fallback = explicit.length ? explicit : previous;
+    const storyboardImage = lastStepBefore(steps, index, "storyboardImage");
+
+    if (step.kind === "image" && storyboardImage) {
+      const nonImageDependencies = explicit.filter((id) => byId.get(id)?.kind !== "image" && id !== storyboardImage.id);
+      map.set(step.id, unique([storyboardImage.id, ...nonImageDependencies]));
+      return;
+    }
+
+    if (step.kind === "video") {
+      const keyframes = keyframeStepsBeforeVideo(steps, index);
+      if (keyframes.length) {
+        map.set(step.id, keyframes.map((item) => item.id));
+        return;
+      }
+    }
+
+    map.set(step.id, fallback);
+  });
+  return map;
+}
+
+function buildLevelMap(steps: AgentWorkflowPlan["steps"], dependencyMap: Map<string, string[]>) {
+  const levels = new Map<string, number>();
+  const visiting = new Set<string>();
+  const levelFor = (id: string): number => {
+    if (levels.has(id)) return levels.get(id) || 0;
+    if (visiting.has(id)) return 0;
+    visiting.add(id);
+    const dependencies = dependencyMap.get(id) || [];
+    const level = dependencies.length ? Math.max(...dependencies.map(levelFor)) + 1 : 0;
+    visiting.delete(id);
+    levels.set(id, level);
+    return level;
+  };
+  steps.forEach((step) => levelFor(step.id));
+  return levels;
+}
+
+function lastStepBefore(steps: AgentWorkflowPlan["steps"], index: number, kind: NodeType) {
+  for (let i = index - 1; i >= 0; i -= 1) {
+    if (steps[i].kind === kind) return steps[i];
+  }
+  return undefined;
+}
+
+function keyframeStepsBeforeVideo(steps: AgentWorkflowPlan["steps"], videoIndex: number) {
+  const storyboardIndex = (() => {
+    for (let i = videoIndex - 1; i >= 0; i -= 1) {
+      if (steps[i].kind === "storyboardImage") return i;
+    }
+    return -1;
+  })();
+  const start = storyboardIndex >= 0 ? storyboardIndex + 1 : 0;
+  return steps.slice(start, videoIndex).filter((step) => step.kind === "image");
+}
+
+function positionFor(kind: NodeType, level: number, row: number) {
+  const x = level * 300;
+  if (kind === "image") return { x, y: 180 + row * 190 };
+  if (kind === "video") return { x, y: 90 + row * 190 };
+  return { x, y: row * 170 };
+}
+
+function unique(values: string[]) {
+  return Array.from(new Set(values));
 }

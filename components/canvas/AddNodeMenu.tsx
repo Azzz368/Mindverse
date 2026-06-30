@@ -1,7 +1,7 @@
 ﻿import { useState, useRef, useMemo } from "react";
 import { useCanvasStore } from "@/store/canvasStore";
 import { useLang } from "@/components/LangProvider";
-import type { NodeType } from "@/types/canvas";
+import type { CanvasNodeData, NodeType } from "@/types/canvas";
 import type { Strings } from "@/lib/i18n/strings";
 
 export function getIcon(type: string) {
@@ -17,6 +17,7 @@ const getTools = (t: Strings) => [
   { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: t.toolDescGen45, iconSrc: "/icons/1.png" },
   { id: "storyboard-image", type: "storyboardImage", cat: "Storyboard", title: t.nodeNames["storyboardImage"], desc: t.toolDescStoryboardImage, iconSrc: "/icons/5.png" },
   { id: "gpt-image-2", type: "image", cat: "Image", title: "GPT Image 2", desc: t.toolDescGptImage, iconSrc: "/icons/2.png" },
+  { id: "gemini-3.1-flash-image-preview", type: "image", cat: "Image", title: "gemini-3.1-flash-image-preview", desc: "Google Nano-Banana-2 image generation/editing via 302.ai", iconSrc: "/icons/2.png", data: { title: "gemini-3.1-flash-image-preview", model: "gemini-3.1-flash-image-preview", size: "1024x1024" } },
   { id: "upload-image", type: "upload_image", cat: "Image", title: t.uploadImage, desc: t.toolDescUploadImage, iconSrc: "/icons/normal.png" },
   { id: "audio-gen", type: "audio", cat: "Audio", title: t.nodeNames["audio"], desc: t.toolDescAudio, iconSrc: "/icons/3.png" },
   { id: "claude", type: "text", cat: "Text", title: "Claude", desc: t.toolDescText, iconSrc: "/icons/4.png" },
@@ -52,7 +53,7 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
     }
     // Set ghost type based on tool.type
     // A future enhancement could inject provider defaults into the node
-    setGhostType(tool.type as NodeType);
+    setGhostType(tool.type as NodeType, "data" in tool ? tool.data as Partial<CanvasNodeData> : undefined);
     if (!keepOpen) onClose();
   };
 

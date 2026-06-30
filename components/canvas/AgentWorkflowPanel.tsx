@@ -1,8 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { useCanvasStore } from "@/store/canvasStore";
-import type { AgentCanvasEditPlan, AgentWorkflowPlan, CanvasEditPatch, CanvasPatch } from "@/lib/agent/agentSchema";
+import type { AgentCanvasEditPlan, AgentDialogueResponse, AgentWorkflowPlan, CanvasEditPatch, CanvasPatch } from "@/lib/agent/agentSchema";
 
 const createSuggestions = [
   "周星驰来香港科技大学拍戏，做成一个 10 秒港风喜剧短片",
@@ -16,10 +16,36 @@ const editSuggestions = [
   "给所有图片 prompt 加上港风电影感和胶片颗粒",
 ];
 
-type AgentMode = "create" | "edit";
+type AgentMode = "develop" | "create" | "edit";
 type AgentPreview =
   | { mode: "create"; plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }
   | { mode: "edit"; editPlan: AgentCanvasEditPlan; patch: CanvasEditPatch; summary: string };
+type DialogueEntry =
+  | { role: "user"; content: string }
+  | { role: "assistant"; content: string; response: AgentDialogueResponse };
+
+type SpeechRecognitionEventLike = {
+  resultIndex: number;
+  results: {
+    length: number;
+    [index: number]: {
+      isFinal: boolean;
+      0: { transcript: string };
+    };
+  };
+};
+type BrowserSpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
+};
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
 const operationTarget = (operation: AgentCanvasEditPlan["operations"][number]) => {
   return operation.targetNodeId || operation.sourceNodeId || operation.targetNodeIdForConnection || operation.targetEdgeId || operation.nodeType || "canvas";
@@ -27,30 +53,135 @@ const operationTarget = (operation: AgentCanvasEditPlan["operations"][number]) =
 
 export function AgentWorkflowPanel() {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<AgentMode>("create");
+  const [mode, setMode] = useState<AgentMode>("develop");
   const [brief, setBrief] = useState("");
   const [preview, setPreview] = useState<AgentPreview | null>(null);
+  const [dialogue, setDialogue] = useState<DialogueEntry[]>([]);
+  const [dialogueBusy, setDialogueBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [speechPreview, setSpeechPreview] = useState("");
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const committedSpeechRef = useRef("");
   const generateAgentPlan = useCanvasStore((state) => state.generateAgentPlan);
   const applyAgentPatch = useCanvasStore((state) => state.applyAgentPatch);
   const setPendingAgentPatch = useCanvasStore((state) => state.setPendingAgentPatch);
   const generateAgentEdit = useCanvasStore((state) => state.generateAgentEdit);
   const applyAgentEditPatch = useCanvasStore((state) => state.applyAgentEditPatch);
   const runAgentWorkflow = useCanvasStore((state) => state.runAgentWorkflow);
+  const addStoryChainNode = useCanvasStore((state) => state.addStoryChainNode);
   const nodes = useCanvasStore((state) => state.nodes);
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
   const agentStatus = useCanvasStore((state) => state.agentStatus);
   const agentMessage = useCanvasStore((state) => state.agentMessage);
-  const busy = agentStatus === "planning" || agentStatus === "building" || agentStatus === "running";
+  const busy = agentStatus === "planning" || agentStatus === "building" || agentStatus === "running" || dialogueBusy;
   const canSubmit = brief.trim().length > 0 && !busy;
-  const suggestions = mode === "create" ? createSuggestions : editSuggestions;
+  const suggestions = mode === "edit" ? editSuggestions : createSuggestions;
+
+  useEffect(() => {
+    const speechWindow = window as Window & {
+      SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+      webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    };
+    const SpeechRecognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    const recognition = new SpeechRecognition();
+    recognition.lang = "zh-CN";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.onresult = (event) => {
+      let finalText = "";
+      let interimText = "";
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result[0]?.transcript || "";
+        if (result.isFinal) finalText += transcript;
+        else interimText += transcript;
+      }
+      if (finalText.trim()) {
+        committedSpeechRef.current = `${committedSpeechRef.current}${finalText}`;
+        setBrief((current) => `${current}${current.trim() ? " " : ""}${finalText.trim()}`);
+      }
+      setSpeechPreview(interimText.trim());
+    };
+    recognition.onerror = (event) => {
+      setListening(false);
+      setSpeechPreview("");
+      setLocalError(event.error ? `Voice input failed: ${event.error}` : "Voice input failed.");
+    };
+    recognition.onend = () => {
+      setListening(false);
+      setSpeechPreview("");
+    };
+    recognitionRef.current = recognition;
+    setSpeechSupported(true);
+    return () => {
+      recognition.abort();
+      recognitionRef.current = null;
+    };
+  }, []);
+
+  const toggleVoiceInput = () => {
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      setLocalError("Voice input is not supported in this browser.");
+      return;
+    }
+    setLocalError(null);
+    if (listening) {
+      recognition.stop();
+      setListening(false);
+      return;
+    }
+    try {
+      committedSpeechRef.current = "";
+      setSpeechPreview("");
+      recognition.start();
+      setListening(true);
+    } catch (error) {
+      setListening(false);
+      setLocalError(error instanceof Error ? error.message : "Voice input failed.");
+    }
+  };
+
+  const sendDialogue = async (message: string) => {
+    const trimmed = message.trim();
+    if (!trimmed || dialogueBusy) return;
+    setLocalError(null);
+    setPreview(null);
+    setDialogueBusy(true);
+    const nextDialogue: DialogueEntry[] = [...dialogue, { role: "user", content: trimmed }];
+    setDialogue(nextDialogue);
+    setBrief("");
+    try {
+      const response = await fetch("/api/ai/agent-dialogue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userMessage: trimmed,
+          conversation: dialogue.map((item) => ({ role: item.role, content: item.content })),
+        }),
+      });
+      const payload = await response.json() as { ok?: boolean; response?: AgentDialogueResponse; error?: { message?: unknown } };
+      if (!response.ok || !payload.ok || !payload.response) throw new Error(typeof payload.error?.message === "string" ? payload.error.message : "构思对话生成失败。");
+      addStoryChainNode(payload.response.brief || payload.response.message, payload.response.title);
+      setDialogue([...nextDialogue, { role: "assistant", content: payload.response.message, response: payload.response }]);
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "构思对话生成失败。");
+    } finally {
+      setDialogueBusy(false);
+    }
+  };
 
   const submit = async () => {
     if (!canSubmit) return;
     setLocalError(null);
     setPreview(null);
     try {
-      if (mode === "create") {
+      if (mode === "develop") {
+        await sendDialogue(brief);
+      } else if (mode === "create") {
         const result = await generateAgentPlan(brief);
         setPreview({ mode: "create", ...result });
       } else {
@@ -132,7 +263,14 @@ export function AgentWorkflowPanel() {
           </h2>
         </div>
 
-        <div className="grid grid-cols-2 rounded-full border border-[#e1e6ee] bg-white p-1 text-[12px] font-semibold shadow-sm">
+        <div className="grid grid-cols-3 rounded-full border border-[#e1e6ee] bg-white p-1 text-[12px] font-semibold shadow-sm">
+          <button
+            type="button"
+            onClick={() => switchMode("develop")}
+            className={`rounded-full px-3 py-2 transition ${mode === "develop" ? "bg-[#111827] text-white" : "text-[#5f6b7a] hover:bg-[#f7f9fc]"}`}
+          >
+            构思对话
+          </button>
           <button
             type="button"
             onClick={() => switchMode("create")}
@@ -152,6 +290,46 @@ export function AgentWorkflowPanel() {
         {mode === "edit" && (
           <div className="rounded-xl border border-[#e1e6ee] bg-white px-3 py-2 text-[12px] text-[#5f6b7a] shadow-sm">
             当前画布：{nodes.length} 个节点{selectedNodeId ? `，已选中 ${selectedNodeId}` : "，未选中节点"}。
+          </div>
+        )}
+
+        {mode === "develop" && (
+          <div className="space-y-3">
+            {!dialogue.length && (
+              <div className="rounded-xl border border-[#e1e6ee] bg-white px-3 py-3 text-[12px] leading-5 text-[#5f6b7a] shadow-sm">
+                先做构思对话：Agent 会像导演助理一样追问拍摄意图、给出三个故事方向，用户可以选择、展开、推翻重来，最后沉淀成可用于生成工作流的 brief。
+              </div>
+            )}
+            {dialogue.map((item, index) => (
+              <div key={`${item.role}-${index}`} className={`rounded-[16px] border px-3 py-3 shadow-sm ${item.role === "user" ? "ml-10 border-[#dce2ea] bg-[#111827] text-white" : "mr-8 border-[#e1e6ee] bg-white text-[#111827]"}`}>
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] opacity-60">{item.role === "user" ? "You" : item.response.title}</div>
+                <p className="whitespace-pre-wrap text-[13px] leading-6">{item.content}</p>
+                {item.role === "assistant" && !!item.response.options?.length && (
+                  <div className="mt-3 space-y-2">
+                    {item.response.options.map((option) => (
+                      <div key={option.id} className="rounded-xl border border-[#edf1f6] bg-[#f7f9fc] p-3">
+                        <div className="text-[13px] font-semibold text-[#111827]">{option.id}. {option.title}</div>
+                        <p className="mt-1 text-[12px] leading-5 text-[#5f6b7a]">{option.summary}</p>
+                        {!!option.tags?.length && <div className="mt-2 flex flex-wrap gap-1.5">{option.tags.map((tag) => <span key={tag} className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-[#6b7280]">{tag}</span>)}</div>}
+                        <div className="mt-3 flex gap-2">
+                          <Button type="button" className="rounded-full px-3 py-1 text-[11px]" disabled={busy} onClick={() => void sendDialogue(`我选择 ${option.id}：${option.title}。请继续推进这个方向。`)}>选这个</Button>
+                          <Button type="button" className="rounded-full px-3 py-1 text-[11px]" disabled={busy} onClick={() => void sendDialogue(`请展开讲讲 ${option.id}：${option.title}，再给我几个细化选择。`)}>展开</Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {item.role === "assistant" && item.response.brief && (
+                  <div className="mt-3 rounded-xl border border-[#dce2ea] bg-[#f7f9fc] p-3">
+                    <div className="text-[12px] font-semibold text-[#111827]">可执行 brief</div>
+                    <p className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-[#5f6b7a]">{item.response.brief}</p>
+                    <Button type="button" className="mt-3 rounded-full border-[#111827] bg-[#111827] px-3 py-1 text-[11px] text-white hover:border-[#263244] hover:bg-[#263244]" onClick={() => { setMode("create"); setBrief(item.response.brief || item.content); }}>
+                      用这个生成工作流
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
@@ -193,7 +371,7 @@ export function AgentWorkflowPanel() {
               }
             }}
             rows={4}
-            placeholder={mode === "create" ? "描述短片、广告、分镜、图生视频或完整创作包需求..." : "例如：把视频改成竖屏 TikTok 风格，并加一个背景音乐节点..."}
+            placeholder={mode === "develop" ? "例如：我想拍一个周星驰来香港科技大学拍戏的短片..." : mode === "create" ? "描述短片、广告、分镜、图生视频或完整创作包需求..." : "例如：把视频改成竖屏 TikTok 风格，并加一个背景音乐节点..."}
             className="min-h-28 w-full resize-none rounded-t-[18px] bg-transparent px-4 py-4 text-[14px] leading-6 text-[#111827] outline-none placeholder:text-[#8a94a3]"
             aria-label="Agent instruction"
           />
@@ -208,13 +386,30 @@ export function AgentWorkflowPanel() {
             </Button>
             <Button
               type="button"
+              disabled={!speechSupported || busy}
+              onClick={toggleVoiceInput}
+              aria-pressed={listening}
+              aria-label={listening ? "Stop voice input" : "Start voice input"}
+              title={speechSupported ? "Voice input" : "Voice input is not supported in this browser"}
+              className={`flex items-center gap-2 rounded-full px-4 ${listening ? "border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100" : ""}`}
+            >
+              <span className={`h-2 w-2 rounded-full ${listening ? "bg-rose-500" : "bg-[#7b8794]"}`} />
+              {listening ? "Listening" : "Voice"}
+            </Button>
+            <Button
+              type="button"
               disabled={!canSubmit}
               onClick={() => void submit()}
               className="rounded-full border-[#111827] bg-[#111827] px-4 text-white hover:border-[#263244] hover:bg-[#263244]"
             >
-              {busy ? "生成中..." : mode === "create" ? "生成计划" : "生成修改计划"}
+              {busy ? "生成中..." : mode === "develop" ? "继续构思" : mode === "create" ? "生成计划" : "生成修改计划"}
             </Button>
           </div>
+          {speechPreview && (
+            <div className="border-t border-[#edf1f6] px-4 py-2 text-[12px] text-[#5f6b7a]">
+              {speechPreview}
+            </div>
+          )}
         </div>
 
         {preview?.mode === "create" && (
