@@ -21,7 +21,6 @@ const GLOW_COLORS: Record<string, string> = {
   reference: "#64748b",
   output: "#64748b",
 };
-const icons: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", audio: "\u266B", storyboard: "\u25A6", reference: "\u2141", output: "\u2197" };
 const RUNNABLE_TYPES = new Set(["prompt", "text", "script", "image", "video", "audio", "storyboard", "storyboardImage", "output"]);
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value : "";
@@ -205,7 +204,6 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
           />
         )}
         <div className="flex shrink-0 items-center gap-2 border-b border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
-          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[#f0f1f3] text-sm text-[#030303] dark:bg-cyan-400/10 dark:text-cyan-300">{icons[data.nodeType]}</span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-semibold text-[#030303] dark:text-slate-100">{data.title}</p>
             <p className="text-[10px] uppercase tracking-widest text-[#939393] dark:text-slate-500">{data.nodeType}</p>
