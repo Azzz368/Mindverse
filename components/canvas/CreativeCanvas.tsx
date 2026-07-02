@@ -11,7 +11,7 @@ import type { NodeType, WorkflowEdge } from "@/types/canvas";
 
 type AlignGuide = { type: "v" | "h"; pos: number };
 const SNAP_THRESHOLD = 10;
-const GROUP_PADDING = 34;
+const GROUP_PADDING = 40;
 
 /* ── Morandicolor palette (10 colours) ───────────────────────── */
 const MORANDI = [
@@ -53,7 +53,6 @@ type CtxMenu = { x: number; y: number; nodeIds: string[] };
 function ContextMenu({ menu, onClose }: { menu: CtxMenu; onClose(): void }) {
   const { setGroupColor, setGroupLocked, runNode, nodes } = useCanvasStore();
   const { t } = useLang();
-  const [showColors, setShowColors] = useState(false);
   const allLocked = menu.nodeIds.every(id => nodes.find(n => n.id === id)?.data.locked);
 
   return (
@@ -61,22 +60,18 @@ function ContextMenu({ menu, onClose }: { menu: CtxMenu; onClose(): void }) {
       <div className="nodrag min-w-[160px] rounded-xl border border-[#e7eaf0] bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-[#101c29]"
         onMouseLeave={onClose}>
         {/* Group colour */}
-        <button className="flex w-full items-center gap-2 px-3 py-2 text-xs text-[#1a1a1a] hover:bg-[#f0f1f3] dark:text-slate-200 dark:hover:bg-slate-800"
-          onClick={() => setShowColors(v => !v)}>
-          <span className="h-3 w-3 rounded-full border border-[#c9ccd1]" style={{ background: "linear-gradient(135deg,#c9a9a6,#a0b4c0,#a6b89a)" }}/>
+        <div className="px-3 pt-2 pb-1 text-xs font-semibold text-[#676f7b] dark:text-slate-400">
           {t.groupColor}
-        </button>
-        {showColors && (
-          <div className="flex flex-wrap gap-1.5 px-3 pb-2">
-            {MORANDI.map(c => (
-              <button key={c.bg} title={c.label}
-                className="h-5 w-5 rounded-full border-2 border-white shadow transition hover:scale-110"
-                style={{ background: c.bg }}
-                onClick={() => { setGroupColor(menu.nodeIds, c.bg); onClose(); }}
-              />
-            ))}
-          </div>
-        )}
+        </div>
+        <div className="flex flex-wrap gap-2 px-3 pb-2 pt-1">
+          {MORANDI.slice(0, 8).map(c => (
+            <button key={c.bg} title={c.label}
+              className="h-5 w-5 rounded-full border-2 border-white shadow transition hover:scale-110"
+              style={{ background: c.bg }}
+              onClick={() => { setGroupColor(menu.nodeIds, c.bg); onClose(); }}
+            />
+          ))}
+        </div>
         {/* Run group */}
         <button className="flex w-full items-center gap-2 px-3 py-2 text-xs text-[#1a1a1a] hover:bg-[#f0f1f3] dark:text-slate-200 dark:hover:bg-slate-800"
           onClick={async () => { onClose(); for (const id of menu.nodeIds) await runNode(id); }}>
@@ -101,14 +96,16 @@ const rgba = (hex: string, alpha: number) => {
 };
 
 const fallbackSizeFor = (type: string) => ({
-  script: { w: 320, h: 260 },
-  storyboard: { w: 320, h: 260 },
-  image: { w: 320, h: 260 },
-  video: { w: 320, h: 170 },
-  audio: { w: 320, h: 170 },
-  storyboardImage: { w: 320, h: 180 },
-  output: { w: 280, h: 150 },
-}[type] || { w: 280, h: 150 });
+  script: { w: 320, h: 460 },
+  storyboard: { w: 320, h: 420 },
+  image: { w: 320, h: 360 },
+  video: { w: 320, h: 280 },
+  audio: { w: 320, h: 220 },
+  storyboardImage: { w: 320, h: 280 },
+  output: { w: 280, h: 200 },
+  text: { w: 280, h: 280 },
+  prompt: { w: 280, h: 280 },
+}[type] || { w: 280, h: 250 });
 
 export function CreativeCanvas() {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, ghostType, setGhostType, placeGhostNode, addMediaNode, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia, pendingAgentPatch, setPendingAgentPatch, placeAgentPatch } = useCanvasStore();
@@ -296,7 +293,7 @@ export function CreativeCanvas() {
           <div
             key={group.id}
             className="react-flow__group-backdrop"
-            style={{ left: group.left, top: group.top, width: group.width, height: group.height, borderColor: rgba(group.color, 0.45), backgroundColor: rgba(group.color, 0.13) }}
+            style={{ left: group.left, top: group.top, width: group.width, height: group.height, borderColor: rgba(group.color, 0.45), backgroundColor: rgba(group.color, 0.28) }}
           />
         ))}
         <Controls showInteractive={false} />
