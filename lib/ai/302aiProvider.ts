@@ -2,6 +2,7 @@ import "server-only";
 import { request302, request302OpenAI } from "./302aiClient";
 import { AIProviderError } from "./errors";
 import { requestChatCompletion, storyboardModel, textModel, textProvider } from "./textLLMClient";
+import { professionalStoryboardInstructionFromSkill } from "@/lib/workflow/storySkillPrompts";
 import type { AIProvider, EditImageWithAnnotationsInput, EditImageWithAnnotationsOutput, GenerateAudioInput, GenerateAudioOutput, GenerateImageInput, GenerateImageOutput, GenerateStoryboardInput, GenerateStoryboardOutput, GenerateTextInput, GenerateTextOutput, GenerateVideoInput, GenerateVideoOutput, StoryboardScene } from "./types";
 
 type RecordValue = Record<string, unknown>;
@@ -10,10 +11,45 @@ const object = (value: unknown): RecordValue => value && typeof value === "objec
 const string = (value: unknown) => typeof value === "string" ? value : undefined;
 const taskStatus = (value: unknown): "completed" | "pending" | "failed" => ["completed", "success", "succeeded", "done"].includes(String(value).toLowerCase()) ? "completed" : ["failed", "error", "cancelled"].includes(String(value).toLowerCase()) ? "failed" : "pending";
 const cleanJson = (value: string) => value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-const normalizeScenes = (value: unknown, fallback: string): StoryboardScene[] => {
-  const scenes = object(value).scenes;
-  if (!Array.isArray(scenes)) return [{ sceneNumber: 1, description: fallback, visualPrompt: fallback, camera: "Creative framing", duration: 5 }];
-  return scenes.map((scene, index) => { const item = object(scene); return { sceneNumber: Number(item.sceneNumber) || index + 1, description: string(item.description) || fallback, visualPrompt: string(item.visualPrompt) || string(item.description) || fallback, camera: string(item.camera) || "Creative framing", duration: Number(item.duration) || 5 }; });
+const parseJson = (value: string) => {
+  const cleaned = cleanJson(value);
+  try { return JSON.parse(cleaned) as unknown; } catch {}
+  const objectStart = cleaned.indexOf("{"), objectEnd = cleaned.lastIndexOf("}");
+  if (objectStart >= 0 && objectEnd > objectStart) return JSON.parse(cleaned.slice(objectStart, objectEnd + 1)) as unknown;
+  const arrayStart = cleaned.indexOf("["), arrayEnd = cleaned.lastIndexOf("]");
+  if (arrayStart >= 0 && arrayEnd > arrayStart) return JSON.parse(cleaned.slice(arrayStart, arrayEnd + 1)) as unknown;
+  throw new Error("No parseable JSON found.");
+};
+const sceneArrayFrom = (value: unknown) => {
+  const data = object(value);
+  const candidates = [value, data.scenes, data.shots, data.storyboard];
+  return candidates.find(Array.isArray) as unknown[] | undefined;
+};
+const normalizeScenes = (value: unknown, fallback: string, requestedCount: number): StoryboardScene[] => {
+  const count = Math.max(1, Math.min(30, Math.round(Number(requestedCount) || 1)));
+  const scenes = sceneArrayFrom(value) || [];
+  const normalized = scenes.map((scene, index) => {
+    const item = object(scene);
+    const description = string(item.description) || string(item.action) || string(item.summary) || fallback;
+    return {
+      sceneNumber: Number(item.sceneNumber || item.shotNumber) || index + 1,
+      description,
+      visualPrompt: string(item.visualPrompt) || string(item.imagePrompt) || description,
+      camera: string(item.camera) || string(item.cameraDirection) || "电影感单镜头构图，保持前后连续性",
+      duration: Number(item.duration) || 5,
+    };
+  });
+  while (normalized.length < count) {
+    const next = normalized.length + 1;
+    normalized.push({
+      sceneNumber: next,
+      description: `第 ${next} 镜：延续前一镜的动作和情绪，继续推进：${fallback}`,
+      visualPrompt: `第 ${next} 镜，一张单独电影关键帧画面，保持同一人物、服装、场景、光线和故事连续性：${fallback}`,
+      camera: "电影感单镜头构图，保持前后连续性",
+      duration: 5,
+    });
+  }
+  return normalized.slice(0, count).map((scene, index) => ({ ...scene, sceneNumber: index + 1 }));
 };
 const imageExtension = (contentType: string | null) => contentType?.includes("jpeg") ? "jpg" : contentType?.includes("webp") ? "webp" : contentType?.includes("gif") ? "gif" : "png";
 const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
@@ -70,9 +106,14 @@ export const ai302Provider: AIProvider = {
   },
   async generateStoryboard(input: GenerateStoryboardInput): Promise<GenerateStoryboardOutput> {
     const fallbackModel = input.model || process.env.AI_302_STORYBOARD_MODEL || process.env.AI_302_TEXT_MODEL || "gpt-4o-mini";
-    const result = await this.generateText({ model: storyboardModel(fallbackModel), temperature: 0.3, systemPrompt: "You create production-ready storyboards. Return only valid JSON, with no Markdown.", prompt: `Create exactly ${input.numberOfScenes} storyboard scenes for this brief. Return strict JSON only: {"scenes":[{"sceneNumber":1,"description":"...","visualPrompt":"...","camera":"...","duration":5}]}. Brief: ${input.storyBrief}` });
-    try { return { scenes: normalizeScenes(JSON.parse(cleanJson(result.text)), result.text), rawText: result.text, raw: result.raw }; }
-    catch { return { scenes: normalizeScenes({}, result.text), rawText: result.text, raw: result.raw }; }
+    const result = await this.generateText({
+      model: storyboardModel(fallbackModel),
+      temperature: 0.25,
+      systemPrompt: "你是一名电影导演、分镜指导和连续性监督。只返回严格 JSON，不要 Markdown。",
+      prompt: professionalStoryboardInstructionFromSkill(input.storyBrief, input.numberOfScenes)
+    });
+    try { return { scenes: normalizeScenes(parseJson(result.text), result.text, input.numberOfScenes), rawText: result.text, raw: result.raw }; }
+    catch { return { scenes: normalizeScenes({}, result.text, input.numberOfScenes), rawText: result.text, raw: result.raw }; }
   },
   async generateImage(input: GenerateImageInput): Promise<GenerateImageOutput> {
     const model = input.model || process.env.AI_302_IMAGE_MODEL || "gpt-image-2";

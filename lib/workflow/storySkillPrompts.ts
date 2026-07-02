@@ -1,8 +1,16 @@
 import "server-only";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const readSkill = (filename: string) => readFileSync(join(process.cwd(), "lib", "workflow", "skills", filename), "utf8");
+const readSkill = (filename: string) => {
+  const candidates = [
+    join(process.cwd(), "lib", "workflow", "skills", filename),
+    join(process.cwd(), "V2-map", "Mindverse", "lib", "workflow", "skills", filename),
+  ];
+  const path = candidates.find((candidate) => existsSync(candidate));
+  if (!path) throw new Error(`Workflow skill ${filename} was not found. Checked: ${candidates.join(", ")}`);
+  return readFileSync(path, "utf8");
+};
 const render = (template: string, values: Record<string, string | number>) =>
   Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{{${key}}}`, String(value)), template);
 

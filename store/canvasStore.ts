@@ -287,8 +287,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const node = makeNode(type, position);
       return { ...node, data: { ...node.data, ...patch, status: "idle", output: undefined, error: undefined, groupId, groupColor } };
     };
-    const negativePrompt = "arrows, labels, UI, watermark, text overlay";
-    const continuity = "single production storyboard frame, film still, no text, maintain character wardrobe, location, lighting, props, and story continuity";
+    const negativePrompt = "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay";
+    const continuity = "只生成一个单独的电影拍摄画面，不要拼贴图或分镜板，电影剧照质感，无文字，保持人物、服装、场景、光线、道具和故事连续性";
     const mainImage = makeTemplateNode("image", { x: 613.2296482571714, y: -554.2449289599219 }, {
       title: "gpt-image-2",
       prompt: `以这个背景，生成${idea}的图片`,

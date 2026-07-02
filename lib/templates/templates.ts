@@ -8,7 +8,7 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   video: { prompt: "A gentle cinematic movement", duration: 5, aspectRatio: "16:9", referenceImageUrl: "", model: "", resolution: "", fps: "", videoInputMode: "image-to-video", videoProvider: "tokenstar", klingMode: "image-to-video", tokenstarMode: "kling-image", generateAudio: true, referenceImageAssetUrl: "", referenceVideoAssetUrl: "", referenceAudioAssetUrl: "" },
   audio: { prompt: "A warm, modern ambient bed", voiceStyle: "Atmospheric", duration: 12, model: "", voice: "", emotion: "", volume: 1 },
   storyboard: { storyBrief: "A small transformation told in light and motion", numberOfScenes: 3, model: "" },
-  storyboardImage: { aspectRatio: "16:9", negativePrompt: "arrows, labels, UI, watermark, text overlay" },
+  storyboardImage: { aspectRatio: "16:9", negativePrompt: "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay" },
   reference: { imageUrl: "", notes: "Visual reference and art direction." },
   output: { format: "Creative package" },
 };
