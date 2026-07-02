@@ -5,6 +5,7 @@ const record = (value: unknown): Record<string, unknown> =>
 const text = (value: unknown, fallback = "") => typeof value === "string" ? value : fallback;
 const clean = (value: string) => value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
 const hasChinese = (value: string) => /[\u3400-\u9fff]/.test(value);
+const singleFrameNegative = "拼贴图, 分屏, 双联画, 三联画, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, 前后对比图, 缩略图合集, 马赛克布局, collage, split screen, diptych, triptych, quadriptych, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, image sequence, thumbnails, mosaic, arrows, labels, UI, watermark, text overlay";
 
 export const scriptInstruction = (brief: string, tone: string, sceneCount: number) => {
   if (hasChinese(brief)) return `请根据下面的创意简介，创作一份完整、可拍摄的虚构短片剧本。不要只返回标题、概念、梗概、旅行总结或宣传文案。
@@ -98,17 +99,27 @@ const fallbackScenes = (brief: string, count: number) =>
     };
   });
 
-export function promptsFromStoryboard(value: unknown, aspectRatio = "16:9", negativePrompt = "arrows, labels, UI, watermark, text overlay"): StoryboardImagePrompt[] {
+export function promptsFromStoryboard(value: unknown, aspectRatio = "16:9", negativePrompt = singleFrameNegative): StoryboardImagePrompt[] {
   const shots = Array.isArray(value) ? value : Array.isArray(record(value).shots) ? record(value).shots as unknown[] : [];
   return shots.map((shot, index) => {
     const item = record(shot);
     const number = Number(item.shotNumber || item.sceneNumber) || index + 1;
     const visual = text(item.imagePrompt) || text(item.visualPrompt) || text(item.description);
+    const mergedNegative = [negativePrompt, singleFrameNegative].filter(Boolean).join(", ");
     return {
       shotNumber: number,
       title: `Shot ${String(number).padStart(2, "0")}`,
-      prompt: [visual, text(item.camera), text(item.composition), text(item.action), "Maintain character, wardrobe, location, lighting, and story continuity."].filter(Boolean).join(". "),
-      negativePrompt,
+      prompt: [
+        `第 ${number} 镜。只生成这一镜的一张单独电影关键帧画面。`,
+        "这必须是一个完整的单一摄影机画面，不是分镜板，不是拼贴图，不是多张图片合集。",
+        visual,
+        text(item.camera),
+        text(item.composition),
+        text(item.action),
+        "保持与前后镜头一致的人物、服装、道具、场景空间逻辑、光线风格、镜头语言、色调和故事连续性。",
+        "画面应像真实电影拍摄中的单张关键帧：只有一个明确动作瞬间、自然人物调度和连贯背景。"
+      ].filter(Boolean).join(" "),
+      negativePrompt: mergedNegative,
       aspectRatio,
     };
   });

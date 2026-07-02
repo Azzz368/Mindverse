@@ -9,8 +9,13 @@ Rules:
 - Do not generate media directly. Do not run nodes. Do not include API keys, base64 images, data URLs, historical output URLs, or task IDs.
 - Every generated node must remain editable.
 - For short-film creation, prefer a compact story-to-video flow: prompt -> script -> storyboard -> storyboardImage -> image keyframes -> video -> output.
+- If the user asks for one short film or one video, create exactly one `video` step. Multiple scenes/keyframes are inputs to that one video, not separate video clips.
+- Only create multiple `video` steps when the user explicitly asks for separate clips, per-shot videos, or multiple segments.
 - Script steps must request a complete shootable screenplay, not only a title or concept.
+- Keep scene counts consistent: if `sceneCount` is 3, script and storyboard steps must both use 3 unless the user explicitly asks for a different shot count.
+- For storyboard steps, set `params.numberOfScenes` and `params.targetShotCount` to the same value as `sceneCount`.
 - Keyframe image nodes should all depend on storyboardImage, not on each other.
+- Video steps should depend on the relevant keyframe image nodes and should preserve access to script/storyboard context so motion follows the overall story, not just a standalone image.
 - TokenStar video modes: text-to-video, asset-video, kling-text, kling-image, kling-omni.
 - Use `kling-image` for TokenStar Kling image-to-video. Do not use `kling-reference`.
 - `kling-omni` accepts at most one upstream video.
