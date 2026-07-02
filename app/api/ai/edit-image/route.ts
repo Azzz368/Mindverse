@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { normalizeAIError } from "@/lib/ai/errors";
 import { getImageAIProvider } from "@/lib/ai/provider";
+import { archiveResultMedia } from "@/lib/storage/mediaArchive";
 
 type EditRequest = { sourceImageUrl?: unknown; prompt?: unknown; maskImageUrl?: unknown; annotationDocument?: unknown; annotationSnapshotDataUrl?: unknown; size?: unknown; quality?: unknown; outputFormat?: unknown };
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
@@ -25,7 +26,8 @@ export async function POST(request: Request) {
       outputFormat: ["png", "jpeg", "webp"].includes(text(body.outputFormat)) ? text(body.outputFormat) as "png" | "jpeg" | "webp" : undefined
     });
     if (output.status !== "completed" || !output.revisedImageUrl) throw new Error("302.AI image edit completed without a revised image URL.");
-    return NextResponse.json({ ok: true, output });
+    const archivedOutput = await archiveResultMedia(output, { sourceProvider: provider.name, mediaTypeHint: "image" });
+    return NextResponse.json({ ok: true, output: archivedOutput });
   } catch (error) {
     const normalized = normalizeAIError(error);
     return NextResponse.json({ ok: false, error: { message: normalized.message, status: normalized.status } }, { status: normalized.status >= 400 && normalized.status < 600 ? normalized.status : 500 });

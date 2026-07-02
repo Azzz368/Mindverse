@@ -1,3 +1,4 @@
-import { Workspace } from "@/components/canvas/Workspace";
+import { WorkflowDashboard } from "@/components/workspace/WorkflowDashboard";
 
-export default function WorkspacePage() { return <Workspace />; }
+export default function WorkspacePage() { return <WorkflowDashboard />; }
+

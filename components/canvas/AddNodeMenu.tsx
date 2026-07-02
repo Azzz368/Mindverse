@@ -57,15 +57,37 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
     if (!keepOpen) onClose();
   };
 
+  const archiveLocalImage = async (file: File) => {
+    const form = new FormData();
+    form.append("mediaType", "image");
+    form.append("file", file);
+    const response = await fetch("/api/storage/archive", { method: "POST", body: form });
+    const payload = await response.json() as { ok?: boolean; output?: { cdnUrl?: unknown } };
+    if (!response.ok || !payload.ok || typeof payload.output?.cdnUrl !== "string") throw new Error("Image archive failed.");
+    return payload.output.cdnUrl;
+  };
+
+  const readAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Could not read file."));
+    reader.readAsDataURL(file);
+  });
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).filter(f => /^image\//.test(f.type));
     files.forEach((file, i) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (i === 0) setGhostMedia(reader.result as string);
-        else setGhostMedia(reader.result as string); // Not ideal for multiple, but matches previous behavior
-      };
-      reader.readAsDataURL(file);
+      void (async () => {
+        let url: string;
+        try {
+          url = await archiveLocalImage(file);
+        } catch (error) {
+          console.error("Local image archive failed, falling back to data URL", error);
+          url = await readAsDataUrl(file);
+        }
+        if (i === 0) setGhostMedia(url);
+        else setGhostMedia(url);
+      })();
     });
     e.target.value = "";
     if (!keepOpen) onClose();
