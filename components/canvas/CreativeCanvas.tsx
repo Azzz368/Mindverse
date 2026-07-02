@@ -48,40 +48,67 @@ function GhostMediaNode({ dataUrl, x, y }: { dataUrl: string; x: number; y: numb
   );
 }
 
+function GroupOverlayNode({ id, data, selected }: import("@xyflow/react").NodeProps) {
+  const { updateGroupColor, setGroupLockedByGroupId, runGroup } = useCanvasStore();
+  const { t } = useLang();
+  const [showColors, setShowColors] = useState(false);
+  const groupId = data.groupId as string;
+  const allLocked = data.locked as boolean;
+  const color = data.color as string;
+
+  return (
+    <>
+      {selected && (
+        <div className="nodrag absolute -top-14 left-0 z-50 flex items-center gap-2 rounded-xl border border-[#e7eaf0] bg-white px-3 py-2 shadow-lg dark:border-slate-700 dark:bg-[#101c29]"
+             onPointerDown={e => e.stopPropagation()}>
+          <button onClick={() => setShowColors(!showColors)} className="text-xs font-semibold text-[#030303] hover:text-[#676f7b] dark:text-slate-200">{t.groupColor}</button>
+          <div className="h-4 w-px bg-[#e7eaf0] dark:bg-slate-700"/>
+          <button onClick={() => setGroupLockedByGroupId(groupId, !allLocked)} className="text-xs font-semibold text-[#030303] hover:text-[#676f7b] dark:text-slate-200">{allLocked ? t.unlockGroup : t.lockGroup}</button>
+          <div className="h-4 w-px bg-[#e7eaf0] dark:bg-slate-700"/>
+          <button onClick={() => { setShowColors(false); void runGroup(groupId); }} className="text-xs font-semibold text-[#030303] hover:text-[#676f7b] dark:text-slate-200">{t.runGroup}</button>
+
+          {showColors && (
+            <div className="absolute left-0 top-12 flex gap-1.5 rounded-xl border border-[#e7eaf0] bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-[#101c29]">
+              {MORANDI.slice(0, 8).map(c => (
+                <button key={c.bg} title={c.label} className="h-5 w-5 rounded-full border-2 border-white shadow transition hover:scale-110" style={{ background: c.bg }}
+                  onClick={() => { updateGroupColor(groupId, c.bg); setShowColors(false); }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      <div className="pointer-events-none h-full w-full rounded-[18px] border border-transparent transition-colors duration-300"
+           style={{
+             backgroundColor: rgba(color, selected ? 0.45 : 0.30),
+             borderColor: selected ? color : "transparent",
+           }} />
+    </>
+  );
+}
+
 /* ── Right-click context menu for selected nodes ─────────────── */
 type CtxMenu = { x: number; y: number; nodeIds: string[] };
 function ContextMenu({ menu, onClose }: { menu: CtxMenu; onClose(): void }) {
-  const { setGroupColor, setGroupLocked, runNode, nodes } = useCanvasStore();
+  const { setGroupColor } = useCanvasStore();
   const { t } = useLang();
-  const allLocked = menu.nodeIds.every(id => nodes.find(n => n.id === id)?.data.locked);
 
   return (
     <div className="fixed z-[9999]" style={{ left: menu.x, top: menu.y }}>
-      <div className="nodrag min-w-[160px] rounded-xl border border-[#e7eaf0] bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-[#101c29]"
+      <div className="nodrag min-w-[160px] rounded-xl border border-[#e7eaf0] bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-[#101c29]"
         onMouseLeave={onClose}>
-        {/* Group colour */}
-        <div className="px-3 pt-2 pb-1 text-xs font-semibold text-[#676f7b] dark:text-slate-400">
-          {t.groupColor}
-        </div>
-        <div className="flex flex-wrap gap-2 px-3 pb-2 pt-1">
+        <p className="mb-2 text-xs font-semibold text-[#676f7b] dark:text-slate-400">
+          Create Group
+        </p>
+        <div className="flex flex-wrap gap-2">
           {MORANDI.slice(0, 8).map(c => (
             <button key={c.bg} title={c.label}
-              className="h-5 w-5 rounded-full border-2 border-white shadow transition hover:scale-110"
+              className="h-6 w-6 rounded-full border-2 border-white shadow transition hover:scale-110"
               style={{ background: c.bg }}
               onClick={() => { setGroupColor(menu.nodeIds, c.bg); onClose(); }}
             />
           ))}
         </div>
-        {/* Run group */}
-        <button className="flex w-full items-center gap-2 px-3 py-2 text-xs text-[#1a1a1a] hover:bg-[#f0f1f3] dark:text-slate-200 dark:hover:bg-slate-800"
-          onClick={async () => { onClose(); for (const id of menu.nodeIds) await runNode(id); }}>
-          {t.runGroup}
-        </button>
-        {/* Lock / unlock */}
-        <button className="flex w-full items-center gap-2 px-3 py-2 text-xs text-[#1a1a1a] hover:bg-[#f0f1f3] dark:text-slate-200 dark:hover:bg-slate-800"
-          onClick={() => { setGroupLocked(menu.nodeIds, !allLocked); onClose(); }}>
-          {allLocked ? t.unlockGroup : t.lockGroup}
-        </button>
       </div>
     </div>
   );
