@@ -137,8 +137,7 @@ function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
   if (step.kind === "video") {
     const keyframes = keyframeStepsBeforeVideo(steps, index);
     if (keyframes.length) {
-        const storyContext = storyContextStepsBeforeVideo(steps, index);
-        map.set(step.id, unique([...storyContext.map((item) => item.id), ...keyframes.map((item) => item.id)]));
+        map.set(step.id, keyframes.map((item) => item.id));
         return;
       }
     }
@@ -181,10 +180,6 @@ function keyframeStepsBeforeVideo(steps: AgentWorkflowPlan["steps"], videoIndex:
   })();
   const start = storyboardIndex >= 0 ? storyboardIndex + 1 : 0;
   return steps.slice(start, videoIndex).filter((step) => step.kind === "image");
-}
-
-function storyContextStepsBeforeVideo(steps: AgentWorkflowPlan["steps"], videoIndex: number) {
-  return steps.slice(0, videoIndex).filter((step) => step.kind === "script" || step.kind === "storyboard");
 }
 
 function positionFor(kind: NodeType, level: number, row: number) {

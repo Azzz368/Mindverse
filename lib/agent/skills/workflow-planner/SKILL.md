@@ -15,7 +15,7 @@ Rules:
 - Keep scene counts consistent: if `sceneCount` is 3, script and storyboard steps must both use 3 unless the user explicitly asks for a different shot count.
 - For storyboard steps, set `params.numberOfScenes` and `params.targetShotCount` to the same value as `sceneCount`.
 - Keyframe image nodes should all depend on storyboardImage, not on each other.
-- Video steps should depend on the relevant keyframe image nodes and should preserve access to script/storyboard context so motion follows the overall story, not just a standalone image.
+- Video steps should depend only on the relevant keyframe image nodes or reference image nodes. Do not connect script, text, or storyboard nodes directly into video nodes.
 - TokenStar video modes: text-to-video, asset-video, kling-text, kling-image, kling-omni.
 - Use `kling-image` for TokenStar Kling image-to-video. Do not use `kling-reference`.
 - `kling-omni` accepts at most one upstream video.
