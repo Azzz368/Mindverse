@@ -179,14 +179,19 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
   const isGenerating = data.status === "running" || data.status === "waiting";
   const isWaiting = record(data.output?.value).status === "pending";
   const keyframePrompts = data.nodeType === "storyboardImage" && Array.isArray((record(data.output?.value)).prompts) ? (record(data.output?.value).prompts as unknown[]) : [];
+  const visualGroupColor = data.workflowId ? undefined : data.groupColor;
 
   return (
     <>
       <div
-        style={{ width: cardSize.w, ...(cardSize.h > 0 ? { height: cardSize.h } : {}) }}
-        className={`relative rounded-xl border bg-white shadow-md shadow-black/5 dark:bg-[#101c29] dark:shadow-xl dark:shadow-black/20 ${cardSize.h > 0 ? "flex flex-col" : ""} ${selected ? "border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"}`}>
+        style={{ width: cardSize.w, ...(cardSize.h > 0 ? { height: cardSize.h } : {}), ...(visualGroupColor ? { borderColor: visualGroupColor, borderWidth: 2 } : {}) }}
+        className={`relative rounded-xl border bg-white shadow-md shadow-black/5 dark:bg-[#101c29] dark:shadow-xl dark:shadow-black/20 ${cardSize.h > 0 ? "flex flex-col" : ""} ${selected ? "border-[#030303] dark:border-cyan-400" : visualGroupColor ? "border-transparent" : "border-[#e7eaf0] dark:border-slate-700"}`}>
         {isGenerating && (
           <div className="running-glow-wrapper" style={{ "--glow-color": GLOW_COLORS[data.nodeType] || "#22d3ee" } as React.CSSProperties} />
+        )}
+        {/* Group colour top strip */}
+        {visualGroupColor && (
+          <div className="rounded-t-xl h-1.5 w-full" style={{ background: visualGroupColor }} />
         )}
         <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400"/>
         {/* Extra reference-image input handle for image nodes (offset down) */}
@@ -204,6 +209,14 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
             <p className="truncate text-xs font-semibold text-[#030303] dark:text-slate-100">{data.title}</p>
             <p className="text-[10px] uppercase tracking-widest text-[#939393] dark:text-slate-500">{data.nodeType}</p>
           </div>
+          {data.workflowLabel && (
+            <span
+              className="shrink-0 rounded-full bg-[#f3d88b] px-2 py-0.5 text-[10px] font-semibold text-[#5b4300]"
+              title={data.workflowTitle || `Workflow ${data.workflowLabel}`}
+            >
+              #{data.workflowLabel}
+            </span>
+          )}
           <button onClick={e => { e.stopPropagation(); setSettingsOpen(true); }}
             className="nodrag mr-0.5 grid h-5 w-5 shrink-0 place-items-center rounded text-[#939393] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-cyan-300" title={t.settingsTitle}>
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">

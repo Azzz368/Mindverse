@@ -107,6 +107,24 @@ export type CanvasEditPatch = {
   warnings?: string[];
 };
 
+export type AgentCanvasOrganizeWorkflow = {
+  id: string;
+  label: string;
+  title: string;
+  order: number;
+  nodeIds: string[];
+  reason?: string;
+};
+
+export type AgentCanvasOrganizePlan = {
+  title: string;
+  description?: string;
+  userInstruction: string;
+  workflows: AgentCanvasOrganizeWorkflow[];
+  warnings?: string[];
+  requiresConfirmation?: boolean;
+};
+
 export type AgentDialogueRole = "user" | "assistant";
 
 export type AgentDialogueMessage = {
@@ -252,6 +270,36 @@ export function validateAgentCanvasEditPlan(value: unknown): AgentCanvasEditPlan
     intent,
     targetNodeIds: stringArray(raw.targetNodeIds),
     operations: operations.length ? operations : [{ id: "op-1", type: "noop", reason: "No safe canvas edit operation was produced." }],
+    warnings: stringArray(raw.warnings) || [],
+    requiresConfirmation: typeof raw.requiresConfirmation === "boolean" ? raw.requiresConfirmation : true,
+  };
+}
+
+export function validateAgentCanvasOrganizePlan(value: unknown): AgentCanvasOrganizePlan {
+  const raw = object(value);
+  const userInstruction = text(raw.userInstruction);
+  if (!userInstruction) throw new Error("Agent organize plan is missing userInstruction.");
+  const workflows: AgentCanvasOrganizeWorkflow[] = [];
+  if (Array.isArray(raw.workflows)) raw.workflows.forEach((item, index) => {
+    const workflow = object(item);
+    const order = Math.max(1, Math.min(99, Math.floor(Number(workflow.order) || index + 1)));
+    const id = safeId(text(workflow.id), `workflow-${order}`);
+    const nodeIds = stringArray(workflow.nodeIds) || [];
+    if (!nodeIds.length) return;
+    workflows.push({
+      id,
+      label: text(workflow.label, String(order)),
+      title: text(workflow.title, `Workflow ${order}`),
+      order,
+      nodeIds,
+      reason: text(workflow.reason) || undefined,
+    });
+  });
+  return {
+    title: text(raw.title, "Mindverse Canvas Organize"),
+    description: text(raw.description) || undefined,
+    userInstruction,
+    workflows,
     warnings: stringArray(raw.warnings) || [],
     requiresConfirmation: typeof raw.requiresConfirmation === "boolean" ? raw.requiresConfirmation : true,
   };

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { useCanvasStore } from "@/store/canvasStore";
-import type { AgentCanvasEditPlan, AgentDialogueResponse, AgentWorkflowPlan, CanvasEditPatch, CanvasPatch } from "@/lib/agent/agentSchema";
+import type { AgentCanvasEditPlan, AgentCanvasOrganizePlan, AgentDialogueResponse, AgentWorkflowPlan, CanvasEditPatch, CanvasPatch } from "@/lib/agent/agentSchema";
 
 const createSuggestions = [
   "周星驰来香港科技大学拍戏，做成一个 10 秒港风喜剧短片",
@@ -19,7 +19,8 @@ const editSuggestions = [
 type AgentMode = "develop" | "create" | "edit";
 type AgentPreview =
   | { mode: "create"; plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }
-  | { mode: "edit"; editPlan: AgentCanvasEditPlan; patch: CanvasEditPatch; summary: string };
+  | { mode: "edit"; editPlan: AgentCanvasEditPlan; patch: CanvasEditPatch; summary: string }
+  | { mode: "organize"; organizePlan: AgentCanvasOrganizePlan; patch: CanvasEditPatch; summary: string };
 type DialogueEntry =
   | { role: "user"; content: string }
   | { role: "assistant"; content: string; response: AgentDialogueResponse };
@@ -62,6 +63,8 @@ export function AgentWorkflowPanel() {
   const [speechSupported, setSpeechSupported] = useState(false);
   const [listening, setListening] = useState(false);
   const [speechPreview, setSpeechPreview] = useState("");
+  const [workflowOrder, setWorkflowOrder] = useState("1");
+  const [workflowTitle, setWorkflowTitle] = useState("");
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const committedSpeechRef = useRef("");
   const generateAgentPlan = useCanvasStore((state) => state.generateAgentPlan);
@@ -69,8 +72,12 @@ export function AgentWorkflowPanel() {
   const setPendingAgentPatch = useCanvasStore((state) => state.setPendingAgentPatch);
   const generateAgentEdit = useCanvasStore((state) => state.generateAgentEdit);
   const applyAgentEditPatch = useCanvasStore((state) => state.applyAgentEditPatch);
+  const generateAgentOrganize = useCanvasStore((state) => state.generateAgentOrganize);
   const runAgentWorkflow = useCanvasStore((state) => state.runAgentWorkflow);
   const addStoryChainNode = useCanvasStore((state) => state.addStoryChainNode);
+  const markSelectedWorkflow = useCanvasStore((state) => state.markSelectedWorkflow);
+  const clearSelectedWorkflowMark = useCanvasStore((state) => state.clearSelectedWorkflowMark);
+  const arrangeWorkflows = useCanvasStore((state) => state.arrangeWorkflows);
   const nodes = useCanvasStore((state) => state.nodes);
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
   const agentStatus = useCanvasStore((state) => state.agentStatus);
@@ -78,6 +85,8 @@ export function AgentWorkflowPanel() {
   const busy = agentStatus === "planning" || agentStatus === "building" || agentStatus === "running" || dialogueBusy;
   const canSubmit = brief.trim().length > 0 && !busy;
   const suggestions = mode === "edit" ? editSuggestions : createSuggestions;
+  const selectedWorkflowNodeCount = new Set([...nodes.filter((node) => node.selected).map((node) => node.id), ...(selectedNodeId ? [selectedNodeId] : [])]).size;
+  const workflowOrderNumber = Math.max(1, Number.parseInt(workflowOrder, 10) || 1);
 
   useEffect(() => {
     const speechWindow = window as Window & {
@@ -200,6 +209,18 @@ export function AgentWorkflowPanel() {
     setLocalError(null);
   };
 
+  const generateOrganizePreview = async () => {
+    if (!nodes.length || busy) return;
+    setLocalError(null);
+    setPreview(null);
+    try {
+      const result = await generateAgentOrganize(brief);
+      setPreview({ mode: "organize", ...result });
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "Agent 整理计划生成失败。");
+    }
+  };
+
   const choosePlacement = () => {
     if (!preview || preview.mode !== "create") return;
     setPendingAgentPatch(preview.patch);
@@ -212,6 +233,11 @@ export function AgentWorkflowPanel() {
     setLocalError(null);
     setPreview(null);
     void runAgentWorkflow(brief);
+  };
+
+  const markWorkflow = () => {
+    setLocalError(null);
+    markSelectedWorkflow(workflowOrderNumber, workflowTitle);
   };
 
   const switchMode = (nextMode: AgentMode) => {
@@ -285,6 +311,52 @@ export function AgentWorkflowPanel() {
           >
             修改当前画布
           </button>
+        </div>
+
+        <div className="rounded-[18px] border border-[#dce2ea] bg-white p-4 shadow-[0_8px_28px_rgba(15,23,42,0.08)]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-[13px] font-semibold text-[#111827]">整理画布</div>
+              <p className="mt-1 text-[12px] leading-5 text-[#5f6b7a]">先选中一批节点，标记为一条工作流，再按编号整理画布。</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-[#f7f9fc] px-2.5 py-1 text-[11px] font-semibold text-[#5f6b7a]">
+              已选 {selectedWorkflowNodeCount}
+            </span>
+          </div>
+          <div className="mt-3 grid grid-cols-[72px_1fr] gap-2">
+            <label className="text-[11px] font-semibold text-[#5f6b7a]">
+              编号
+              <input
+                value={workflowOrder}
+                onChange={(event) => setWorkflowOrder(event.target.value.replace(/[^\d]/g, "") || "1")}
+                className="mt-1 h-9 w-full rounded-lg border border-[#e1e6ee] bg-[#f7f9fc] px-2 text-[13px] text-[#111827] outline-none focus:border-[#9fb4d2]"
+                inputMode="numeric"
+              />
+            </label>
+            <label className="text-[11px] font-semibold text-[#5f6b7a]">
+              名称
+              <input
+                value={workflowTitle}
+                onChange={(event) => setWorkflowTitle(event.target.value)}
+                placeholder={`Workflow ${workflowOrderNumber}`}
+                className="mt-1 h-9 w-full rounded-lg border border-[#e1e6ee] bg-[#f7f9fc] px-2 text-[13px] text-[#111827] outline-none placeholder:text-[#9aa5b3] focus:border-[#9fb4d2]"
+              />
+            </label>
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <Button type="button" disabled={!selectedWorkflowNodeCount} onClick={markWorkflow} className="rounded-full px-3 text-[12px]">
+              标记选中
+            </Button>
+            <Button type="button" disabled={!nodes.length} onClick={arrangeWorkflows} className="rounded-full border-[#111827] bg-[#111827] px-3 text-[12px] text-white hover:border-[#263244] hover:bg-[#263244]">
+              按编号整理
+            </Button>
+            <Button type="button" disabled={!selectedWorkflowNodeCount} onClick={clearSelectedWorkflowMark} className="rounded-full px-3 text-[12px]">
+              清除标记
+            </Button>
+          </div>
+          <Button type="button" disabled={!nodes.length || busy} onClick={() => void generateOrganizePreview()} className="mt-3 w-full rounded-full border-[#111827] bg-[#111827] px-3 text-[12px] text-white hover:border-[#263244] hover:bg-[#263244]">
+            Agent 识别并整理
+          </Button>
         </div>
 
         {mode === "edit" && (
@@ -441,6 +513,41 @@ export function AgentWorkflowPanel() {
             <div className="mt-4 grid grid-cols-2 gap-2">
               <Button type="button" onClick={choosePlacement} className="rounded-full border-[#111827] bg-[#111827] text-white hover:border-[#263244] hover:bg-[#263244]">选择位置</Button>
               <Button type="button" onClick={applyPreview} className="rounded-full">直接应用</Button>
+            </div>
+          </div>
+        )}
+
+        {preview?.mode === "organize" && (
+          <div className="rounded-[18px] border border-[#dce2ea] bg-white p-4 shadow-[0_8px_28px_rgba(15,23,42,0.08)]">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-[16px] font-semibold text-[#111827]">{preview.organizePlan.title}</h3>
+                {preview.organizePlan.description && <p className="mt-1 text-[12px] leading-5 text-[#5f6b7a]">{preview.organizePlan.description}</p>}
+              </div>
+              <span className="shrink-0 rounded-full bg-[#edf4ff] px-2.5 py-1 text-[11px] font-semibold text-[#1f6feb]">
+                {preview.organizePlan.workflows.length} 条
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-[11px] text-[#5f6b7a]">
+              <div className="rounded-lg bg-[#f7f9fc] px-2 py-2">工作流: {preview.organizePlan.workflows.length}</div>
+              <div className="rounded-lg bg-[#f7f9fc] px-2 py-2">整理节点: {preview.patch.updateNodes.length}</div>
+            </div>
+            <div className="mt-3 max-h-52 overflow-y-auto rounded-xl border border-[#edf1f6]">
+              {preview.organizePlan.workflows.map((workflow) => (
+                <div key={workflow.id} className="flex items-start gap-2 border-b border-[#edf1f6] px-3 py-2 last:border-b-0">
+                  <span className="mt-0.5 rounded-md bg-[#f2f5f9] px-2 py-1 text-[10px] font-semibold text-[#5f6b7a]">#{workflow.label}</span>
+                  <div>
+                    <div className="text-[12px] font-semibold text-[#111827]">{workflow.title}</div>
+                    <div className="text-[11px] leading-4 text-[#7b8794]">{workflow.nodeIds.length} 个节点{workflow.reason ? ` · ${workflow.reason}` : ""}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {!!preview.patch.warnings?.length && <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-700">{preview.patch.warnings.join(" ")}</div>}
+            <div className="mt-4">
+              <Button type="button" onClick={applyPreview} className="w-full rounded-full border-[#111827] bg-[#111827] text-white hover:border-[#263244] hover:bg-[#263244]">
+                应用整理到画布
+              </Button>
             </div>
           </div>
         )}

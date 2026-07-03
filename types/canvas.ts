@@ -23,6 +23,7 @@ export type CanvasNodeData = {
   scriptTone?: string; targetShotCount?: number; storyboardImagePrompts?: StoryboardImagePrompt[]; batchId?: string; shotNumber?: number; sourceStoryboardNodeId?: string;
   imageUrl?: string; notes?: string; format?: string; generationContext?: string;
   annotations?: ImageAnnotation[]; revisionOf?: string; sourceImageUrl?: string; revisionInstruction?: string;
+  workflowId?: string; workflowOrder?: number; workflowTitle?: string; workflowLabel?: string;
   groupId?: string; groupColor?: string; locked?: boolean;
 };
 export type CanvasNode = Node<CanvasNodeData> & {

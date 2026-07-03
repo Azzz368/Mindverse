@@ -2,7 +2,7 @@ import "server-only";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export type AgentSkillName = "workflow-planner" | "canvas-edit" | "ideation-dialogue";
+export type AgentSkillName = "workflow-planner" | "canvas-edit" | "canvas-organize" | "ideation-dialogue";
 
 const cache = new Map<AgentSkillName, string>();
 

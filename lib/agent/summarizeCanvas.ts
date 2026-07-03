@@ -34,6 +34,10 @@ const importantFields = (node: CanvasNode) => {
   if (data.numberOfScenes) fields.push(`sceneCount: ${data.numberOfScenes}`);
   if (data.size) fields.push(`size: ${data.size}`);
   if (data.format) fields.push(`format: ${data.format}`);
+  if (data.workflowId) fields.push(`workflowId: ${data.workflowId}`);
+  if (data.workflowOrder) fields.push(`workflowOrder: ${data.workflowOrder}`);
+  if (data.workflowTitle) fields.push(`workflowTitle: ${short(data.workflowTitle, 80)}`);
+  if (data.workflowLabel) fields.push(`workflowLabel: ${data.workflowLabel}`);
   fields.push(`position: (${Math.round(node.position.x)}, ${Math.round(node.position.y)})`);
   fields.push(`hasOutput: ${Boolean(data.output)}`);
   fields.push(`hasImageOutput: ${hasMediaOutput(node, ["imageUrl", "revisedImageUrl"])}`);
