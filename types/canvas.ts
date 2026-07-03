@@ -26,6 +26,10 @@ export type CanvasNodeData = {
   workflowId?: string; workflowOrder?: number; workflowTitle?: string; workflowLabel?: string;
   groupId?: string; groupColor?: string; locked?: boolean;
 };
-export type CanvasNode = Node<CanvasNodeData>;
+export type CanvasNode = Node<CanvasNodeData> & {
+  measured?: { width?: number; height?: number };
+  width?: number;
+  height?: number;
+};
 export type WorkflowEdge = Edge;
 export type CanvasSnapshot = { version: 1; projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[] };

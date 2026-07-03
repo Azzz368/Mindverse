@@ -17,10 +17,12 @@ type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEd
   addStoryChainNode(content: string, title?: string): void;
   runGroup(groupId: string): Promise<void>;
   setGroupColor(nodeIds: string[], color: string): void;
+  updateGroupColor(groupId: string, color: string): void;
   setGroupLocked(nodeIds: string[], locked: boolean): void;
   markSelectedWorkflow(order: number, title?: string): void;
   clearSelectedWorkflowMark(): void;
   arrangeWorkflows(): void;
+  setGroupLockedByGroupId(groupId: string, locked: boolean): void;
   setProjectName(name: string): void; setSelectedNode(id: string | null): void; onNodesChange(changes: NodeChange<CanvasNode>[]): void; onEdgesChange(changes: EdgeChange<WorkflowEdge>[]): void; onConnect(connection: Connection): void;
   addNode(type: NodeType): void; updateNodeData(id: string, patch: Partial<CanvasNodeData>): void; removeNode(id: string): void; duplicateNode(id: string): void; createImageRevision(sourceId: string, annotations: ImageAnnotation[], instruction: string): Promise<void>; createKeyframeBatch(sourceId: string): void; setCanvas(nodes: CanvasNode[], edges: WorkflowEdge[]): void;
   runNode(id: string): Promise<void>; pollNode(id: string): Promise<void>; runWorkflow(): Promise<void>; generateAgentPlan(userPrompt: string): Promise<{ plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }>; applyAgentPatch(patch: CanvasPatch): void; generateAgentEdit(userInstruction: string): Promise<{ editPlan: AgentCanvasEditPlan; patch: CanvasEditPatch; summary: string }>; applyAgentEditPatch(patch: CanvasEditPatch): void; generateAgentOrganize(userInstruction: string): Promise<{ organizePlan: AgentCanvasOrganizePlan; patch: CanvasEditPatch; summary: string }>; runAgentWorkflow(brief: string): Promise<void>; saveCanvas(): void; loadCanvas(): void; clearCanvas(): void; exportCanvasJson(): string; importCanvasJson(raw: string): void; applyTemplate(template: Template): void; };
@@ -262,7 +264,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         instruction: "Story chain brainstorming note",
         inputText: content,
         groupId: "story-chain",
-        groupColor: "#a8c4bc",
+        groupColor: undefined,
       },
     };
     return {
@@ -271,7 +273,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       selectedNodeId: node.id,
     };
   }),
-  setGroupColor: (nodeIds, color) => set((state) => ({ nodes: state.nodes.map((n) => nodeIds.includes(n.id) ? { ...n, data: { ...n.data, groupColor: color } } : n) })),
+  setGroupColor: (nodeIds, color) => set((state) => { const groupId = `group-${crypto.randomUUID()}`; return { nodes: state.nodes.map((n) => nodeIds.includes(n.id) ? { ...n, data: { ...n.data, groupId, groupColor: color } } : n) }; }),
+  updateGroupColor: (groupId, color) => set((state) => ({ nodes: state.nodes.map((n) => n.data.groupId === groupId ? { ...n, data: { ...n.data, groupColor: color } } : n) })),
   setGroupLocked: (nodeIds, locked) => set((state) => ({ nodes: state.nodes.map((n) => nodeIds.includes(n.id) ? { ...n, draggable: !locked, data: { ...n.data, locked } } : n) })),
   markSelectedWorkflow: (order, title) => set((state) => {
     const selectedIds = selectedNodeIdsFrom(state);
@@ -301,6 +304,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     agentMessage: "画布已按工作流编号整理。",
     lastError: null,
   })),
+  setGroupLockedByGroupId: (groupId, locked) => set((state) => ({ nodes: state.nodes.map((n) => n.data.groupId === groupId ? { ...n, draggable: !locked, data: { ...n.data, locked } } : n) })),
   runGroup: async (groupId) => { const { nodes } = get(); const group = nodes.filter((n) => n.data.groupId === groupId); for (const n of group) await get().runNode(n.id); },
   setProjectName: (projectName) => set({ projectName }), setSelectedNode: (selectedNodeId) => set({ selectedNodeId }),
   onNodesChange: (changes) => set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) as CanvasNode[] })), onEdgesChange: (changes) => set((state) => ({ edges: applyEdgeChanges(changes, state.edges) })),

@@ -61,7 +61,7 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
 export function compileWorkflowPlanToCanvas(plan: AgentWorkflowPlan): CanvasPatch {
   const steps = normalizeVideoSteps(plan);
   const groupId = `agent-${crypto.randomUUID()}`;
-  const groupColor = "#a8c4bc";
+  const groupColor = undefined;
   const stepIdToNodeId = new Map<string, string>();
   const dependencyMap = buildDependencyMap(steps);
   const levelMap = buildLevelMap(steps, dependencyMap);

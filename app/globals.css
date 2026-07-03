@@ -67,6 +67,32 @@ button { cursor: pointer; }
 .react-flow__node { font-size: 12px; }
 .react-flow__attribution { display: none; }
 
+.react-flow__group-backdrop {
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 18px;
+  transition: left 180ms ease, top 180ms ease, width 180ms ease, height 180ms ease, background-color 180ms ease, border-color 180ms ease;
+}
+
+.react-flow__nodes {
+  z-index: 2;
+}
+
+.react-flow__edges {
+  z-index: 1;
+}
+
+.react-flow__selection,
+.react-flow__nodesselection-rect {
+  border-radius: 18px !important;
+  border-color: rgba(64, 64, 64, 0.35) !important;
+  background: rgba(224, 239, 255, 0.26) !important;
+  box-shadow: 0 0 0 10px rgba(224, 239, 255, 0.18);
+}
+
 .react-flow__controls button {
   background: var(--bg-panel);
   border-bottom-color: var(--border);

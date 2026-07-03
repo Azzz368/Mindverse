@@ -73,8 +73,10 @@ export async function createKlingTextVideo(input: TokenStarCreateVideoInput): Pr
 export async function createKlingImageVideo(input: TokenStarCreateVideoInput): Promise<NormalizedVideoTask> {
   const image = input.image || input.referenceImageUrls?.find(Boolean);
   if (!image) throw new TokenStarError("Kling image-to-video requires a connected image or reference image URL.", 400);
-  const raw = await tokenstarActionJsonRequest<TokenStarCreateVideoResponse>("/v1/video/generations", "SubmitImageToVideoJob", { Model: input.model || process.env.TOKENSTAR_KLING_MODEL || "kling-v3", Image: { Url: image }, Prompt: input.prompt, Duration: String(input.duration || 5), Mode: process.env.TOKENSTAR_KLING_MODE || "std", Sound: input.generateAudio === false ? "off" : "on", LogoAdd: 0 });
-  return normalizedKling(klingTaskId(record(raw)), raw, "DescribeImageToVideoJob");
+  const elementIds = unique([...(input.klingElementIds || []), ...(input.klingElementId || "").split(",")]);
+  if (elementIds.length) await Promise.all(elementIds.map((elementId) => waitForAigcElement(elementId)));
+  const raw = await tokenstarActionJsonRequest<TokenStarCreateVideoResponse>("/v1/video/generations", "SubmitImageToVideoJob", { Model: input.model || process.env.TOKENSTAR_KLING_MODEL || "kling-v3", Image: { Url: image }, Prompt: input.prompt, Duration: String(input.duration || 5), Mode: process.env.TOKENSTAR_KLING_MODE || "std", Sound: input.generateAudio === false ? "off" : "on", LogoAdd: 0, ...(elementIds.length ? { ElementList: elementIds.map((elementId) => ({ ElementId: elementId })) } : {}) });
+  return { ...normalizedKling(klingTaskId(record(raw)), raw, "DescribeImageToVideoJob"), request: { image, elementCount: elementIds.length, elementIds, prompt: input.prompt } };
 }
 export async function createKlingOmniVideo(input: TokenStarCreateVideoInput): Promise<NormalizedVideoTask> {
   const image = input.image || input.referenceImageUrls?.find(Boolean);
