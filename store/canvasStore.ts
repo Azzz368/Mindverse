@@ -5,7 +5,7 @@ import { topologicalSort } from "@/lib/workflow/topologicalSort";
 import { canvasStorage } from "@/lib/storage/canvasStorage";
 import { buildTemplate, makeNode, type Template } from "@/lib/templates/templates";
 import { promptsFromStoryboard } from "@/lib/workflow/storyPipeline";
-import type { AgentCanvasEditPlan, AgentWorkflowPlan, CanvasEditPatch, CanvasPatch } from "@/lib/agent/agentSchema";
+import type { AgentCanvasEditPlan, AgentCanvasOrganizePlan, AgentWorkflowPlan, CanvasEditPatch, CanvasPatch } from "@/lib/agent/agentSchema";
 import type { CanvasNode, CanvasNodeData, CanvasSnapshot, ImageAnnotation, NodeOutput, NodeType, WorkflowEdge } from "@/types/canvas";
 
 type AgentStatus = "idle" | "planning" | "building" | "running" | "completed" | "error";
@@ -18,9 +18,12 @@ type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEd
   runGroup(groupId: string): Promise<void>;
   setGroupColor(nodeIds: string[], color: string): void;
   setGroupLocked(nodeIds: string[], locked: boolean): void;
+  markSelectedWorkflow(order: number, title?: string): void;
+  clearSelectedWorkflowMark(): void;
+  arrangeWorkflows(): void;
   setProjectName(name: string): void; setSelectedNode(id: string | null): void; onNodesChange(changes: NodeChange<CanvasNode>[]): void; onEdgesChange(changes: EdgeChange<WorkflowEdge>[]): void; onConnect(connection: Connection): void;
   addNode(type: NodeType): void; updateNodeData(id: string, patch: Partial<CanvasNodeData>): void; removeNode(id: string): void; duplicateNode(id: string): void; createImageRevision(sourceId: string, annotations: ImageAnnotation[], instruction: string): Promise<void>; createKeyframeBatch(sourceId: string): void; setCanvas(nodes: CanvasNode[], edges: WorkflowEdge[]): void;
-  runNode(id: string): Promise<void>; pollNode(id: string): Promise<void>; runWorkflow(): Promise<void>; generateAgentPlan(userPrompt: string): Promise<{ plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }>; applyAgentPatch(patch: CanvasPatch): void; generateAgentEdit(userInstruction: string): Promise<{ editPlan: AgentCanvasEditPlan; patch: CanvasEditPatch; summary: string }>; applyAgentEditPatch(patch: CanvasEditPatch): void; runAgentWorkflow(brief: string): Promise<void>; saveCanvas(): void; loadCanvas(): void; clearCanvas(): void; exportCanvasJson(): string; importCanvasJson(raw: string): void; applyTemplate(template: Template): void; };
+  runNode(id: string): Promise<void>; pollNode(id: string): Promise<void>; runWorkflow(): Promise<void>; generateAgentPlan(userPrompt: string): Promise<{ plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }>; applyAgentPatch(patch: CanvasPatch): void; generateAgentEdit(userInstruction: string): Promise<{ editPlan: AgentCanvasEditPlan; patch: CanvasEditPatch; summary: string }>; applyAgentEditPatch(patch: CanvasEditPatch): void; generateAgentOrganize(userInstruction: string): Promise<{ organizePlan: AgentCanvasOrganizePlan; patch: CanvasEditPatch; summary: string }>; runAgentWorkflow(brief: string): Promise<void>; saveCanvas(): void; loadCanvas(): void; clearCanvas(): void; exportCanvasJson(): string; importCanvasJson(raw: string): void; applyTemplate(template: Template): void; };
 const initialNodes: CanvasNode[] = [];
 const isSnapshot = (value: unknown): value is CanvasSnapshot => Boolean(value && typeof value === "object" && Array.isArray((value as CanvasSnapshot).nodes) && Array.isArray((value as CanvasSnapshot).edges));
 const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -61,6 +64,115 @@ const schedulePoll = (id: string, run: () => void, intervalMs = 3000) => {
 };
 const restoreStatuses = (nodes: CanvasNode[]): CanvasNode[] => nodes.map((node) => { if (node.data.status !== "running") return node; const polling = ["pending", "running"].includes(asText(asRecord(node.data.output?.value).status)); const status: CanvasNodeData["status"] = polling ? "waiting" : "idle"; return { ...node, data: { ...node.data, status } }; });
 const edgeFor = (source: CanvasNode, target: CanvasNode): WorkflowEdge => ({ id: `edge-${source.id}-${target.id}`, source: source.id, target: target.id, animated: true });
+const workflowColumnByType: Record<NodeType, number> = { prompt: 0, text: 1, script: 1, storyboard: 2, storyboardImage: 3, image: 4, reference: 4, video: 5, audio: 5, output: 6 };
+const selectedNodeIdsFrom = (state: Pick<CanvasState, "nodes" | "selectedNodeId">) => [...new Set([...state.nodes.filter((node) => node.selected).map((node) => node.id), ...(state.selectedNodeId ? [state.selectedNodeId] : [])])];
+const connectedNodeIdsFrom = (seedIds: string[], nodes: CanvasNode[], edges: WorkflowEdge[]) => {
+  const ids = new Set(nodes.map((node) => node.id));
+  const visited = new Set(seedIds.filter((id) => ids.has(id)));
+  const queue = [...visited];
+  while (queue.length) {
+    const id = queue.shift();
+    if (!id) break;
+    edges.forEach((edge) => {
+      const next = edge.source === id ? edge.target : edge.target === id ? edge.source : "";
+      if (!next || visited.has(next) || !ids.has(next)) return;
+      visited.add(next);
+      queue.push(next);
+    });
+  }
+  return [...visited];
+};
+const connectedComponentsFor = (nodes: CanvasNode[], edges: WorkflowEdge[]) => {
+  const remaining = new Set(nodes.map((node) => node.id));
+  const components = new Map<string, number>();
+  let index = 0;
+  while (remaining.size) {
+    const start = remaining.values().next().value as string;
+    const componentIds = connectedNodeIdsFrom([start], nodes, edges);
+    componentIds.forEach((id) => {
+      remaining.delete(id);
+      components.set(id, index);
+    });
+    index += 1;
+  }
+  return components;
+};
+const compareWorkflowNode = (a: CanvasNode, b: CanvasNode) => {
+  const columnDiff = (workflowColumnByType[a.data.nodeType] ?? 0) - (workflowColumnByType[b.data.nodeType] ?? 0);
+  if (columnDiff) return columnDiff;
+  const yDiff = a.position.y - b.position.y;
+  if (Math.abs(yDiff) > 8) return yDiff;
+  const xDiff = a.position.x - b.position.x;
+  if (Math.abs(xDiff) > 8) return xDiff;
+  return a.id.localeCompare(b.id);
+};
+const orderWorkflowNodes = (nodes: CanvasNode[], edges: WorkflowEdge[]) => {
+  const ids = new Set(nodes.map((node) => node.id));
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const incoming = new Map(nodes.map((node) => [node.id, 0]));
+  const outgoing = new Map(nodes.map((node) => [node.id, [] as string[]]));
+  edges.forEach((edge) => {
+    if (!ids.has(edge.source) || !ids.has(edge.target)) return;
+    incoming.set(edge.target, (incoming.get(edge.target) || 0) + 1);
+    outgoing.get(edge.source)?.push(edge.target);
+  });
+  const ordered: CanvasNode[] = [];
+  const queue = nodes.filter((node) => (incoming.get(node.id) || 0) === 0).sort(compareWorkflowNode);
+  while (queue.length) {
+    const node = queue.shift();
+    if (!node) break;
+    ordered.push(node);
+    (outgoing.get(node.id) || []).forEach((targetId) => {
+      incoming.set(targetId, (incoming.get(targetId) || 0) - 1);
+      if ((incoming.get(targetId) || 0) === 0) {
+        const target = byId.get(targetId);
+        if (target) queue.push(target);
+      }
+    });
+    queue.sort(compareWorkflowNode);
+  }
+  const seen = new Set(ordered.map((node) => node.id));
+  return [...ordered, ...nodes.filter((node) => !seen.has(node.id)).sort(compareWorkflowNode)];
+};
+const arrangeWorkflowNodes = (nodes: CanvasNode[], edges: WorkflowEdge[]) => {
+  const groups = new Map<string, CanvasNode[]>();
+  const componentByNode = connectedComponentsFor(nodes, edges);
+  const workflowByComponent = new Map<number, string>();
+  nodes.forEach((node) => {
+    const component = componentByNode.get(node.id);
+    if (component === undefined || !node.data.workflowId) return;
+    const existingId = workflowByComponent.get(component);
+    if (!existingId || (node.data.workflowOrder ?? 999) < (nodes.find((item) => item.data.workflowId === existingId)?.data.workflowOrder ?? 999)) workflowByComponent.set(component, node.data.workflowId);
+  });
+  nodes.forEach((node) => {
+    const component = componentByNode.get(node.id) ?? 999;
+    const key = node.data.workflowId || workflowByComponent.get(component) || `workflow-unassigned-${component}`;
+    groups.set(key, [...(groups.get(key) || []), node]);
+  });
+  const meta = (items: CanvasNode[]) => ({
+    order: Math.min(...items.map((node) => node.data.workflowOrder ?? 999)),
+    title: items.find((node) => node.data.workflowTitle)?.data.workflowTitle || "",
+  });
+  const entries = [...groups.entries()].sort(([, a], [, b]) => {
+    const left = meta(a), right = meta(b);
+    if (left.order !== right.order) return left.order - right.order;
+    return left.title.localeCompare(right.title);
+  });
+  const positions = new Map<string, { x: number; y: number }>();
+  let groupY = 120;
+  entries.forEach(([, groupNodes]) => {
+    const rowsByColumn = new Map<number, number>();
+    orderWorkflowNodes(groupNodes, edges).forEach((node) => {
+      const column = workflowColumnByType[node.data.nodeType] ?? 0;
+      const row = rowsByColumn.get(column) || 0;
+      positions.set(node.id, { x: 120 + column * 370, y: groupY + row * 320 });
+      rowsByColumn.set(column, row + 1);
+    });
+    const maxRows = Math.max(1, ...rowsByColumn.values());
+    groupY += Math.max(460, maxRows * 320 + 220);
+  });
+  return nodes.map((node) => ({ ...node, position: positions.get(node.id) || node.position }));
+};
 type KeyframePatch = Partial<CanvasNodeData> & Pick<CanvasNodeData, "title" | "status">;
 const keyframePatchFromPrompt = (item: Record<string, unknown>, index: number, sourceId: string, batchId: string): KeyframePatch => ({
   title: `${asText(item.title) || `Shot ${index + 1}`} — Keyframe`,
@@ -161,6 +273,34 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   }),
   setGroupColor: (nodeIds, color) => set((state) => ({ nodes: state.nodes.map((n) => nodeIds.includes(n.id) ? { ...n, data: { ...n.data, groupColor: color } } : n) })),
   setGroupLocked: (nodeIds, locked) => set((state) => ({ nodes: state.nodes.map((n) => nodeIds.includes(n.id) ? { ...n, draggable: !locked, data: { ...n.data, locked } } : n) })),
+  markSelectedWorkflow: (order, title) => set((state) => {
+    const selectedIds = selectedNodeIdsFrom(state);
+    if (!selectedIds.length) return { lastError: "Please select nodes before marking a workflow." };
+    const workflowNodeIds = connectedNodeIdsFrom(selectedIds, state.nodes, state.edges);
+    const cleanOrder = Math.max(1, Math.floor(Number.isFinite(order) ? order : 1));
+    const workflowId = `workflow-${cleanOrder}`;
+    const workflowTitle = title?.trim() || `Workflow ${cleanOrder}`;
+    return {
+      nodes: state.nodes.map((node) => workflowNodeIds.includes(node.id) ? { ...node, data: { ...node.data, workflowId, workflowOrder: cleanOrder, workflowTitle, workflowLabel: String(cleanOrder), groupColor: undefined } } : node),
+      agentMessage: `已将 ${workflowNodeIds.length} 个节点标记为工作流 ${cleanOrder}。`,
+      lastError: null,
+    };
+  }),
+  clearSelectedWorkflowMark: () => set((state) => {
+    const selectedIds = selectedNodeIdsFrom(state);
+    if (!selectedIds.length) return { lastError: "Please select nodes before clearing workflow marks." };
+    const workflowNodeIds = connectedNodeIdsFrom(selectedIds, state.nodes, state.edges);
+    return {
+      nodes: state.nodes.map((node) => workflowNodeIds.includes(node.id) ? { ...node, data: { ...node.data, workflowId: undefined, workflowOrder: undefined, workflowTitle: undefined, workflowLabel: undefined, groupColor: undefined } } : node),
+      agentMessage: `已清除 ${workflowNodeIds.length} 个节点的工作流标记。`,
+      lastError: null,
+    };
+  }),
+  arrangeWorkflows: () => set((state) => ({
+    nodes: arrangeWorkflowNodes(state.nodes, state.edges),
+    agentMessage: "画布已按工作流编号整理。",
+    lastError: null,
+  })),
   runGroup: async (groupId) => { const { nodes } = get(); const group = nodes.filter((n) => n.data.groupId === groupId); for (const n of group) await get().runNode(n.id); },
   setProjectName: (projectName) => set({ projectName }), setSelectedNode: (selectedNodeId) => set({ selectedNodeId }),
   onNodesChange: (changes) => set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) as CanvasNode[] })), onEdgesChange: (changes) => set((state) => ({ edges: applyEdgeChanges(changes, state.edges) })),
@@ -271,6 +411,27 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }
   },
   applyAgentEditPatch: (patch) => set((state) => applyEditPatchToState(state, patch)),
+  generateAgentOrganize: async (userInstruction) => {
+    const instruction = userInstruction.trim() || "自动识别当前画布内容和工作流，并整理画布。";
+    set({ agentStatus: "planning", agentMessage: "正在识别画布工作流并生成整理计划...", lastError: null });
+    try {
+      const { nodes, edges, projectName, selectedNodeId } = get();
+      const selectedNodeIds = [...new Set([...nodes.filter((node) => node.selected).map((node) => node.id), ...(selectedNodeId ? [selectedNodeId] : [])])];
+      const response = await fetch("/api/ai/agent-organize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userInstruction: instruction, canvasSnapshot: { version: 1, projectName, nodes, edges }, selectedNodeIds }),
+      });
+      const payload = await response.json() as { ok?: boolean; organizePlan?: AgentCanvasOrganizePlan; patch?: CanvasEditPatch; summary?: string; error?: { message?: unknown } };
+      if (!response.ok || !payload.ok || !payload.organizePlan || !payload.patch) throw new Error(asText(payload.error?.message) || "Agent 整理计划生成失败。");
+      set({ agentStatus: "completed", agentMessage: payload.summary || "画布整理计划已生成。" });
+      return { organizePlan: payload.organizePlan, patch: payload.patch, summary: payload.summary || "画布整理计划已生成。" };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Agent 整理计划生成失败。";
+      set({ agentStatus: "error", agentMessage: message, lastError: message });
+      throw error;
+    }
+  },
   runNode: async (id) => { const state = get(), node = state.nodes.find((item) => item.id === id); if (!node) return; set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "running", error: undefined } } : item), lastError: null })); try { const upstream = get().edges.filter((edge) => edge.target === id).map((edge) => get().nodes.find((item) => item.id === edge.source)).filter((item): item is CanvasNode => Boolean(item && (item.data.output || item.data.imageUrl))); const inputs = upstream.map((source) => source.data.output?.value).filter((value): value is NonNullable<typeof value> => value !== undefined); let result: NodeOutput; let intervalMs = 3000; const generationContext = promptFrom(node, upstream); if (canRunRemotely(node.data.nodeType)) { const response = await fetch("/api/ai/run-node", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nodeType: node.data.nodeType, input: inputFor(node, upstream) }) }); const payload = await response.json() as { ok?: boolean; output?: unknown; error?: { message?: unknown }; polling?: { intervalMs?: unknown } }; if (!response.ok || !payload.ok) throw new Error(asText(payload.error?.message) || "AI request failed."); intervalMs = Number(payload.polling?.intervalMs) || intervalMs; result = outputFromProvider(node.data.nodeType, payload.output); } else if (node.data.nodeType === "storyboardImage") { const storyboard = upstream.find((item) => item.data.nodeType === "storyboard"); const prompts = promptsFromStoryboard(storyboard?.data.output?.value, node.data.aspectRatio, node.data.negativePrompt); if (!prompts.length) throw new Error("Connect and run a Storyboard node before generating image prompts."); result = makeOutput("storyboardImage", `${prompts.length} image prompts prepared`, { prompts }); } else if (node.data.nodeType === "prompt") { if (!node.data.prompt) throw new Error("Add a prompt or input before running this node."); result = makeOutput("prompt", "Structured prompt prepared", { prompt: node.data.prompt, negativePrompt: node.data.negativePrompt, style: node.data.style, aspectRatio: node.data.aspectRatio }); } else if (node.data.nodeType === "reference") result = makeOutput("reference", "Reference material available", { imageUrl: node.data.imageUrl, notes: node.data.notes }); else result = makeOutput("output", `${inputs.length} upstream result${inputs.length === 1 ? "" : "s"} collected as ${node.data.format || "Creative package"}`, outputFor(node.data.format, upstream)); const taskState = asText(asRecord(result.value).status); const polling = taskState === "pending" || taskState === "running"; set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: taskState === "failed" ? "error" : taskState === "running" ? "running" : polling ? "waiting" : "success", output: result, generationContext, rawStatus: asText(asRecord(result.value).rawStatus) || taskState || item.data.rawStatus, storyboardImagePrompts: node.data.nodeType === "storyboardImage" ? (asRecord(result.value).prompts as CanvasNodeData["storyboardImagePrompts"]) : item.data.storyboardImagePrompts } } : item) })); if (polling) schedulePoll(id, () => void get().pollNode(id), intervalMs); } catch (error) { const message = error instanceof Error ? error.message : "Node execution failed"; set((current) => ({ lastError: message, nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "error", error: message } } : item) })); throw error; } },
   pollNode: async (id) => { const node = get().nodes.find((item) => item.id === id); const value = asRecord(node?.data.output?.value); const taskId = asText(value.taskId); if (!node || !taskId || !["image", "video", "audio"].includes(node.data.nodeType)) return; set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "running", error: undefined } } : item) })); try { const response = await fetch("/api/ai/poll-task", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: node.data.nodeType, taskId, provider: node.data.nodeType === "video" ? node.data.videoProvider : undefined, pollUrl: asText(value.pollUrl) || undefined, pollAction: node.data.nodeType === "video" ? (asText(value.pollAction) || undefined) : undefined }) }); const payload = await response.json() as { ok?: boolean; output?: unknown; error?: { message?: unknown }; polling?: { intervalMs?: unknown } }; if (!response.ok || !payload.ok) throw new Error(asText(payload.error?.message) || "Task polling failed."); const rawOutput = asRecord(payload.output); const result = outputFromProvider(node.data.nodeType, node.data.nodeType === "video" ? { ...rawOutput, videoUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl) } : payload.output); const state = asText(rawOutput.status); const intervalMs = Number(payload.polling?.intervalMs) || 3000; if (state === "pending" || state === "running") schedulePoll(id, () => void get().pollNode(id), intervalMs); set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: state === "failed" ? "error" : state === "completed" ? "success" : state === "running" ? "running" : "waiting", output: result, taskId, resultUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl), rawStatus: asText(rawOutput.rawStatus) || state, lastPollAt: new Date().toISOString() } } : item) })); } catch (error) { const message = error instanceof Error ? error.message : "Task polling failed"; set((current) => ({ lastError: message, nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "error", error: message } } : item) })); } },
   runWorkflow: async () => { try { set({ lastError: null }); const ordered = topologicalSort(get().nodes, get().edges); for (const node of ordered) await get().runNode(node.id); } catch (error) { if (error instanceof Error) set({ lastError: error.message }); } },

@@ -82,3 +82,30 @@ export function buildAgentEditMessages({
     },
   ] as Array<{ role: "system" | "user"; content: string }>;
 }
+
+export function buildAgentOrganizeMessages({
+  userInstruction,
+  canvasSummary,
+}: {
+  userInstruction: string;
+  canvasSummary: string;
+}) {
+  return [
+    {
+      role: "system",
+      content: [
+        readAgentSkill("canvas-organize"),
+        languageInstructionFor(userInstruction),
+        "Return JSON only. Do not output Markdown.",
+      ].join("\n\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `User organization instruction:\n${userInstruction}`,
+        canvasSummary,
+        "Create a safe canvas organization plan.",
+      ].join("\n\n"),
+    },
+  ] as Array<{ role: "system" | "user"; content: string }>;
+}
