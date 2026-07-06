@@ -172,8 +172,24 @@ function ResizeHandle({ onResize }: { onResize(dx: number, dy: number): void }) 
 
 function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: any) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
+  const edges = useCanvasStore((s) => s.edges);
+  const connectedHandles = new Set(edges.filter(e => e.target === id).map(e => e.targetHandle || ""));
   const videoUrl = text(record(data.output?.value).videoUrl || record(data.output?.value).resultUrl || record(data.output?.value).finalVideoUrl || data.resultUrl || "");
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
+
+  const renderHandle = (label: string, handleId: string, borderColorClass: string, bgColorClass: string, connectedBgColorClass: string) => {
+    const isConnected = connectedHandles.has(handleId);
+    return (
+       <div className="flex items-center justify-end gap-3" style={{ width: "125px" }}>
+         <span className={`whitespace-nowrap font-bold text-[14px] text-[#030303] dark:text-slate-200 transition-opacity duration-300 ${selected ? "opacity-100" : "opacity-0"}`}>
+           {label}
+         </span>
+         <div className={`relative grid place-items-center h-[18px] w-[18px] shrink-0 rounded-full border-[2.5px] ${borderColorClass} ${isConnected ? connectedBgColorClass : bgColorClass}`}>
+           <Handle type="target" id={handleId} position={Position.Left} className="!absolute !inset-0 !m-auto !h-[26px] !w-[26px] !border-0 !bg-transparent !transform-none opacity-0" />
+         </div>
+       </div>
+    );
+  };
 
   return (
     <>
@@ -186,31 +202,11 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
           <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS[data.nodeType] || "#22d3ee" } as React.CSSProperties} />
         )}
 
-        <div className="absolute -left-[140px] top-14 flex flex-col gap-[32px] text-[13px] font-semibold tracking-tight text-[#030303] dark:text-slate-200">
-           <div className="flex items-center justify-end gap-3 w-[120px]">
-             Text 
-             <div className="relative grid place-items-center h-4 w-4 rounded-full border-2 border-[#f59e0b] bg-white dark:bg-[#101c29]">
-               <Handle type="target" id="text" position={Position.Left} className="!absolute !inset-0 !m-auto !h-auto !w-auto !border-0 !bg-transparent !transform-none opacity-0" />
-             </div>
-           </div>
-           <div className="flex items-center justify-end gap-3 w-[120px]">
-             Start Frame 
-             <div className="relative grid place-items-center h-4 w-4 rounded-full border-2 border-[#84cc16] bg-white dark:bg-[#101c29]">
-               <Handle type="target" id="start-frame" position={Position.Left} className="!absolute !inset-0 !m-auto !h-auto !w-auto !border-0 !bg-transparent !transform-none opacity-0" />
-             </div>
-           </div>
-           <div className="flex items-center justify-end gap-3 w-[120px]">
-             Last Frame 
-             <div className="relative grid place-items-center h-4 w-4 rounded-full border-2 border-[#84cc16] bg-white dark:bg-[#101c29]">
-               <Handle type="target" id="last-frame" position={Position.Left} className="!absolute !inset-0 !m-auto !h-auto !w-auto !border-0 !bg-transparent !transform-none opacity-0" />
-             </div>
-           </div>
-           <div className="flex items-center justify-end gap-3 w-[120px]">
-             Reference image 
-             <div className="relative grid place-items-center h-4 w-4 rounded-full border-2 border-[#84cc16] bg-white dark:bg-[#101c29]">
-               <Handle type="target" id="ref-image" position={Position.Left} className="!absolute !inset-0 !m-auto !h-auto !w-auto !border-0 !bg-transparent !transform-none opacity-0" />
-             </div>
-           </div>
+        <div className="absolute -left-[145px] top-[75px] flex flex-col gap-[36px]">
+           {renderHandle("Text", "text", "border-[#f59e0b]", "bg-white dark:bg-[#101c29]", "bg-[#f59e0b]")}
+           {renderHandle("Start Frame", "start-frame", "border-[#84cc16]", "bg-white dark:bg-[#101c29]", "bg-[#84cc16]")}
+           {renderHandle("Last Frame", "last-frame", "border-[#84cc16]", "bg-white dark:bg-[#101c29]", "bg-[#84cc16]")}
+           {renderHandle("Reference image", "ref-image", "border-[#84cc16]", "bg-white dark:bg-[#101c29]", "bg-[#84cc16]")}
         </div>
 
         <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
@@ -236,26 +232,45 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
         </div>
       </div>
 
-      <div className={`absolute left-0 top-[calc(100%+16px)] z-50 w-[420px] overflow-hidden rounded-[28px] border-2 border-[#030303] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
+      <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[420px] -translate-x-1/2 overflow-hidden rounded-[28px] border-2 border-[#030303] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
          <div className="p-6 pb-4">
             <textarea 
                value={data.prompt ?? ""}
                onChange={e => updateNodeData(id, { prompt: e.target.value })}
                placeholder="请为以下创意写一个完整的、可拍摄的10秒短片剧本..."
-               className="nodrag h-28 w-full resize-none border-none bg-transparent text-[14px] font-medium leading-7 tracking-wide text-[#030303] outline-none placeholder:font-normal placeholder:text-[#939393] dark:text-slate-100 dark:placeholder:text-slate-500"
+               className="nodrag h-24 w-full resize-none border-none bg-transparent text-[14px] font-medium leading-7 tracking-wide text-[#030303] outline-none placeholder:font-normal placeholder:text-[#939393] dark:text-slate-100 dark:placeholder:text-slate-500"
             />
          </div>
          <div className="flex items-center justify-between px-6 pb-6">
             <div className="flex gap-2">
-              <span className="flex h-9 items-center justify-center rounded-full bg-[#f0f1f3] px-5 text-[13px] font-bold tracking-wide text-[#030303] dark:bg-slate-800 dark:text-slate-200">
-                {data.resolution || "1080p"}
-              </span>
-              <span className="flex h-9 items-center justify-center rounded-full bg-[#f0f1f3] px-5 text-[13px] font-bold tracking-wide text-[#030303] dark:bg-slate-800 dark:text-slate-200">
-                {data.aspectRatio || "16:9"}
-              </span>
-              <span className="flex h-9 items-center justify-center rounded-full bg-[#f0f1f3] px-5 text-[13px] font-bold tracking-wide text-[#030303] dark:bg-slate-800 dark:text-slate-200">
-                {data.duration ? `${data.duration}s` : "15s"}
-              </span>
+              <div className="relative flex h-10 items-center justify-center rounded-full bg-[#f0f1f3] px-1 transition-colors focus-within:ring-2 focus-within:ring-[#030303] hover:bg-[#e7eaf0] dark:bg-slate-800 dark:hover:bg-slate-700">
+                <select value={data.resolution || "1080p"} onChange={e => updateNodeData(id, { resolution: e.target.value })} className="absolute inset-0 h-full w-full cursor-pointer opacity-0 text-[14px]">
+                  <option value="1080p">1080p</option>
+                  <option value="720p">720p</option>
+                  <option value="480p">480p</option>
+                </select>
+                <span className="pointer-events-none px-4 text-[13px] font-bold tracking-wide text-[#030303] dark:text-slate-200">{data.resolution || "1080p"}</span>
+              </div>
+              <div className="relative flex h-10 items-center justify-center rounded-full bg-[#f0f1f3] px-1 transition-colors focus-within:ring-2 focus-within:ring-[#030303] hover:bg-[#e7eaf0] dark:bg-slate-800 dark:hover:bg-slate-700">
+                <select value={data.aspectRatio || "16:9"} onChange={e => updateNodeData(id, { aspectRatio: e.target.value })} className="absolute inset-0 h-full w-full cursor-pointer opacity-0 text-[14px]">
+                  <option value="16:9">16:9</option>
+                  <option value="9:16">9:16</option>
+                  <option value="1:1">1:1</option>
+                  <option value="4:3">4:3</option>
+                  <option value="3:4">3:4</option>
+                  <option value="21:9">21:9</option>
+                </select>
+                <span className="pointer-events-none px-4 text-[13px] font-bold tracking-wide text-[#030303] dark:text-slate-200">{data.aspectRatio || "16:9"}</span>
+              </div>
+              <div className="relative flex h-10 items-center justify-center rounded-full bg-[#f0f1f3] px-1 transition-colors focus-within:ring-2 focus-within:ring-[#030303] hover:bg-[#e7eaf0] dark:bg-slate-800 dark:hover:bg-slate-700">
+                <select value={data.duration || 15} onChange={e => updateNodeData(id, { duration: Number(e.target.value) })} className="absolute inset-0 h-full w-full cursor-pointer opacity-0 text-[14px]">
+                  <option value={5}>5s</option>
+                  <option value={8}>8s</option>
+                  <option value={10}>10s</option>
+                  <option value={15}>15s</option>
+                </select>
+                <span className="pointer-events-none px-4 text-[13px] font-bold tracking-wide text-[#030303] dark:text-slate-200">{data.duration ? `${data.duration}s` : "15s"}</span>
+              </div>
             </div>
             <button 
               onClick={(e) => { e.stopPropagation(); void runNode(id); }}
