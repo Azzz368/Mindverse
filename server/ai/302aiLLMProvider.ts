@@ -1,0 +1,88 @@
+import "server-only";
+import { validateAgentCanvasEditPlan, validateAgentCanvasOrganizePlan, validateAgentDialogueResponse, validateAgentPlan, type AgentCanvasEditPlan, type AgentCanvasOrganizePlan, type AgentDialogueMessage, type AgentDialogueResponse, type AgentWorkflowPlan } from "@/shared/agent/agentSchema";
+import { buildAgentDialogueMessages, buildAgentEditMessages, buildAgentOrganizeMessages, buildAgentPlannerMessages } from "@/server/agent/agentPrompt";
+import { agentModel, agentProvider, requestChatCompletion } from "@/server/ai/textLLMClient";
+
+type ChatResponse = {
+  choices?: Array<{ message?: { content?: string }; delta?: { content?: string } }>;
+};
+
+const cleanJson = (value: string) => value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+
+export async function runAgentPlannerLLM({ userPrompt, canvasSummary }: { userPrompt: string; canvasSummary?: string }): Promise<AgentWorkflowPlan> {
+  const raw = await requestChatCompletion<ChatResponse>({
+    provider: agentProvider(),
+    body: {
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      messages: buildAgentPlannerMessages(userPrompt, canvasSummary),
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+    },
+  });
+  const content = raw.choices?.[0]?.message?.content || raw.choices?.[0]?.delta?.content;
+  if (!content) throw new Error("Agent planner did not return JSON content.");
+  return validateAgentPlan(JSON.parse(cleanJson(content)));
+}
+
+export async function runAgentDialogueLLM({
+  userMessage,
+  conversation,
+}: {
+  userMessage: string;
+  conversation: AgentDialogueMessage[];
+}): Promise<AgentDialogueResponse> {
+  const raw = await requestChatCompletion<ChatResponse>({
+    provider: agentProvider(),
+    body: {
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      messages: buildAgentDialogueMessages({ userMessage, conversation }),
+      temperature: 0.55,
+      response_format: { type: "json_object" },
+    },
+  });
+  const content = raw.choices?.[0]?.message?.content || raw.choices?.[0]?.delta?.content;
+  if (!content) throw new Error("Agent dialogue did not return JSON content.");
+  return validateAgentDialogueResponse(JSON.parse(cleanJson(content)));
+}
+
+export async function runAgentEditLLM({
+  userInstruction,
+  canvasSummary,
+}: {
+  userInstruction: string;
+  canvasSummary: string;
+}): Promise<AgentCanvasEditPlan> {
+  const raw = await requestChatCompletion<ChatResponse>({
+    provider: agentProvider(),
+    body: {
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      messages: buildAgentEditMessages({ userInstruction, canvasSummary }),
+      temperature: 0.15,
+      response_format: { type: "json_object" },
+    },
+  });
+  const content = raw.choices?.[0]?.message?.content || raw.choices?.[0]?.delta?.content;
+  if (!content) throw new Error("Agent editor did not return JSON content.");
+  return validateAgentCanvasEditPlan(JSON.parse(cleanJson(content)));
+}
+
+export async function runAgentOrganizeLLM({
+  userInstruction,
+  canvasSummary,
+}: {
+  userInstruction: string;
+  canvasSummary: string;
+}): Promise<AgentCanvasOrganizePlan> {
+  const raw = await requestChatCompletion<ChatResponse>({
+    provider: agentProvider(),
+    body: {
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      messages: buildAgentOrganizeMessages({ userInstruction, canvasSummary }),
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+    },
+  });
+  const content = raw.choices?.[0]?.message?.content || raw.choices?.[0]?.delta?.content;
+  if (!content) throw new Error("Agent organizer did not return JSON content.");
+  return validateAgentCanvasOrganizePlan(JSON.parse(cleanJson(content)));
+}

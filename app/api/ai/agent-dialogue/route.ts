@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { normalizeAIError } from "@/lib/ai/errors";
-import { runAgentDialogueLLM } from "@/lib/ai/302aiLLMProvider";
-import type { AgentDialogueMessage } from "@/lib/agent/agentSchema";
+import { normalizeAIError } from "@/server/ai/errors";
+import { runAgentDialogueLLM } from "@/server/ai/302aiLLMProvider";
+import type { AgentDialogueMessage } from "@/shared/agent/agentSchema";
 
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const messagesFrom = (value: unknown): AgentDialogueMessage[] => Array.isArray(value)

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { compileCanvasEditPlanToPatch } from "@/lib/agent/compileCanvasEditPlan";
-import { summarizeCanvasForAgent } from "@/lib/agent/summarizeCanvas";
-import { normalizeAIError } from "@/lib/ai/errors";
-import { runAgentEditLLM } from "@/lib/ai/302aiLLMProvider";
-import type { CanvasNode, WorkflowEdge } from "@/types/canvas";
+import { compileCanvasEditPlanToPatch } from "@/server/agent/compileCanvasEditPlan";
+import { summarizeCanvasForAgent } from "@/server/agent/summarizeCanvas";
+import { normalizeAIError } from "@/server/ai/errors";
+import { runAgentEditLLM } from "@/server/ai/302aiLLMProvider";
+import type { CanvasNode, WorkflowEdge } from "@/shared/canvas";
 
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const stringArray = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : [];

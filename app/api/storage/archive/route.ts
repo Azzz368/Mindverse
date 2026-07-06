@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { archiveMedia } from "@/lib/storage/mediaArchive";
+import { archiveMedia } from "@/server/storage/mediaArchive";
 
 const validMediaType = (value: unknown): value is "image" | "video" | "audio" => value === "image" || value === "video" || value === "audio";
 

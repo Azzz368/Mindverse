@@ -1,4 +1,4 @@
-import type { NodeExecutionStatus } from "@/types/canvas";
+import type { NodeExecutionStatus } from "@/shared/canvas";
 const colors: Record<NodeExecutionStatus, string> = {
   idle:    "bg-[#f0f1f3] text-[#676f7b] dark:bg-slate-700 dark:text-slate-300",
   running: "bg-amber-50 text-amber-700 dark:bg-amber-400/20 dark:text-amber-200",

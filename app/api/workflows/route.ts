@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createWorkflow, listWorkflows } from "@/lib/storage/workflowStorage";
+import { createWorkflow, listWorkflows } from "@/server/storage/workflowStorage";
 
 export async function GET(request: Request) {
   try {

@@ -1,4 +1,4 @@
-import { WorkflowDashboard } from "@/components/workspace/WorkflowDashboard";
+import { WorkflowDashboard } from "@/features/workspace/components/WorkflowDashboard";
 
 export default function WorkspacePage() { return <WorkflowDashboard />; }
 

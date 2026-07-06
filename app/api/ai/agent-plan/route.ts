@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { validateAgentPlan } from "@/lib/agent/agentSchema";
-import { compileWorkflowPlanToCanvas } from "@/lib/agent/compileWorkflowPlan";
-import { normalizeAIError } from "@/lib/ai/errors";
-import { runAgentPlannerLLM } from "@/lib/ai/302aiLLMProvider";
+import { validateAgentPlan } from "@/shared/agent/agentSchema";
+import { compileWorkflowPlanToCanvas } from "@/server/agent/compileWorkflowPlan";
+import { normalizeAIError } from "@/server/ai/errors";
+import { runAgentPlannerLLM } from "@/server/ai/302aiLLMProvider";
 
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 

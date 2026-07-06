@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { ThemeProvider } from "@/components/ThemeProvider";
-import { LangProvider } from "@/components/LangProvider";
+import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import { LangProvider } from "@/components/providers/LangProvider";
 
 export const metadata: Metadata = { title: "Mindverse", description: "Creative AI workflow canvas" };
 

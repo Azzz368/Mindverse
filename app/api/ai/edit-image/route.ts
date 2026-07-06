@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { normalizeAIError } from "@/lib/ai/errors";
-import { getImageAIProvider } from "@/lib/ai/provider";
-import { archiveResultMedia } from "@/lib/storage/mediaArchive";
+import { normalizeAIError } from "@/server/ai/errors";
+import { getImageAIProvider } from "@/server/ai/provider";
+import { archiveResultMedia } from "@/server/storage/mediaArchive";
 
 type EditRequest = { sourceImageUrl?: unknown; prompt?: unknown; maskImageUrl?: unknown; annotationDocument?: unknown; annotationSnapshotDataUrl?: unknown; size?: unknown; quality?: unknown; outputFormat?: unknown };
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";

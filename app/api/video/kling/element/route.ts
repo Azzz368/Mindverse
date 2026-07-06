@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { normalizeAIError } from "@/lib/ai/errors";
-import { createAigcElement, describeAigcElement, deleteAigcElement } from "@/lib/ai/tokenstar/tokenstarElement";
+import { normalizeAIError } from "@/server/ai/errors";
+import { createAigcElement, describeAigcElement, deleteAigcElement } from "@/server/ai/tokenstar/tokenstarElement";
 
 export async function POST(request: Request) {
   try {

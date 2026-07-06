@@ -1,46 +1,18 @@
-﻿import { NextResponse } from "next/server";
-import { normalizeAIError } from "@/lib/ai/errors";
-import { getAIProvider, getImageAIProvider, getTextAIProvider } from "@/lib/ai/provider";
-import { createKlingImageVideo } from "@/lib/ai/klingVideoProvider";
-import { generateTokenStarImage, generateTokenStarImageRevision, isTokenStarImageModel } from "@/lib/ai/tokenstar/tokenstarImageProvider";
-import { createKlingImageVideo as tsKlingImage, createKlingTextVideo, createKlingOmniVideo, createSeedanceAssetVideo, createSeedanceVideo } from "@/lib/ai/tokenstar/tokenstarVideoProvider";
-import { createSora2ImageVideo } from "@/lib/ai/sora2VideoProvider";
-import { parseScript, scriptInstruction } from "@/lib/workflow/storyPipeline";
-import { archiveResultMedia } from "@/lib/storage/mediaArchive";
-import type { GenerateAudioInput, GenerateImageInput, GenerateImageRevisionInput, GenerateStoryboardInput, GenerateTextInput, GenerateVideoInput } from "@/lib/ai/types";
+import { NextResponse } from "next/server";
+import { normalizeAIError } from "@/server/ai/errors";
+import { isRunnableNodeType, runNodeUseCase } from "@/server/ai/application/runNodeUseCase";
 
-type RunnableNodeType = "text" | "script" | "image" | "image-revision" | "video" | "audio" | "storyboard";
-const isRunnable = (value: unknown): value is RunnableNodeType => ["text", "script", "image", "image-revision", "video", "audio", "storyboard"].includes(String(value));
-const normalizeTokenstarMode = (value: unknown, fallback: unknown = "text-to-video") => {
-  const mode = typeof value === "string" && value ? value : typeof fallback === "string" ? fallback : "text-to-video";
-  if (mode === "kling-image" || mode === "kling-reference" || mode === "kling-image-to-video") return "kling-image";
-  if (mode === "kling-text" || mode === "kling-text-to-video") return "kling-text";
-  if (mode === "kling-omni" || mode === "asset-video" || mode === "text-to-video") return mode;
-  return "text-to-video";
-};
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { nodeType?: unknown; input?: unknown };
-    if (!isRunnable(body.nodeType) || !body.input || typeof body.input !== "object") return NextResponse.json({ ok: false, error: { message: "Invalid nodeType or input.", code: "INVALID_REQUEST", status: 400 } }, { status: 400 });
-    const tokenstarInput = body.input as Record<string, unknown>;
-    if (body.nodeType === "video" && tokenstarInput.videoProvider === "302-sora2") { const prompt = typeof tokenstarInput.prompt === "string" ? tokenstarInput.prompt : ""; const image = typeof tokenstarInput.image === "string" ? tokenstarInput.image : ""; if (!prompt || !image) return NextResponse.json({ ok: false, error: { message: "Sora-2 image-to-video requires both a prompt and a source image.", status: 400 } }, { status: 400 }); const output = await createSora2ImageVideo({ prompt, image, duration: typeof tokenstarInput.duration === "number" ? tokenstarInput.duration : undefined, resolution: typeof tokenstarInput.resolution === "string" ? tokenstarInput.resolution : undefined }); return NextResponse.json({ ok: true, provider: "302-sora2", output: await archiveResultMedia(output, { sourceProvider: "302-sora2", mediaTypeHint: "video" }), polling: { intervalMs: 5000 } }); }
-    if (body.nodeType === "video" && (tokenstarInput.videoProvider === "kling" || tokenstarInput.videoProvider === "" || (!tokenstarInput.videoProvider && process.env.AI_VIDEO_PROVIDER !== "302ai" && process.env.AI_VIDEO_PROVIDER !== "tokenstar"))) { const prompt = typeof tokenstarInput.prompt === "string" ? tokenstarInput.prompt : ""; const rawKlingMode = typeof tokenstarInput.klingMode === "string" ? tokenstarInput.klingMode : "image-to-video"; const klingMode = (["text-to-video", "image-to-video", "reference-image", "omni"].includes(rawKlingMode) ? rawKlingMode : "image-to-video") as import("@/lib/ai/tokenstar/klingVideoProvider").KlingVideoMode; if (!prompt) return NextResponse.json({ ok: false, error: { message: "Kling video requires a prompt.", status: 400 } }, { status: 400 }); const image = typeof tokenstarInput.image === "string" ? tokenstarInput.image : ""; if ((klingMode === "image-to-video" || klingMode === "reference-image") && !image) return NextResponse.json({ ok: false, error: { message: "Kling 首帧/参考图生视频需要连接一张图片或填写参考图 URL。请连接已生成的图像节点，或在设置里填首帧 URL。", status: 400 } }, { status: 400 }); const elementIds = typeof tokenstarInput.klingElementId === "string" && tokenstarInput.klingElementId.trim() ? tokenstarInput.klingElementId.trim().split(",").map((s: string) => s.trim()).filter(Boolean) : undefined; const output = await createKlingImageVideo({ prompt, image, negativePrompt: typeof tokenstarInput.negativePrompt === "string" ? tokenstarInput.negativePrompt : undefined, duration: typeof tokenstarInput.duration === "number" ? tokenstarInput.duration : undefined, resolution: typeof tokenstarInput.resolution === "string" ? tokenstarInput.resolution : undefined }); return NextResponse.json({ ok: true, provider: "kling", output: await archiveResultMedia({ ...output, klingMode }, { sourceProvider: "kling", mediaTypeHint: "video" }), polling: { intervalMs: Number(process.env.KLING_POLL_INTERVAL_MS || 5000) } }); }
-    if (body.nodeType === "video" && (tokenstarInput.videoProvider === "tokenstar" || (!tokenstarInput.videoProvider && process.env.AI_VIDEO_PROVIDER === "tokenstar"))) { const prompt = typeof tokenstarInput.prompt === "string" ? tokenstarInput.prompt : ""; if (!prompt) return NextResponse.json({ ok: false, error: { message: "A video prompt is required.", status: 400 } }, { status: 400 }); const urls = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : undefined; const elementIds = typeof tokenstarInput.klingElementId === "string" ? tokenstarInput.klingElementId.split(",").map((item) => item.trim()).filter(Boolean) : urls(tokenstarInput.klingElementIds); const input = { prompt, model: typeof tokenstarInput.model === "string" ? tokenstarInput.model : undefined, image: typeof tokenstarInput.image === "string" ? tokenstarInput.image : undefined, video: typeof tokenstarInput.referenceVideoUrl === "string" ? tokenstarInput.referenceVideoUrl : undefined, ratio: typeof tokenstarInput.aspectRatio === "string" ? tokenstarInput.aspectRatio : undefined, duration: typeof tokenstarInput.duration === "number" ? tokenstarInput.duration : undefined, resolution: typeof tokenstarInput.resolution === "string" ? tokenstarInput.resolution : undefined, generateAudio: typeof tokenstarInput.generateAudio === "boolean" ? tokenstarInput.generateAudio : undefined, klingElementId: typeof tokenstarInput.klingElementId === "string" ? tokenstarInput.klingElementId : undefined, klingElementIds: elementIds, referenceImageUrls: urls(tokenstarInput.referenceImageUrls), referenceVideoUrls: urls(tokenstarInput.referenceVideoUrls), referenceAudioUrls: urls(tokenstarInput.referenceAudioUrls), referenceImageAssetUrl: typeof tokenstarInput.referenceImageAssetUrl === "string" ? tokenstarInput.referenceImageAssetUrl : undefined, referenceVideoAssetUrl: typeof tokenstarInput.referenceVideoAssetUrl === "string" ? tokenstarInput.referenceVideoAssetUrl : undefined, referenceAudioAssetUrl: typeof tokenstarInput.referenceAudioAssetUrl === "string" ? tokenstarInput.referenceAudioAssetUrl : undefined }; const tsMode = normalizeTokenstarMode(tokenstarInput.tokenstarMode, tokenstarInput.mode); const output = tsMode === "kling-text" ? await createKlingTextVideo(input) : tsMode === "kling-image" ? await tsKlingImage(input) : tsMode === "kling-omni" ? await createKlingOmniVideo(input) : tsMode === "asset-video" ? await createSeedanceAssetVideo(input) : await createSeedanceVideo(input); return NextResponse.json({ ok: true, provider: "tokenstar", output: await archiveResultMedia({ ...output, tokenstarMode: tsMode }, { sourceProvider: "tokenstar", mediaTypeHint: "video" }), polling: { intervalMs: Number(process.env.TOKENSTAR_POLL_INTERVAL_MS || 5000) } }); }
-    const provider = getAIProvider();
-    const imageProvider = getImageAIProvider();
-    const textProvider = getTextAIProvider();
-    const responseProvider = body.nodeType === "image" || body.nodeType === "image-revision" ? imageProvider : body.nodeType === "text" || body.nodeType === "script" || body.nodeType === "storyboard" ? textProvider : provider;
-    const imageModel = typeof tokenstarInput.model === "string" ? tokenstarInput.model : undefined;
-    const sourceProvider = (body.nodeType === "image" || body.nodeType === "image-revision") && isTokenStarImageModel(imageModel) ? "tokenstar" : responseProvider.name;
-    const output = body.nodeType === "script" ? await (() => { const input = tokenstarInput; const brief = typeof input.storyBrief === "string" ? input.storyBrief : typeof input.prompt === "string" ? input.prompt : ""; const defaultTone = /[\u3400-\u9fff]/.test(brief) ? "电影感、虚构、完整可拍摄剧本" : "Cinematic, fictional"; const tone = typeof input.scriptTone === "string" ? input.scriptTone : defaultTone; const count = Math.max(1, Math.min(12, Number(input.numberOfScenes) || 3)); return textProvider.generateText({ model: typeof input.model === "string" ? input.model : undefined, temperature: 0.5, prompt: scriptInstruction(brief, tone, count) }).then((result) => parseScript(result.text, brief, count)); })()
-      : body.nodeType === "text" ? await textProvider.generateText(body.input as GenerateTextInput)
-      : body.nodeType === "image" && isTokenStarImageModel(imageModel) ? await generateTokenStarImage(body.input as GenerateImageInput)
-      : body.nodeType === "image" ? await imageProvider.generateImage(body.input as GenerateImageInput)
-      : body.nodeType === "image-revision" && isTokenStarImageModel(imageModel) ? await generateTokenStarImageRevision(body.input as GenerateImageRevisionInput)
-      : body.nodeType === "image-revision" ? await imageProvider.generateImageRevision(body.input as GenerateImageRevisionInput)
-      : body.nodeType === "video" ? await provider.generateVideo(body.input as GenerateVideoInput)
-      : body.nodeType === "audio" ? await provider.generateAudio(body.input as GenerateAudioInput)
-      : await textProvider.generateStoryboard(body.input as GenerateStoryboardInput);
-    return NextResponse.json({ ok: true, provider: sourceProvider, output: await archiveResultMedia(output, { sourceProvider, mediaTypeHint: body.nodeType === "audio" ? "audio" : body.nodeType === "image" || body.nodeType === "image-revision" ? "image" : body.nodeType === "video" ? "video" : undefined }), polling: { intervalMs: Number(process.env.AI_302_POLL_INTERVAL_MS || 3000), maxAttempts: Number(process.env.AI_302_MAX_POLL_ATTEMPTS || 40) } });
-  } catch (error) { const normalized = normalizeAIError(error); return NextResponse.json({ ok: false, error: normalized }, { status: normalized.status >= 400 && normalized.status < 600 ? normalized.status : 500 }); }
+    if (!isRunnableNodeType(body.nodeType) || !body.input || typeof body.input !== "object") {
+      return NextResponse.json({ ok: false, error: { message: "Invalid nodeType or input.", code: "INVALID_REQUEST", status: 400 } }, { status: 400 });
+    }
+    const result = await runNodeUseCase(body.nodeType, body.input as Record<string, unknown>);
+    if (!result.ok) return NextResponse.json(result, { status: result.error.status });
+    return NextResponse.json(result);
+  } catch (error) {
+    const normalized = normalizeAIError(error);
+    return NextResponse.json({ ok: false, error: normalized }, { status: normalized.status >= 400 && normalized.status < 600 ? normalized.status : 500 });
+  }
 }

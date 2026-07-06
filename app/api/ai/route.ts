@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { runCanvasNode } from "@/lib/workflow/nodeRunners";
-import type { CanvasNode } from "@/types/canvas";
+import { runCanvasNode } from "@/server/workflow/nodeRunners";
+import type { CanvasNode } from "@/shared/canvas";
 
 export async function POST(request: Request) {
   try { const { node, inputs = [] } = await request.json() as { node: CanvasNode; inputs?: unknown[] }; return NextResponse.json(await runCanvasNode(node, inputs)); }

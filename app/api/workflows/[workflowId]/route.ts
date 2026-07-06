@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { deleteWorkflow, getWorkflow, renameWorkflow, saveWorkflow } from "@/lib/storage/workflowStorage";
-import type { CanvasSnapshot } from "@/types/canvas";
+import { deleteWorkflow, getWorkflow, renameWorkflow, saveWorkflow } from "@/server/storage/workflowStorage";
+import type { CanvasSnapshot } from "@/shared/canvas";
 
 type Params = { params: Promise<{ workflowId: string }> };
 const isSnapshot = (value: unknown): value is CanvasSnapshot => Boolean(value && typeof value === "object" && Array.isArray((value as CanvasSnapshot).nodes) && Array.isArray((value as CanvasSnapshot).edges));
