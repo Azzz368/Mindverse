@@ -170,6 +170,106 @@ function ResizeHandle({ onResize }: { onResize(dx: number, dy: number): void }) 
   );
 }
 
+function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: any) {
+  const updateNodeData = useCanvasStore((s) => s.updateNodeData);
+  const videoUrl = text(record(data.output?.value).videoUrl || record(data.output?.value).resultUrl || record(data.output?.value).finalVideoUrl || data.resultUrl || "");
+  const visualGroupColor = data.workflowId ? undefined : data.groupColor;
+
+  return (
+    <>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-2 bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+        
+        {visualGroupColor && !selected && (
+          <div className="absolute inset-[-2px] -z-10 rounded-[26px] border-2" style={{ borderColor: visualGroupColor }} />
+        )}
+        {isGenerating && (
+          <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS[data.nodeType] || "#22d3ee" } as React.CSSProperties} />
+        )}
+
+        <div className="absolute -left-[140px] top-14 flex flex-col gap-[32px] text-[13px] font-semibold tracking-tight text-[#030303] dark:text-slate-200">
+           <div className="flex items-center justify-end gap-3 w-[120px]">
+             Text 
+             <div className="relative grid place-items-center h-4 w-4 rounded-full border-2 border-[#f59e0b] bg-white dark:bg-[#101c29]">
+               <Handle type="target" id="text" position={Position.Left} className="!absolute !inset-0 !m-auto !h-auto !w-auto !border-0 !bg-transparent !transform-none opacity-0" />
+             </div>
+           </div>
+           <div className="flex items-center justify-end gap-3 w-[120px]">
+             Start Frame 
+             <div className="relative grid place-items-center h-4 w-4 rounded-full border-2 border-[#84cc16] bg-white dark:bg-[#101c29]">
+               <Handle type="target" id="start-frame" position={Position.Left} className="!absolute !inset-0 !m-auto !h-auto !w-auto !border-0 !bg-transparent !transform-none opacity-0" />
+             </div>
+           </div>
+           <div className="flex items-center justify-end gap-3 w-[120px]">
+             Last Frame 
+             <div className="relative grid place-items-center h-4 w-4 rounded-full border-2 border-[#84cc16] bg-white dark:bg-[#101c29]">
+               <Handle type="target" id="last-frame" position={Position.Left} className="!absolute !inset-0 !m-auto !h-auto !w-auto !border-0 !bg-transparent !transform-none opacity-0" />
+             </div>
+           </div>
+           <div className="flex items-center justify-end gap-3 w-[120px]">
+             Reference image 
+             <div className="relative grid place-items-center h-4 w-4 rounded-full border-2 border-[#84cc16] bg-white dark:bg-[#101c29]">
+               <Handle type="target" id="ref-image" position={Position.Left} className="!absolute !inset-0 !m-auto !h-auto !w-auto !border-0 !bg-transparent !transform-none opacity-0" />
+             </div>
+           </div>
+        </div>
+
+        <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
+
+        <div className="px-6 pt-6 pb-3">
+          <h2 className="text-[22px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Kling 3.0 Omni"}</h2>
+        </div>
+
+        <div className="flex-1 px-6 pb-6">
+          <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800 border-[6px] border-transparent">
+             {videoUrl ? (
+               <video src={videoUrl} autoPlay loop muted playsInline className="absolute inset-0 h-full w-full rounded-[14px] object-cover" />
+             ) : (
+               isGenerating ? (
+                  <div className="absolute inset-0 m-auto h-12 w-12 animate-pulse rounded-2xl bg-[#c9ccd1] dark:bg-slate-600" />
+               ) : (
+                  <div className="flex h-[72px] w-[100px] items-center justify-center rounded-[24px] border-[6px] border-[#e7eaf0] bg-[#f0f1f3] dark:border-slate-600 dark:bg-slate-700" style={{ transform: "scale(1.2)" }}>
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" className="ml-2 text-[#a8abae] dark:text-slate-400"><path d="M5 3l14 9-14 9V3z"/></svg>
+                  </div>
+               )
+             )}
+          </div>
+        </div>
+      </div>
+
+      <div className={`absolute left-0 top-[calc(100%+16px)] z-50 w-[420px] overflow-hidden rounded-[28px] border-2 border-[#030303] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
+         <div className="p-6 pb-4">
+            <textarea 
+               value={data.prompt ?? ""}
+               onChange={e => updateNodeData(id, { prompt: e.target.value })}
+               placeholder="请为以下创意写一个完整的、可拍摄的10秒短片剧本..."
+               className="nodrag h-28 w-full resize-none border-none bg-transparent text-[14px] font-medium leading-7 tracking-wide text-[#030303] outline-none placeholder:font-normal placeholder:text-[#939393] dark:text-slate-100 dark:placeholder:text-slate-500"
+            />
+         </div>
+         <div className="flex items-center justify-between px-6 pb-6">
+            <div className="flex gap-2">
+              <span className="flex h-9 items-center justify-center rounded-full bg-[#f0f1f3] px-5 text-[13px] font-bold tracking-wide text-[#030303] dark:bg-slate-800 dark:text-slate-200">
+                {data.resolution || "1080p"}
+              </span>
+              <span className="flex h-9 items-center justify-center rounded-full bg-[#f0f1f3] px-5 text-[13px] font-bold tracking-wide text-[#030303] dark:bg-slate-800 dark:text-slate-200">
+                {data.aspectRatio || "16:9"}
+              </span>
+              <span className="flex h-9 items-center justify-center rounded-full bg-[#f0f1f3] px-5 text-[13px] font-bold tracking-wide text-[#030303] dark:bg-slate-800 dark:text-slate-200">
+                {data.duration ? `${data.duration}s` : "15s"}
+              </span>
+            </div>
+            <button 
+              onClick={(e) => { e.stopPropagation(); void runNode(id); }}
+              disabled={isGenerating}
+              className="nodrag flex h-11 items-center justify-center rounded-full bg-[#030303] px-6 text-[15px] font-bold text-white transition hover:bg-[#1a1a1a] disabled:opacity-50 dark:bg-cyan-500 dark:text-[#030303] dark:hover:bg-cyan-400"
+            >
+              Run
+            </button>
+         </div>
+      </div>
+    </>
+  );
+}
+
 export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode), duplicateNode = useCanvasStore((s) => s.duplicateNode), createImageRevision = useCanvasStore((s) => s.createImageRevision), createKeyframeBatch = useCanvasStore((s) => s.createKeyframeBatch), runNode = useCanvasStore((s) => s.runNode);
   const { t } = useLang();
@@ -180,6 +280,10 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
   const isWaiting = record(data.output?.value).status === "pending";
   const keyframePrompts = data.nodeType === "storyboardImage" && Array.isArray((record(data.output?.value)).prompts) ? (record(data.output?.value).prompts as unknown[]) : [];
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
+
+  if (data.nodeType === "video") {
+    return <VideoNodeLayout id={id} data={data} selected={selected!} node={node} isGenerating={isGenerating} runNode={runNode} />;
+  }
 
   return (
     <>
