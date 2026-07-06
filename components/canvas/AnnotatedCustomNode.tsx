@@ -219,8 +219,10 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
           )}
           <button onClick={e => { e.stopPropagation(); setSettingsOpen(true); }}
             className="nodrag mr-0.5 grid h-5 w-5 shrink-0 place-items-center rounded text-[#939393] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-cyan-300" title={t.settingsTitle}>
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <circle cx="8" cy="8" r="2.5"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06"/>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="3" y1="6" x2="21" y2="6"/><circle cx="16" cy="6" r="2.2" fill="currentColor" stroke="none"/><circle cx="16" cy="6" r="1.2" fill="white" stroke="none"/>
+              <line x1="3" y1="12" x2="21" y2="12"/>
+              <line x1="3" y1="18" x2="21" y2="18"/><circle cx="8" cy="18" r="2.2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="1.2" fill="white" stroke="none"/>
             </svg>
           </button>
           {!isGenerating && <Badge status={data.status}/>}
