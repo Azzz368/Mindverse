@@ -25,9 +25,13 @@ const klingTaskId = (raw: Record<string, unknown>) => taskId(raw) || text(raw.Jo
 const statusFor = (rawStatus: string | undefined, hasResult: boolean, hasTask = false, hasError = false): NormalizedVideoTask["status"] => {
   const status = rawStatus?.trim().toUpperCase();
   if (hasError || ["FAILED", "FAILURE", "FAIL", "ERROR", "CANCELLED", "CANCELED"].includes(status || "")) return "failed";
+  // A result URL is the definitive signal that the task has finished.
   if (hasResult) return "completed";
+  // Seedance/Tokenstar returns string status codes. A terminal success status WITHOUT a result_url
+  // means the task is done but the result may appear in the next poll cycle — treat as still running
+  // so the caller keeps polling until result_url appears.
+  if (["COMPLETED", "SUCCESS", "SUCCEEDED", "DONE", "SUCCEED"].includes(status || "")) return "running";
   if (/^\d+$/.test(status || "")) return hasTask ? "running" : "pending";
-  if (["COMPLETED", "SUCCESS", "SUCCEEDED", "DONE", "SUCCEED"].includes(status || "")) return hasTask ? "running" : "pending";
   if (["RUNNING", "IN_PROGRESS", "PROCESSING", "SUBMITTED", "PENDING", "QUEUED"].includes(status || "")) return "running";
   if (hasTask && !hasResult) return "pending";
   return "pending";
