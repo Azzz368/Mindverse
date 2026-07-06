@@ -1,5 +1,4 @@
 ﻿import "server-only";
-import { Buffer } from "node:buffer";
 import { TokenStarError } from "../errors";
 import { createAssetFromUrl, createAssetGroup, waitForAsset, waitForAssetGroup, type TokenStarAssetType } from "./tokenstarAsset";
 
@@ -16,6 +15,10 @@ const mediaType = (response: Response, blob: Blob) => (blob.type || response.hea
 const dataUriMimeType = (url: string) => {
   const match = /^data:([^;,]+)[;,]/i.exec(url);
   return match?.[1]?.trim().toLowerCase() || "";
+};
+const sourceSummary = (url: string) => {
+  if (/^data:/i.test(url)) return `${dataUriMimeType(url) || "unknown"} data URI (${url.length} chars)`;
+  return url;
 };
 const preparedReferenceUrl = async (url: string, type: TokenStarAssetType, index: number) => {
   if (!isFetchableSource(url)) throw new TokenStarError(`Connected ${labelFor(type)} reference ${index + 1} must be an HTTPS or data URL. Browser blob URLs cannot be uploaded by the server.`, 400);
@@ -37,8 +40,7 @@ const preparedReferenceUrl = async (url: string, type: TokenStarAssetType, index
   const typeName = mediaType(response, blob);
   if (typeName === "image/svg+xml") throw new TokenStarError("TokenStar asset-video requires a raster image reference (PNG, JPEG, or WebP). Mock ImageNodes produce SVG previews and cannot be uploaded.", 422);
   if (!allowedMimeTypes[type].includes(typeName)) throw new TokenStarError(`TokenStar ${labelFor(type)} assets must be ${allowedMimeTypes[type].join(", ")}. Connected reference ${index + 1} returned ${typeName || "an unknown content type"}.`, 422);
-  const base64 = Buffer.from(await blob.arrayBuffer()).toString("base64");
-  return `data:${typeName};base64,${base64}`;
+  return url;
 };
 
 type ReferenceSources = { imageUrls?: readonly string[]; videoUrls?: readonly string[]; audioUrls?: readonly string[] };
@@ -48,7 +50,20 @@ const uploadReferences = async (groupId: string, type: TokenStarAssetType, urls:
   for (const [index, url] of uniqueUrls(urls).entries()) {
     const name = `reference-${labelFor(type)}-${index + 1}`;
     const preparedUrl = await preparedReferenceUrl(url, type, index);
-    const created = await createAssetFromUrl({ groupId, name, assetType: type, url: preparedUrl });
+    let created: Awaited<ReturnType<typeof createAssetFromUrl>>;
+    try {
+      created = await createAssetFromUrl({ groupId, name, assetType: type, url: preparedUrl });
+    } catch (error) {
+      if (error instanceof TokenStarError) {
+        throw new TokenStarError(
+          `CreateAsset failed for ${labelFor(type)} reference ${index + 1}. GroupId: ${groupId}. Name: ${name}. AssetType: ${type}. Source: ${sourceSummary(url)}. Prepared URL: ${sourceSummary(preparedUrl)}. TokenStar error: ${error.message}`,
+          error.status,
+          error.errorCode,
+          error.requestId,
+        );
+      }
+      throw error;
+    }
     const ready = await waitForAsset({ groupId, name, assetType: type, assetId: created.assetId });
     assetUrls.push(ready.assetUrl);
   }
@@ -61,7 +76,7 @@ export async function createReferenceAssets(input: ReferenceSources): Promise<Re
   if (!imageUrls.length && !videoUrls.length && !audioUrls.length) return { imageAssetUrls: [], videoAssetUrls: [], audioAssetUrls: [] };
   const name = `lumen-flow-references-${Date.now()}`;
   const createdGroup = await createAssetGroup(name);
-  const groupId = createdGroup.groupId || (await waitForAssetGroup({ name })).groupId;
+  const groupId = createdGroup.groupId || (await waitForAssetGroup({ name, createdRaw: createdGroup.raw })).groupId;
   if (!groupId) throw new TokenStarError("TokenStar did not return an asset group id.", 502);
   const imageAssetUrls: string[] = [], videoAssetUrls: string[] = [], audioAssetUrls: string[] = [];
   await uploadReferences(groupId, "Image", imageUrls, imageAssetUrls);

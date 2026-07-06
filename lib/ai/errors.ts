@@ -24,7 +24,8 @@ export function normalizeAIError(error: unknown) {
     const detail = safeProviderDetail(error.message);
     const codeMsg = error.errorCode ? (TOKENSTAR_CODE_MESSAGES[error.errorCode] ?? `Error code: ${error.errorCode}`) : "";
     const reqHint = error.requestId ? ` [requestId: ${error.requestId}]` : "";
-    const build = (prefix: string) => `${prefix}${codeMsg ? " " + codeMsg : detail ? " " + detail : ""}${reqHint}`;
+    const extraDetail = detail && detail !== error.errorCode && detail !== codeMsg ? detail : "";
+    const build = (prefix: string) => `${prefix}${codeMsg ? " " + codeMsg : ""}${extraDetail ? " " + extraDetail : !codeMsg && detail ? " " + detail : ""}${reqHint}`;
     if (error.status === 401) return { message: build("TokenStar rejected the request (401)."), code: error.code, status: error.status, errorCode: error.errorCode, requestId: error.requestId };
     if (error.status === 402) return { message: build("TokenStar account issue (402)."), code: error.code, status: error.status, errorCode: error.errorCode, requestId: error.requestId };
     if (error.status === 403) return { message: build("TokenStar denied the request (403)."), code: error.code, status: error.status, errorCode: error.errorCode, requestId: error.requestId };

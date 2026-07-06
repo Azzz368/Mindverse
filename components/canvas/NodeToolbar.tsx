@@ -9,6 +9,8 @@ const TEXT_TYPES = new Set(["prompt", "text", "script"]);
 
 const IMAGE_MODELS = [
   { id: "gpt-image-2", label: "gpt-image-2", desc: "OpenAI \u6700\u65b0\u56fe\u50cf\u751f\u6210" },
+  { id: "gpt-image-2(tokenstar)", label: "gpt-image-2 (TokenStar)", desc: "TokenStar GPT Image 2" },
+  { id: "nano banana(tokenstar)", label: "Nano Banana (TokenStar)", desc: "TokenStar Gemini image" },
 ];
 
 export function NodeToolbar() {
@@ -101,7 +103,7 @@ export function NodeToolbar() {
                 {IMAGE_MODELS.map((m) => (
                   <button
                     key={m.id}
-                    onClick={() => { setGhostType("image"); setImageMenuOpen(false); }}
+                    onClick={() => { setGhostType("image", { title: m.label, model: m.id }); setImageMenuOpen(false); }}
                     className="flex w-full flex-col rounded-md px-2 py-1.5 text-left hover:bg-[#f0f1f3] dark:hover:bg-slate-800"
                   >
                     <span className="text-[11px] font-semibold text-[#030303] dark:text-slate-100">{m.label}</span>

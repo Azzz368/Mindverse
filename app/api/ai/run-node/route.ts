@@ -2,6 +2,7 @@
 import { normalizeAIError } from "@/lib/ai/errors";
 import { getAIProvider, getImageAIProvider, getTextAIProvider } from "@/lib/ai/provider";
 import { createKlingImageVideo } from "@/lib/ai/klingVideoProvider";
+import { generateTokenStarImage, generateTokenStarImageRevision, isTokenStarImageModel } from "@/lib/ai/tokenstar/tokenstarImageProvider";
 import { createKlingImageVideo as tsKlingImage, createKlingTextVideo, createKlingOmniVideo, createSeedanceAssetVideo, createSeedanceVideo } from "@/lib/ai/tokenstar/tokenstarVideoProvider";
 import { createSora2ImageVideo } from "@/lib/ai/sora2VideoProvider";
 import { parseScript, scriptInstruction } from "@/lib/workflow/storyPipeline";
@@ -29,13 +30,17 @@ export async function POST(request: Request) {
     const imageProvider = getImageAIProvider();
     const textProvider = getTextAIProvider();
     const responseProvider = body.nodeType === "image" || body.nodeType === "image-revision" ? imageProvider : body.nodeType === "text" || body.nodeType === "script" || body.nodeType === "storyboard" ? textProvider : provider;
+    const imageModel = typeof tokenstarInput.model === "string" ? tokenstarInput.model : undefined;
+    const sourceProvider = (body.nodeType === "image" || body.nodeType === "image-revision") && isTokenStarImageModel(imageModel) ? "tokenstar" : responseProvider.name;
     const output = body.nodeType === "script" ? await (() => { const input = tokenstarInput; const brief = typeof input.storyBrief === "string" ? input.storyBrief : typeof input.prompt === "string" ? input.prompt : ""; const defaultTone = /[\u3400-\u9fff]/.test(brief) ? "电影感、虚构、完整可拍摄剧本" : "Cinematic, fictional"; const tone = typeof input.scriptTone === "string" ? input.scriptTone : defaultTone; const count = Math.max(1, Math.min(12, Number(input.numberOfScenes) || 3)); return textProvider.generateText({ model: typeof input.model === "string" ? input.model : undefined, temperature: 0.5, prompt: scriptInstruction(brief, tone, count) }).then((result) => parseScript(result.text, brief, count)); })()
       : body.nodeType === "text" ? await textProvider.generateText(body.input as GenerateTextInput)
+      : body.nodeType === "image" && isTokenStarImageModel(imageModel) ? await generateTokenStarImage(body.input as GenerateImageInput)
       : body.nodeType === "image" ? await imageProvider.generateImage(body.input as GenerateImageInput)
+      : body.nodeType === "image-revision" && isTokenStarImageModel(imageModel) ? await generateTokenStarImageRevision(body.input as GenerateImageRevisionInput)
       : body.nodeType === "image-revision" ? await imageProvider.generateImageRevision(body.input as GenerateImageRevisionInput)
       : body.nodeType === "video" ? await provider.generateVideo(body.input as GenerateVideoInput)
       : body.nodeType === "audio" ? await provider.generateAudio(body.input as GenerateAudioInput)
       : await textProvider.generateStoryboard(body.input as GenerateStoryboardInput);
-    return NextResponse.json({ ok: true, provider: responseProvider.name, output: await archiveResultMedia(output, { sourceProvider: responseProvider.name, mediaTypeHint: body.nodeType === "audio" ? "audio" : body.nodeType === "image" || body.nodeType === "image-revision" ? "image" : body.nodeType === "video" ? "video" : undefined }), polling: { intervalMs: Number(process.env.AI_302_POLL_INTERVAL_MS || 3000), maxAttempts: Number(process.env.AI_302_MAX_POLL_ATTEMPTS || 40) } });
+    return NextResponse.json({ ok: true, provider: sourceProvider, output: await archiveResultMedia(output, { sourceProvider, mediaTypeHint: body.nodeType === "audio" ? "audio" : body.nodeType === "image" || body.nodeType === "image-revision" ? "image" : body.nodeType === "video" ? "video" : undefined }), polling: { intervalMs: Number(process.env.AI_302_POLL_INTERVAL_MS || 3000), maxAttempts: Number(process.env.AI_302_MAX_POLL_ATTEMPTS || 40) } });
   } catch (error) { const normalized = normalizeAIError(error); return NextResponse.json({ ok: false, error: normalized }, { status: normalized.status >= 400 && normalized.status < 600 ? normalized.status : 500 }); }
 }
