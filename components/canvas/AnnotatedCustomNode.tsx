@@ -170,6 +170,40 @@ function ResizeHandle({ onResize }: { onResize(dx: number, dy: number): void }) 
   );
 }
 
+function PillDropdown({ value, options, onChange }: { value: string | number; options: { value: string | number; label: string }[]; onChange: (v: string | number) => void }) {
+  const [open, setOpen] = useState(false);
+  const activeLabel = options.find(o => String(o.value) === String(value))?.label || String(value);
+
+  return (
+    <div className="relative" onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        className={`relative flex h-9 items-center justify-center rounded-[18px] bg-[#f0f1f3] px-5 transition-all duration-300 hover:bg-[#e7eaf0] focus:ring-1 focus:ring-[#676f7b] dark:bg-slate-800 dark:hover:bg-slate-700 outline-none text-[13px] font-bold tracking-wide text-[#030303] dark:text-slate-200 ${open ? "opacity-0" : "opacity-100"}`}
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+      >
+        {activeLabel}
+      </button>
+
+      <div
+        className={`absolute left-0 top-0 z-50 w-full origin-top flex-col rounded-[18px] bg-[#f0f1f3] shadow-xl transition-all duration-300 dark:bg-slate-800 overflow-hidden ring-1 ring-[#676f7b] ${open ? "scale-y-100 opacity-100 pointer-events-auto" : "scale-y-50 -translate-y-4 opacity-0 pointer-events-none"}`}
+      >
+        {options.map((opt, i) => (
+          <div key={opt.value} className="flex flex-col">
+            {i > 0 && <div className="mx-3 h-[1px] bg-[#c9ccd1] dark:bg-slate-600" />}
+            <button
+              type="button"
+              className="flex h-9 w-full items-center justify-center bg-transparent text-[13px] font-bold tracking-wide text-[#030303] transition-colors hover:bg-[#e7eaf0] dark:text-slate-200 dark:hover:bg-slate-700 outline-none"
+              onClick={(e) => { e.stopPropagation(); onChange(opt.value); setOpen(false); }}
+            >
+              {opt.label}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: any) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const edges = useCanvasStore((s) => s.edges);
@@ -232,7 +266,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
         </div>
       </div>
 
-      <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[420px] -translate-x-1/2 overflow-hidden rounded-[28px] border-2 border-[#030303] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
+      <div className={`absolute left-0 top-[calc(100%+8px)] z-50 w-full overflow-hidden rounded-[28px] border-2 border-[#030303] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
          <div className="p-6 pb-4">
             <textarea 
                value={data.prompt ?? ""}
@@ -243,34 +277,21 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
          </div>
          <div className="flex items-center justify-between px-6 pb-6">
             <div className="flex gap-2">
-              <div className="relative flex h-10 items-center justify-center rounded-full bg-[#f0f1f3] px-1 transition-colors focus-within:ring-2 focus-within:ring-[#030303] hover:bg-[#e7eaf0] dark:bg-slate-800 dark:hover:bg-slate-700">
-                <select value={data.resolution || "1080p"} onChange={e => updateNodeData(id, { resolution: e.target.value })} className="absolute inset-0 h-full w-full cursor-pointer opacity-0 text-[14px]">
-                  <option value="1080p">1080p</option>
-                  <option value="720p">720p</option>
-                  <option value="480p">480p</option>
-                </select>
-                <span className="pointer-events-none px-4 text-[13px] font-bold tracking-wide text-[#030303] dark:text-slate-200">{data.resolution || "1080p"}</span>
-              </div>
-              <div className="relative flex h-10 items-center justify-center rounded-full bg-[#f0f1f3] px-1 transition-colors focus-within:ring-2 focus-within:ring-[#030303] hover:bg-[#e7eaf0] dark:bg-slate-800 dark:hover:bg-slate-700">
-                <select value={data.aspectRatio || "16:9"} onChange={e => updateNodeData(id, { aspectRatio: e.target.value })} className="absolute inset-0 h-full w-full cursor-pointer opacity-0 text-[14px]">
-                  <option value="16:9">16:9</option>
-                  <option value="9:16">9:16</option>
-                  <option value="1:1">1:1</option>
-                  <option value="4:3">4:3</option>
-                  <option value="3:4">3:4</option>
-                  <option value="21:9">21:9</option>
-                </select>
-                <span className="pointer-events-none px-4 text-[13px] font-bold tracking-wide text-[#030303] dark:text-slate-200">{data.aspectRatio || "16:9"}</span>
-              </div>
-              <div className="relative flex h-10 items-center justify-center rounded-full bg-[#f0f1f3] px-1 transition-colors focus-within:ring-2 focus-within:ring-[#030303] hover:bg-[#e7eaf0] dark:bg-slate-800 dark:hover:bg-slate-700">
-                <select value={data.duration || 15} onChange={e => updateNodeData(id, { duration: Number(e.target.value) })} className="absolute inset-0 h-full w-full cursor-pointer opacity-0 text-[14px]">
-                  <option value={5}>5s</option>
-                  <option value={8}>8s</option>
-                  <option value={10}>10s</option>
-                  <option value={15}>15s</option>
-                </select>
-                <span className="pointer-events-none px-4 text-[13px] font-bold tracking-wide text-[#030303] dark:text-slate-200">{data.duration ? `${data.duration}s` : "15s"}</span>
-              </div>
+              <PillDropdown 
+                 value={data.resolution || "1080p"} 
+                 options={[{value: "1080p", label: "1080p"}, {value: "720p", label: "720p"}, {value: "480p", label: "480p"}]}
+                 onChange={v => updateNodeData(id, { resolution: String(v) })}
+              />
+              <PillDropdown 
+                 value={data.aspectRatio || "16:9"} 
+                 options={[{value: "16:9", label: "16:9"}, {value: "21:9", label: "21:9"}, {value: "9:16", label: "9:16"}, {value: "3:2", label: "3:2"}, {value: "3:4", label: "3:4"}, {value: "1:1", label: "1:1"}]}
+                 onChange={v => updateNodeData(id, { aspectRatio: String(v) })}
+              />
+              <PillDropdown 
+                 value={data.duration || 15} 
+                 options={[{value: 5, label: "5s"}, {value: 8, label: "8s"}, {value: 10, label: "10s"}, {value: 15, label: "15s"}]}
+                 onChange={v => updateNodeData(id, { duration: Number(v) })}
+              />
             </div>
             <button 
               onClick={(e) => { e.stopPropagation(); void runNode(id); }}
