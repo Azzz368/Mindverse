@@ -1,5 +1,5 @@
 ﻿"use client";
-import { Background, Controls, MiniMap, ReactFlow, useReactFlow, useViewport, type Connection, type NodeTypes } from "@xyflow/react";
+import { Background, BaseEdge, Controls, EdgeLabelRenderer, getBezierPath, MiniMap, ReactFlow, useReactFlow, useViewport, type Connection, type EdgeProps, type EdgeTypes, type NodeTypes } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnnotatedCustomNode } from "./AnnotatedCustomNode";
@@ -122,6 +122,44 @@ const rgba = (hex: string, alpha: number) => {
   return `rgba(${(parsed >> 16) & 255}, ${(parsed >> 8) & 255}, ${parsed & 255}, ${alpha})`;
 };
 
+function DeletableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerEnd }: EdgeProps) {
+  const { onEdgesChange } = useCanvasStore();
+  const [hovered, setHovered] = useState(false);
+  const [edgePath, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} />
+      {/* Wider invisible hit area so hovering near the line is easy */}
+      <path
+        d={edgePath}
+        fill="none"
+        strokeWidth={20}
+        stroke="transparent"
+        className="cursor-pointer"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onClick={() => onEdgesChange([{ id, type: "remove" }])}
+      />
+      {hovered && (
+        <EdgeLabelRenderer>
+          <button
+            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
+            className="nodrag nopan absolute z-50 grid h-5 w-5 place-items-center rounded-full border border-white bg-rose-600 text-white shadow hover:bg-rose-700"
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+            onClick={() => onEdgesChange([{ id, type: "remove" }])}
+            title="删除连线"
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+
 const fallbackSizeFor = (type: string) => ({
   script: { w: 320, h: 460 },
   storyboard: { w: 320, h: 420 },
@@ -140,6 +178,7 @@ export function CreativeCanvas() {
   const { getNodes, screenToFlowPosition } = useReactFlow();
   const { x: viewX, y: viewY, zoom } = useViewport();
   const nodeTypes = useMemo<NodeTypes>(() => ({ creative: AnnotatedCustomNode }), []);
+  const edgeTypes = useMemo<EdgeTypes>(() => ({ default: DeletableEdge }), []);
   const edgeReconnecting = useRef(false);
   const [alignGuides, setAlignGuides] = useState<AlignGuide[]>([]);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -296,6 +335,7 @@ export function CreativeCanvas() {
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}

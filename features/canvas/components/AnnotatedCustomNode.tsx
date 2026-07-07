@@ -285,7 +285,7 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
           <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.text || "#ebe46b" } as React.CSSProperties} />
         )}
 
-        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Text"}</div>
+        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">Text</div>
 
         <div className="absolute -left-[145px] top-[95px] flex flex-col gap-[36px]">
           <HandleDot label="Input" handleId="input-1" borderColorClass="border-[#f59e0b]" bgClass="bg-white dark:bg-[#101c29]" connectedBgClass="bg-[#f59e0b]" selected={!!selected} connected={connectedHandles.has("input-1")} />
@@ -379,7 +379,7 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
           <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.image || "#3bf657" } as React.CSSProperties} />
         )}
 
-        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Image"}</div>
+        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">Image</div>
 
         <div className="absolute -left-[145px] top-[65px] flex flex-col gap-[36px]">
           <HandleDot label="Text" handleId="text" borderColorClass="border-[#f59e0b]" bgClass="bg-white dark:bg-[#101c29]" connectedBgClass="bg-[#f59e0b]" selected={!!selected} connected={connectedHandles.has("text")} />
