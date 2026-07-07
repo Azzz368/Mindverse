@@ -180,21 +180,21 @@ function PillDropdown({ value, options, onChange }: { value: string | number; op
     <div className="relative" onMouseLeave={() => setOpen(false)}>
       <button
         type="button"
-        className={`relative flex h-9 items-center justify-center rounded-[18px] bg-[#f0f1f3] px-5 transition-all duration-300 hover:bg-[#e7eaf0] focus:ring-1 focus:ring-[#676f7b] dark:bg-slate-800 dark:hover:bg-slate-700 outline-none text-[13px] font-bold tracking-wide text-[#030303] dark:text-slate-200 ${open ? "opacity-0" : "opacity-100"}`}
+        className={`relative flex h-9 items-center justify-center whitespace-nowrap rounded-[18px] bg-[#f0f1f3] px-5 transition-all duration-300 hover:bg-[#e7eaf0] focus:ring-1 focus:ring-[#676f7b] dark:bg-slate-800 dark:hover:bg-slate-700 outline-none text-[13px] font-bold tracking-wide text-[#030303] dark:text-slate-200 ${open ? "opacity-0" : "opacity-100"}`}
         onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
       >
         {activeLabel}
       </button>
 
       <div
-        className={`absolute left-0 top-0 z-[90] w-full origin-top flex-col rounded-[18px] bg-[#f0f1f3] shadow-xl transition-all duration-300 dark:bg-slate-800 overflow-hidden ring-1 ring-[#676f7b] ${open ? "scale-y-100 opacity-100 pointer-events-auto" : "scale-y-50 -translate-y-4 opacity-0 pointer-events-none"}`}
+        className={`absolute left-0 top-0 z-[90] w-max min-w-full origin-top flex-col rounded-[18px] bg-[#f0f1f3] shadow-xl transition-all duration-300 dark:bg-slate-800 overflow-hidden ring-1 ring-[#676f7b] ${open ? "scale-y-100 opacity-100 pointer-events-auto" : "scale-y-50 -translate-y-4 opacity-0 pointer-events-none"}`}
       >
         {options.map((opt, i) => (
           <div key={opt.value} className="flex flex-col">
             {i > 0 && <div className="mx-3 h-[1px] bg-[#c9ccd1] dark:bg-slate-600" />}
             <button
               type="button"
-              className="flex h-9 w-full items-center justify-center bg-transparent text-[13px] font-bold tracking-wide text-[#030303] transition-colors hover:bg-[#e7eaf0] dark:text-slate-200 dark:hover:bg-slate-700 outline-none"
+              className="flex h-9 w-full items-center justify-center whitespace-nowrap bg-transparent px-5 text-[13px] font-bold tracking-wide text-[#030303] transition-colors hover:bg-[#e7eaf0] dark:text-slate-200 dark:hover:bg-slate-700 outline-none"
               onClick={(e) => { e.stopPropagation(); onChange(opt.value); setOpen(false); }}
             >
               {opt.label}
@@ -548,11 +548,6 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                  value={activeVideoModel}
                  options={videoModelOptions.map(option => ({ value: option.id, label: option.label }))}
                  onChange={v => updateNodeData(id, videoModelPatch(String(v) as VideoModelPresetId))}
-              />
-              <PillDropdown 
-                 value={data.model || "Kling 3.0 Omni"} 
-                 options={["Kling 3.0 Omni", "Kling 3.0 Turbo", "Kling 2.6", "Seedance 2.0", "Seedance 2.0 mini"].map(o => ({ value: o, label: o }))}
-                 onChange={v => updateNodeData(id, { model: String(v) })}
               />
               <PillDropdown 
                  value={data.aspectRatio || "16:9"} 
