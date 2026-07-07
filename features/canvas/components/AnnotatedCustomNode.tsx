@@ -617,16 +617,6 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
           <div className="rounded-t-xl h-1.5 w-full" style={{ background: visualGroupColor }} />
         )}
         <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400"/>
-        {/* Extra reference-image input handle for image nodes (offset down) */}
-        {data.nodeType === "image" && (
-          <Handle
-            id="ref-image"
-            type="target"
-            position={Position.Left}
-            style={{ top: "62%", background: "#7c3aed", borderColor: "#fff", width: 10, height: 10, borderWidth: 2 }}
-            title="参考图输入"
-          />
-        )}
         <div className="flex shrink-0 items-center gap-2 border-b border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-semibold text-[#030303] dark:text-slate-100">{data.title}</p>
