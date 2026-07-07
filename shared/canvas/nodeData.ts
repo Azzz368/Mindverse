@@ -10,7 +10,7 @@ export type NodeOutput = { kind: string; summary: string; value: unknown; create
 export type CanvasNodeData = {
   nodeType: NodeType; title: string; status: NodeExecutionStatus; output?: NodeOutput; error?: string;
   prompt?: string; negativePrompt?: string; style?: string; aspectRatio?: string;
-  instruction?: string; inputText?: string;
+  instruction?: string; inputText?: string; wordCount?: number;
   model?: string; size?: string; referenceImageUrl?: string; imagePromptPreset?: "character-turnaround" | "scene-nine-grid" | "scene-top-view"; temperature?: number;
   duration?: number; voiceStyle?: string; voice?: string; emotion?: string; volume?: number; resolution?: string; fps?: string; videoInputMode?: "text-to-video" | "image-to-video";
   videoProvider?: "mock" | "302ai" | "302-sora2" | "tokenstar" | "kling"; tokenstarMode?: "text-to-video" | "asset-video" | "kling-image" | "kling-text" | "kling-omni"; generateAudio?: boolean; referenceImageAssetUrl?: string; referenceVideoAssetUrl?: string; referenceAudioAssetUrl?: string; klingMode?: "text-to-video" | "image-to-video" | "reference-image" | "omni"; klingElementId?: string; referenceVideoUrl?: string; taskId?: string; resultUrl?: string; rawStatus?: string; lastPollAt?: string;

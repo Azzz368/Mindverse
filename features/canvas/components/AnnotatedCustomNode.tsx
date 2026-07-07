@@ -1,6 +1,6 @@
 ﻿"use client";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Badge } from "@/components/ui/Badge";
 import { ImageAnnotationEditor } from "./ImageAnnotationEditor";
@@ -204,12 +204,275 @@ function PillDropdown({ value, options, onChange }: { value: string | number; op
   );
 }
 
+function HandleDot({ label, handleId, borderColorClass, bgClass, connectedBgClass, selected, connected }: { label: string; handleId: string; borderColorClass: string; bgClass: string; connectedBgClass: string; selected: boolean; connected: boolean }) {
+  return (
+    <div className="flex items-center justify-end gap-3" style={{ width: "125px" }}>
+      <span className={`whitespace-nowrap font-bold text-[14px] text-[#030303] dark:text-slate-200 transition-opacity duration-300 ${selected ? "opacity-100" : "opacity-0"}`}>
+        {label}
+      </span>
+      <div className={`relative grid place-items-center h-[18px] w-[18px] shrink-0 rounded-full border-[2.5px] ${borderColorClass} ${connected ? connectedBgClass : bgClass}`}>
+        <Handle type="target" id={handleId} position={Position.Left} className="!absolute !inset-0 !m-auto !h-[26px] !w-[26px] !border-0 !bg-transparent !transform-none opacity-0" />
+      </div>
+    </div>
+  );
+}
+
+function AutoGrowTextarea({ value, onChange, placeholder, minHeight = 80, className }: { value: string; onChange: (v: string) => void; placeholder?: string; minHeight?: number; className?: string }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.max(minHeight, el.scrollHeight)}px`;
+  }, [value, minHeight]);
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      rows={1}
+      style={{ minHeight }}
+      className={`nodrag w-full resize-none overflow-hidden border-none bg-transparent text-[14px] font-medium leading-7 tracking-wide text-[#030303] outline-none placeholder:font-normal placeholder:text-[#939393] dark:text-slate-100 dark:placeholder:text-slate-500 ${className || ""}`}
+    />
+  );
+}
+
+function ExpandIcon({ onClick, className }: { onClick(): void; className?: string }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      title="放大预览"
+      className={`nodrag ${className || "absolute right-2 top-2"} grid h-7 w-7 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70`}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" />
+      </svg>
+    </button>
+  );
+}
+
+function ImagePlaceholderIcon() {
+  return (
+    <div className="flex h-[72px] w-[72px] items-center justify-center rounded-[24px] border-[6px] border-[#e7eaf0] bg-[#f0f1f3] dark:border-slate-600 dark:bg-slate-700">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-[#a8abae] dark:text-slate-400">
+        <rect x="3" y="3" width="18" height="18" rx="3" />
+        <circle cx="8.5" cy="8.5" r="1.5" />
+        <path d="M21 15l-5-5L5 21" />
+      </svg>
+    </div>
+  );
+}
+
+
+function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
+  const updateNodeData = useCanvasStore((s) => s.updateNodeData);
+  const edges = useCanvasStore((s) => s.edges);
+  const connectedHandles = new Set(edges.filter((e) => e.target === id).map((e) => e.targetHandle || ""));
+  const generatedText = text(record(data.output?.value).generatedText);
+  const visualGroupColor = data.workflowId ? undefined : data.groupColor;
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  return (
+    <>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-2 bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+        {visualGroupColor && !selected && (
+          <div className="absolute inset-[-2px] -z-10 rounded-[26px] border-2" style={{ borderColor: visualGroupColor }} />
+        )}
+        {isGenerating && (
+          <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.text || "#ebe46b" } as React.CSSProperties} />
+        )}
+
+        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Text"}</div>
+
+        <div className="absolute -left-[145px] top-[95px] flex flex-col gap-[36px]">
+          <HandleDot label="Input" handleId="input-1" borderColorClass="border-[#f59e0b]" bgClass="bg-white dark:bg-[#101c29]" connectedBgClass="bg-[#f59e0b]" selected={!!selected} connected={connectedHandles.has("input-1")} />
+          <HandleDot label="Input" handleId="input-2" borderColorClass="border-[#f59e0b]" bgClass="bg-white dark:bg-[#101c29]" connectedBgClass="bg-[#f59e0b]" selected={!!selected} connected={connectedHandles.has("input-2")} />
+          <HandleDot label="Input" handleId="input-3" borderColorClass="border-[#f59e0b]" bgClass="bg-white dark:bg-[#101c29]" connectedBgClass="bg-[#f59e0b]" selected={!!selected} connected={connectedHandles.has("input-3")} />
+        </div>
+
+        <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
+
+        <div className="flex-1 p-6">
+          <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800 border-[6px] border-transparent">
+            {generatedText ? (
+              <>
+                <p className="max-h-full overflow-y-auto px-4 py-3 text-[12px] leading-5 text-[#1a1a1a] dark:text-slate-200">{generatedText}</p>
+                <ExpandIcon onClick={() => setPreviewOpen(true)} />
+              </>
+            ) : isGenerating ? (
+              <div className="absolute inset-0 m-auto h-12 w-12 animate-pulse rounded-2xl bg-[#c9ccd1] dark:bg-slate-600" />
+            ) : (
+              <div className="flex h-[72px] w-[72px] items-center justify-center rounded-[24px] border-[6px] border-[#e7eaf0] bg-[#f0f1f3] dark:border-slate-600 dark:bg-slate-700" style={{ transform: "scale(1.2)" }}>
+                <span className="text-2xl font-bold text-[#a8abae] dark:text-slate-400">T</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[520px] -translate-x-1/2 overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
+        <div className="p-6 pb-4">
+          <AutoGrowTextarea
+            value={data.instruction ?? ""}
+            onChange={(v) => updateNodeData(id, { instruction: v })}
+            placeholder="输入文本生成指令…"
+            minHeight={80}
+          />
+        </div>
+        <div className="flex items-center justify-between px-6 pb-6">
+          <div className="flex gap-2">
+            <PillDropdown
+              value={data.model || "Claude sonnet 4.6"}
+              options={["Claude sonnet 4.6", "Gemini 3.1 Pro", "Deepseek v4", "Qwen3.7-plus", "GPT 5.5", "GLM 5.2"].map((o) => ({ value: o, label: o }))}
+              onChange={(v) => updateNodeData(id, { model: String(v) })}
+            />
+            <PillDropdown
+              value={data.wordCount || 200}
+              options={[100, 200, 500, 1000].map((n) => ({ value: n, label: `${n} words` }))}
+              onChange={(v) => updateNodeData(id, { wordCount: Number(v) })}
+            />
+            <button type="button" title="语音输入（即将支持）" className="nodrag grid h-9 w-9 place-items-center rounded-full bg-[#f0f1f3] text-[#404040] dark:bg-slate-800 dark:text-slate-300">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
+            </button>
+          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); void runNode(id); }}
+            disabled={isGenerating}
+            className="nodrag flex h-11 items-center justify-center rounded-full bg-[#030303] px-6 text-[15px] font-bold text-white transition hover:bg-[#1a1a1a] disabled:opacity-50 dark:bg-cyan-500 dark:text-[#030303] dark:hover:bg-cyan-400"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+
+      {previewOpen && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[9999] grid place-items-center bg-black/85 p-8" onClick={() => setPreviewOpen(false)}>
+          <div className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-6 dark:bg-[#101c29]" onClick={(e) => e.stopPropagation()}>
+            <p className="whitespace-pre-wrap text-sm leading-6 text-[#1a1a1a] dark:text-slate-200">{generatedText}</p>
+            <button onClick={() => setPreviewOpen(false)} className="mx-auto mt-4 block rounded bg-[#030303] px-4 py-2 text-sm text-white hover:bg-[#1a1a1a] dark:bg-cyan-600 dark:hover:bg-cyan-500">Close</button>
+          </div>
+        </div>, document.body)}
+    </>
+  );
+}
+
+function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImageRevision }: any) {
+  const updateNodeData = useCanvasStore((s) => s.updateNodeData);
+  const edges = useCanvasStore((s) => s.edges);
+  const connectedHandles = new Set(edges.filter((e) => e.target === id).map((e) => e.targetHandle || ""));
+  const [viewUrl, setViewUrl] = useState("");
+  const [annotatingUrl, setAnnotatingUrl] = useState("");
+  const outputValue = record(data.output?.value);
+  const imageUrl = text(outputValue.imageUrl) || (typeof data.output?.value === "string" ? (data.output?.value as string) : "");
+  const visualGroupColor = data.workflowId ? undefined : data.groupColor;
+
+  return (
+    <>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-2 bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+        {visualGroupColor && !selected && (
+          <div className="absolute inset-[-2px] -z-10 rounded-[26px] border-2" style={{ borderColor: visualGroupColor }} />
+        )}
+        {isGenerating && (
+          <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.image || "#3bf657" } as React.CSSProperties} />
+        )}
+
+        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Image"}</div>
+
+        <div className="absolute -left-[145px] top-[65px] flex flex-col gap-[36px]">
+          <HandleDot label="Text" handleId="text" borderColorClass="border-[#f59e0b]" bgClass="bg-white dark:bg-[#101c29]" connectedBgClass="bg-[#f59e0b]" selected={!!selected} connected={connectedHandles.has("text")} />
+          <HandleDot label="Reference image" handleId="ref-image-1" borderColorClass="border-[#84cc16]" bgClass="bg-white dark:bg-[#101c29]" connectedBgClass="bg-[#84cc16]" selected={!!selected} connected={connectedHandles.has("ref-image-1")} />
+          <HandleDot label="Reference image" handleId="ref-image-2" borderColorClass="border-[#84cc16]" bgClass="bg-white dark:bg-[#101c29]" connectedBgClass="bg-[#84cc16]" selected={!!selected} connected={connectedHandles.has("ref-image-2")} />
+          <HandleDot label="Reference image" handleId="ref-image-3" borderColorClass="border-[#84cc16]" bgClass="bg-white dark:bg-[#101c29]" connectedBgClass="bg-[#84cc16]" selected={!!selected} connected={connectedHandles.has("ref-image-3")} />
+        </div>
+
+        <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
+
+        <div className="flex-1 p-6">
+          <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800 border-[6px] border-transparent">
+            {imageUrl ? (
+              <>
+                <img src={imageUrl} alt="Generated result" className="absolute inset-0 h-full w-full object-cover" />
+                <div className="nodrag absolute right-2 top-2 flex gap-1.5">
+                  <ExpandIcon onClick={() => setViewUrl(imageUrl)} className="static" />
+                  <button onClick={() => setAnnotatingUrl(imageUrl)} title="标注 / 局部重绘" className="grid h-7 w-7 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                  </button>
+                </div>
+              </>
+            ) : isGenerating ? (
+              <div className="absolute inset-0 m-auto h-12 w-12 animate-pulse rounded-2xl bg-[#c9ccd1] dark:bg-slate-600" />
+            ) : (
+              <ImagePlaceholderIcon />
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[640px] -translate-x-1/2 overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
+        <div className="p-6 pb-4">
+          <AutoGrowTextarea
+            value={data.prompt ?? ""}
+            onChange={(v) => updateNodeData(id, { prompt: v })}
+            placeholder="描述你想生成的图像…"
+            minHeight={80}
+          />
+        </div>
+        <div className="flex items-center justify-between px-6 pb-6">
+          <div className="flex gap-2">
+            <PillDropdown
+              value={data.model || "Nano Banana Pro"}
+              options={["GPT image 2", "Nano Banana 2", "Nano Banana Pro"].map((o) => ({ value: o, label: o }))}
+              onChange={(v) => updateNodeData(id, { model: String(v) })}
+            />
+            <PillDropdown
+              value={data.aspectRatio || "16:9"}
+              options={["16:9", "21:9", "9:16", "3:2", "1:1"].map((o) => ({ value: o, label: o }))}
+              onChange={(v) => updateNodeData(id, { aspectRatio: String(v) })}
+            />
+            <PillDropdown
+              value={data.resolution || "1K"}
+              options={["1K", "2K", "4K"].map((o) => ({ value: o, label: o }))}
+              onChange={(v) => updateNodeData(id, { resolution: String(v) })}
+            />
+          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); void runNode(id); }}
+            disabled={isGenerating}
+            className="nodrag flex h-11 items-center justify-center rounded-full bg-[#030303] px-6 text-[15px] font-bold text-white transition hover:bg-[#1a1a1a] disabled:opacity-50 dark:bg-cyan-500 dark:text-[#030303] dark:hover:bg-cyan-400"
+          >
+            Run
+          </button>
+        </div>
+      </div>
+
+      {viewUrl && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[9999] grid place-items-center bg-black/85 p-8" onClick={() => setViewUrl("")}>
+          <div className="max-h-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
+            <img src={viewUrl} alt="Full generated result" className="max-h-[80vh] max-w-full rounded-lg object-contain" />
+            <button onClick={() => setViewUrl("")} className="mx-auto mt-3 block rounded bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">Close</button>
+          </div>
+        </div>, document.body)}
+      {annotatingUrl && (
+        <ImageAnnotationEditor
+          imageUrl={annotatingUrl}
+          initialAnnotations={data.annotations as ImageAnnotation[] | undefined}
+          initialInstruction={data.revisionInstruction}
+          onClose={() => setAnnotatingUrl("")}
+          onGenerate={(a, i) => { void createImageRevision(id, a, i); setAnnotatingUrl(""); }}
+        />
+      )}
+    </>
+  );
+}
+
 function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: any) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const edges = useCanvasStore((s) => s.edges);
   const connectedHandles = new Set(edges.filter(e => e.target === id).map(e => e.targetHandle || ""));
   const videoUrl = text(record(data.output?.value).videoUrl || record(data.output?.value).resultUrl || record(data.output?.value).finalVideoUrl || data.resultUrl || "");
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const renderHandle = (label: string, handleId: string, borderColorClass: string, bgColorClass: string, connectedBgColorClass: string) => {
     const isConnected = connectedHandles.has(handleId);
@@ -245,14 +508,15 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
 
         <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
 
-        <div className="px-6 pt-6 pb-3">
-          <h2 className="text-[22px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Kling 3.0 Omni"}</h2>
-        </div>
+        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Kling 3.0 Omni"}</div>
 
-        <div className="flex-1 px-6 pb-6">
+        <div className="flex-1 p-6">
           <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800 border-[6px] border-transparent">
              {videoUrl ? (
-               <video src={videoUrl} autoPlay loop muted playsInline className="absolute inset-0 h-full w-full rounded-[14px] object-cover" />
+               <>
+                 <video src={videoUrl} autoPlay loop muted playsInline className="absolute inset-0 h-full w-full rounded-[14px] object-cover" />
+                 <ExpandIcon onClick={() => setPreviewOpen(true)} />
+               </>
              ) : (
                isGenerating ? (
                   <div className="absolute inset-0 m-auto h-12 w-12 animate-pulse rounded-2xl bg-[#c9ccd1] dark:bg-slate-600" />
@@ -268,19 +532,19 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
 
       <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[800px] -translate-x-1/2 overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
          <div className="p-6 pb-4">
-            <textarea 
+            <AutoGrowTextarea
                value={data.prompt ?? ""}
-               onChange={e => updateNodeData(id, { prompt: e.target.value })}
+               onChange={(v) => updateNodeData(id, { prompt: v })}
                placeholder="请为以下创意写一个完整的、可拍摄的10秒短片剧本..."
-               className="nodrag h-24 w-full resize-none border-none bg-transparent text-[14px] font-medium leading-7 tracking-wide text-[#030303] outline-none placeholder:font-normal placeholder:text-[#939393] dark:text-slate-100 dark:placeholder:text-slate-500"
+               minHeight={96}
             />
          </div>
          <div className="flex items-center justify-between px-6 pb-6">
             <div className="flex gap-2">
               <PillDropdown 
-                 value={data.resolution || "1080p"} 
-                 options={[{value: "1080p", label: "1080p"}, {value: "720p", label: "720p"}, {value: "480p", label: "480p"}]}
-                 onChange={v => updateNodeData(id, { resolution: String(v) })}
+                 value={data.model || "Kling 3.0 Omni"} 
+                 options={["Kling 3.0 Omni", "Kling 3.0 Turbo", "Kling 2.6", "Seedance 2.0", "Seedance 2.0 mini"].map(o => ({ value: o, label: o }))}
+                 onChange={v => updateNodeData(id, { model: String(v) })}
               />
               <PillDropdown 
                  value={data.aspectRatio || "16:9"} 
@@ -292,6 +556,11 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                  options={[{value: 5, label: "5s"}, {value: 8, label: "8s"}, {value: 10, label: "10s"}, {value: 15, label: "15s"}]}
                  onChange={v => updateNodeData(id, { duration: Number(v) })}
               />
+              <PillDropdown 
+                 value={data.resolution || "1080p"} 
+                 options={[{value: "1080p", label: "1080p"}, {value: "720p", label: "720p"}, {value: "480p", label: "480p"}]}
+                 onChange={v => updateNodeData(id, { resolution: String(v) })}
+              />
             </div>
             <button 
               onClick={(e) => { e.stopPropagation(); void runNode(id); }}
@@ -302,6 +571,14 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
             </button>
          </div>
       </div>
+
+      {previewOpen && videoUrl && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[9999] grid place-items-center bg-black/85 p-8" onClick={() => setPreviewOpen(false)}>
+          <div className="max-h-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
+            <video src={videoUrl} controls autoPlay loop className="max-h-[80vh] max-w-full rounded-lg object-contain" />
+            <button onClick={() => setPreviewOpen(false)} className="mx-auto mt-3 block rounded bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">Close</button>
+          </div>
+        </div>, document.body)}
     </>
   );
 }
@@ -319,6 +596,12 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
 
   if (data.nodeType === "video") {
     return <VideoNodeLayout id={id} data={data} selected={selected!} node={node} isGenerating={isGenerating} runNode={runNode} />;
+  }
+  if (data.nodeType === "image") {
+    return <ImageNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} createImageRevision={createImageRevision} />;
+  }
+  if (data.nodeType === "text") {
+    return <TextNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} />;
   }
 
   return (
