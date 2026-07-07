@@ -7,6 +7,7 @@ import { pollTaskRemote, requestImageRevision, runNodeRemote } from "@/features/
 import { requestAgentEdit, requestAgentOrganize, requestAgentPlan } from "@/features/agent/services/agentClient";
 import { buildTemplate, makeNode, type Template } from "@/shared/templates/templates";
 import { promptsFromStoryboard } from "@/shared/workflow/storyPipeline";
+import { videoModelPatch } from "@/shared/workflow/videoModelPresets";
 import type { AgentCanvasEditPlan, AgentCanvasOrganizePlan, AgentWorkflowPlan, CanvasEditPatch, CanvasPatch } from "@/shared/agent/agentSchema";
 import type { CanvasNode, CanvasNodeData, CanvasSnapshot, ImageAnnotation, NodeOutput, NodeType, WorkflowEdge } from "@/shared/canvas";
 import { asRecord, asText } from "@/features/canvas/domain/values";
@@ -294,17 +295,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const videoA = makeTemplateNode("video", { x: 1178.259822152543, y: 1.4588804763947536 }, {
       title: "New Video",
       prompt: "",
-      duration: 10,
       aspectRatio: "16:9",
       referenceImageUrl: "",
-      model: "",
-      resolution: "480p",
       fps: "",
-      videoInputMode: "text-to-video",
-      videoProvider: "tokenstar",
-      tokenstarMode: "kling-image",
-      klingMode: "image-to-video",
-      generateAudio: true,
+      ...videoModelPatch("kling-v3-tokenstar"),
+      duration: 10,
+      resolution: "480p",
       referenceImageAssetUrl: "",
       referenceVideoAssetUrl: "",
       referenceAudioAssetUrl: "",
@@ -313,17 +309,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const videoB = makeTemplateNode("video", { x: 1181, y: -258 }, {
       title: "New Video",
       prompt: "",
-      duration: 10,
       aspectRatio: "16:9",
       referenceImageUrl: "",
-      model: "",
-      resolution: "480p",
       fps: "",
-      videoInputMode: "text-to-video",
-      videoProvider: "tokenstar",
-      tokenstarMode: "kling-image",
-      klingMode: "image-to-video",
-      generateAudio: true,
+      ...videoModelPatch("kling-v3-tokenstar"),
+      duration: 10,
+      resolution: "480p",
       referenceImageAssetUrl: "",
       referenceVideoAssetUrl: "",
       referenceAudioAssetUrl: "",

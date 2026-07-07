@@ -1,7 +1,7 @@
 import "server-only";
 import { getAIProvider, getImageAIProvider } from "@/server/ai/provider";
 import { pollKlingImageVideo } from "@/server/ai/klingVideoProvider";
-import { pollKlingVideo, pollSeedanceVideo } from "@/server/ai/tokenstar/tokenstarVideoProvider";
+import { pollKlingOmniVideo, pollKlingVideo, pollSeedanceVideo } from "@/server/ai/tokenstar/tokenstarVideoProvider";
 import { pollSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
 import { archiveResultMedia } from "@/server/storage/mediaArchive";
 import type { RunNodeResult } from "./runNodeUseCase";
@@ -28,6 +28,10 @@ export async function pollTaskUseCase(params: PollTaskParams): Promise<RunNodeRe
   }
 
   if (type === "video" && (videoProvider === "tokenstar" || (!videoProvider && process.env.AI_VIDEO_PROVIDER === "tokenstar"))) {
+    if (pollAction === "omni-video") {
+      const output = await pollKlingOmniVideo(taskId);
+      return { ok: true, provider: "tokenstar", output: await archiveResultMedia(output, { sourceProvider: "tokenstar", sourceTaskId: taskId, mediaTypeHint: "video" }), polling: { intervalMs: Number(process.env.TOKENSTAR_POLL_INTERVAL_MS || 12000) } };
+    }
     const output = pollAction ? await pollKlingVideo(taskId, pollAction) : await pollSeedanceVideo(taskId);
     return { ok: true, provider: "tokenstar", output: await archiveResultMedia(output, { sourceProvider: "tokenstar", sourceTaskId: taskId, mediaTypeHint: "video" }), polling: { intervalMs: Number(process.env.TOKENSTAR_POLL_INTERVAL_MS || 12000) } };
   }

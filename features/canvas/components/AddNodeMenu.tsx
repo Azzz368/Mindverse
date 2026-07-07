@@ -3,6 +3,7 @@ import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { archiveImageFile } from "@/features/canvas/services/mediaArchiveClient";
 import { useLang } from "@/components/providers/LangProvider";
 import { imagePromptPresets } from "@/shared/workflow/imagePromptPresets";
+import { videoModelPatch } from "@/shared/workflow/videoModelPresets";
 import type { CanvasNodeData, NodeType } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
@@ -15,8 +16,9 @@ export function getIcon(type: string) {
 const ALL_CATEGORIES = ["New nodes", "Recently used", "Video", "Image", "Audio", "Text", "Storyboard"];
 
 const getTools = (t: Strings) => [
-  { id: "seedance-2.0", type: "video", cat: "Video", title: "Seedance 2.0", desc: t.toolDescSeedance, iconSrc: "/icons/1.png" },
-  { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: t.toolDescGen45, iconSrc: "/icons/1.png" },
+  { id: "seedance-2.0", type: "video", cat: "Video", title: "Seedance 2.0", desc: t.toolDescSeedance, iconSrc: "/icons/1.png", data: { title: "Seedance 2.0", ...videoModelPatch("seedance-2.0") } },
+  { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: t.toolDescGen45, iconSrc: "/icons/1.png", data: { title: "Gen-4.5", ...videoModelPatch("gen-4.5") } },
+  { id: "kling-v3-omni", type: "video", cat: "Video", title: "Kling v3 Omni", desc: "TokenStar multi-reference image/element/video generation", iconSrc: "/icons/1.png", data: { title: "Kling v3 Omni", ...videoModelPatch("kling-v3-omni-tokenstar") } },
   { id: "storyboard-image", type: "storyboardImage", cat: "Storyboard", title: t.nodeNames["storyboardImage"], desc: t.toolDescStoryboardImage, iconSrc: "/icons/5.png" },
   { id: "gpt-image-2", type: "image", cat: "Image", title: "GPT Image 2", desc: t.toolDescGptImage, iconSrc: "/icons/2.png" },
   { id: "gpt-image-2-tokenstar", type: "image", cat: "Image", title: "GPT Image 2 (TokenStar)", desc: "TokenStar GPT Image 2 text/image generation", iconSrc: "/icons/2.png", data: { title: "GPT Image 2 (TokenStar)", model: "gpt-image-2(tokenstar)", size: "2048x2048" } },

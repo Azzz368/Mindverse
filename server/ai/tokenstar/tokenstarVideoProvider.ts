@@ -51,8 +51,38 @@ const normalizedKling = (task: string | undefined, raw: unknown, pollAction: str
   const rawStatus = errorMessage ? "ERROR" : numberText(response.Status) || numberText(result.Status) || numberText(root.Status) || numberText(data.Status) || text(response.StatusStr) || text(result.StatusStr) || text(root.status);
   return { taskId: id, resultUrl, errorMessage, status: statusFor(rawStatus, Boolean(resultUrl), Boolean(id), Boolean(errorMessage)), rawStatus, pollAction, raw };
 };
+const firstOmniVideoUrl = (raw: unknown) => {
+  const root = record(raw), data = record(root.data), taskResult = record(data.task_result);
+  const videos = Array.isArray(taskResult.videos) ? taskResult.videos : [];
+  const firstVideo = record(videos[0]);
+  return text(firstVideo.url) || text(firstVideo.watermark_url) || text(data.result_url) || text(root.result_url) || text(root.video_url);
+};
+const normalizedOmni = (task: string | undefined, raw: unknown): NormalizedVideoTask => {
+  const root = record(raw), data = record(root.data);
+  const id = task || text(data.task_id) || text(root.task_id) || text(root.taskId) || taskId(root);
+  const resultUrl = firstOmniVideoUrl(raw);
+  const rawStatus = text(data.task_status) || text(data.status) || text(root.task_status) || text(root.status);
+  const status = statusFor(rawStatus, Boolean(resultUrl), Boolean(id));
+  return { taskId: id, resultUrl, status, rawStatus, pollAction: "omni-video", raw };
+};
 const bool = (value: string | undefined, fallback: boolean) => value === undefined ? fallback : value.toLowerCase() === "true";
 const unique = (values: readonly string[] = []) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+const elementId = (value: string) => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : value;
+const omniModeFor = (value: string | undefined) => {
+  const normalized = value?.toLowerCase();
+  if (normalized === "4k") return "4k";
+  if (normalized === "1080p" || normalized === "pro") return "pro";
+  return normalized === "720p" || normalized === "std" ? "std" : "pro";
+};
+const omniPrompt = (prompt: string, imageCount: number, videoCount: number, elementCount: number) => {
+  if (/<<<(?:image|video|element)_\d+>>>/.test(prompt)) return prompt;
+  const refs = [
+    imageCount ? `reference images are available as ${Array.from({ length: imageCount }, (_, index) => `<<<image_${index + 1}>>>`).join(", ")}` : "",
+    videoCount ? `reference videos are available as ${Array.from({ length: videoCount }, (_, index) => `<<<video_${index + 1}>>>`).join(", ")}` : "",
+    elementCount ? `reference elements are available as ${Array.from({ length: elementCount }, (_, index) => `<<<element_${index + 1}>>>`).join(", ")}` : "",
+  ].filter(Boolean).join("; ");
+  return refs ? `${refs}.\n${prompt}` : prompt;
+};
 const isAssetUrl = (value: string) => /^asset:\/\/[^\s]+$/i.test(value);
 const existingAssetUrls = (label: string, values: readonly string[] = []) => {
   const urls = unique(values);
@@ -83,29 +113,26 @@ export async function createKlingImageVideo(input: TokenStarCreateVideoInput): P
   return { ...normalizedKling(klingTaskId(record(raw)), raw, "DescribeImageToVideoJob"), request: { image, elementCount: elementIds.length, elementIds, prompt: input.prompt } };
 }
 export async function createKlingOmniVideo(input: TokenStarCreateVideoInput): Promise<NormalizedVideoTask> {
-  const image = input.image || input.referenceImageUrls?.find(Boolean);
-  const videoUrls = unique([input.video || "", ...(input.referenceVideoUrls || [])]);
+  const imageUrls = unique([input.image || "", ...(input.referenceImageUrls || [])]).slice(0, 7);
+  const videoUrls = unique([input.video || "", ...(input.referenceVideoUrls || [])]).slice(0, 1);
   const elementIds = unique([...(input.klingElementIds || []), ...(input.klingElementId || "").split(",")]);
-  const hasVideo = videoUrls.length > 0;
-  if (!image && !hasVideo) throw new TokenStarError("Kling Omni requires a connected image or video URL.", 400);
-  if (videoUrls.length > 1) throw new TokenStarError(`Kling Omni supports at most one video input. You connected ${videoUrls.length} videos, but TokenStar requires VideoList length 0~1. Use one base video per Omni node, or chain multiple Omni nodes sequentially.`, 400);
   if (elementIds.length) await Promise.all(elementIds.map((elementId) => waitForAigcElement(elementId)));
-  const duration = input.duration || 5;
-  const prompt = input.prompt;
+  const prompt = input.prompt.trim();
+  if (!prompt) throw new TokenStarError("Kling Omni requires a prompt.", 400);
   const request = {
-    Model: input.model || process.env.TOKENSTAR_KLING_OMNI_MODEL || "kling-v3-omni",
-    Prompt: prompt,
-    ...(image ? { ImageList: [{ ImageUrl: image, Type: "first_frame" }] } : {}),
-    ...(hasVideo ? { VideoList: videoUrls.map((url) => ({ VideoUrl: url, ReferType: "base", KeepOriginalSound: "no" })) } : {}),
-    ...(!hasVideo && input.ratio ? { AspectRatio: input.ratio } : {}),
-    ...(!hasVideo ? { Duration: duration } : {}),
-    Mode: process.env.TOKENSTAR_KLING_MODE || "std",
-    Sound: "off",
-    LogoAdd: 0,
-    ...(elementIds.length ? { ElementList: elementIds.map((elementId) => ({ ElementId: elementId })) } : {}),
+    model_name: input.model || process.env.TOKENSTAR_KLING_OMNI_MODEL || process.env.KLING_OMNI_MODEL || "kling-v3-omni",
+    prompt: omniPrompt(prompt, imageUrls.length, videoUrls.length, elementIds.length),
+    ...(imageUrls.length ? { image_list: imageUrls.map((url) => ({ image_url: url })) } : {}),
+    ...(videoUrls.length ? { video_list: videoUrls.map((url) => ({ video_url: url, refer_type: "feature", keep_original_sound: "no" })) } : {}),
+    ...(elementIds.length ? { element_list: elementIds.map((id) => ({ element_id: elementId(id) })) } : {}),
+    mode: omniModeFor(input.resolution || process.env.TOKENSTAR_KLING_MODE),
+    aspect_ratio: input.ratio || process.env.TOKENSTAR_DEFAULT_RATIO || "16:9",
+    duration: String(input.duration || Number(process.env.TOKENSTAR_DEFAULT_DURATION || 5)),
+    sound: input.generateAudio === true ? "on" : "off",
+    ...(input.callbackUrl ? { callback_url: input.callbackUrl } : {}),
   };
-  const raw = await tokenstarActionJsonRequest<TokenStarCreateVideoResponse>("/v1/video/generations", "SubmitVideoEditKlingJob", request);
-  return { ...normalizedKling(klingTaskId(record(raw)), raw, "DescribeVideoEditKlingJob"), request: { duration: hasVideo ? undefined : duration, videoCount: videoUrls.length, imageCount: image ? 1 : 0, elementCount: elementIds.length, videoUrls, prompt } };
+  const raw = await tokenstarJsonRequest<TokenStarCreateVideoResponse>("/v1/videos/omni-video", request);
+  return { ...normalizedOmni(undefined, raw), request: { imageCount: imageUrls.length, videoCount: videoUrls.length, elementCount: elementIds.length, imageUrls, videoUrls, prompt } };
 }
 export async function createSeedanceAssetVideo(input: TokenStarCreateVideoInput): Promise<NormalizedVideoTask> {
   const references = await createReferenceAssets({ imageUrls: input.referenceImageUrls, videoUrls: input.referenceVideoUrls, audioUrls: input.referenceAudioUrls });
@@ -146,4 +173,8 @@ export async function pollSeedanceVideo(id: string): Promise<NormalizedVideoTask
 export async function pollKlingVideo(id: string, action: string): Promise<NormalizedVideoTask> {
   const raw = await tokenstarActionGet<TokenStarPollVideoResponse>(`/v1/video/generations/${encodeURIComponent(id)}`, action);
   return normalizedKling(id, raw, action);
+}
+export async function pollKlingOmniVideo(id: string): Promise<NormalizedVideoTask> {
+  const raw = await tokenstarGet<TokenStarPollVideoResponse>(`/v1/videos/omni-video/${encodeURIComponent(id)}`);
+  return normalizedOmni(id, raw);
 }

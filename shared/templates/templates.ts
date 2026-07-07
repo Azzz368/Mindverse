@@ -1,11 +1,12 @@
 import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/shared/canvas";
+import { videoModelPatch } from "@/shared/workflow/videoModelPresets";
 
 const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "status">> = {
   prompt: { prompt: "Describe an atmospheric creative direction", negativePrompt: "", style: "Cinematic", aspectRatio: "16:9" },
   text: { instruction: "Turn this brief into an engaging creative draft", inputText: "", model: "", temperature: 0.7 },
   script: { storyBrief: "A fictional creative story", scriptTone: "Cinematic, warm, fictional", numberOfScenes: 3, model: "" },
   image: { prompt: "A cinematic editorial image", model: "gpt-image-2", size: "1024x1024", referenceImageUrl: "" },
-  video: { prompt: "A gentle cinematic movement", duration: 5, aspectRatio: "16:9", referenceImageUrl: "", model: "", resolution: "", fps: "", videoInputMode: "image-to-video", videoProvider: "tokenstar", klingMode: "image-to-video", tokenstarMode: "kling-image", generateAudio: true, referenceImageAssetUrl: "", referenceVideoAssetUrl: "", referenceAudioAssetUrl: "" },
+  video: { prompt: "A gentle cinematic movement", aspectRatio: "16:9", referenceImageUrl: "", fps: "", ...videoModelPatch("seedance-2.0"), referenceImageAssetUrl: "", referenceVideoAssetUrl: "", referenceAudioAssetUrl: "" },
   audio: { prompt: "A warm, modern ambient bed", voiceStyle: "Atmospheric", duration: 12, model: "", voice: "", emotion: "", volume: 1 },
   storyboard: { storyBrief: "A small transformation told in light and motion", numberOfScenes: 3, model: "" },
   storyboardImage: { aspectRatio: "16:9", negativePrompt: "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay" },

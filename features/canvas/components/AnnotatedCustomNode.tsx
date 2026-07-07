@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { ImageAnnotationEditor } from "./ImageAnnotationEditor";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
+import { videoModelOptions, videoModelPatch, videoModelPresetIdFromData, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
@@ -50,6 +51,7 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
         {data.nodeType === "script" && <><label className={wrap}><span className={lbl}>创意概要</span><textarea className={ta} rows={4} value={data.storyBrief ?? ""} onChange={e => set({ storyBrief: e.target.value })} /></label><label className={wrap}><span className={lbl}>语调</span><input className={inp} value={data.scriptTone ?? ""} onChange={e => set({ scriptTone: e.target.value })} /></label><label className={wrap}><span className={lbl}>目标场景数</span><select className={sel} value={String(data.numberOfScenes ?? 3)} onChange={e => set({ numberOfScenes: Number(e.target.value) })}>{[1,2,3,4,5,6,8,10,12].map(n=><option key={n}>{n}</option>)}</select></label></>}
         {data.nodeType === "image" && <><label className={wrap}><span className={lbl}>图像提示词</span><textarea className={ta} rows={3} value={data.prompt ?? ""} onChange={e => set({ prompt: e.target.value })} /></label><label className={wrap}><span className={lbl}>模型覆盖</span><input className={inp} value={data.model ?? ""} onChange={e => set({ model: e.target.value })} /></label><label className={wrap}><span className={lbl}>尺寸</span><select className={sel} value={data.size ?? "1024x1024"} onChange={e => set({ size: e.target.value })}>{["1024x1024","1536x1024","1024x1536","auto"].map(o=><option key={o}>{o}</option>)}</select></label></>}
         {data.nodeType === "video" && <>
+          <label className={wrap}><span className={lbl}>模型</span><select className={sel} value={videoModelPresetIdFromData(data)} onChange={e => set(videoModelPatch(e.target.value as VideoModelPresetId))}>{videoModelOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
           <label className={wrap}><span className={lbl}>动效提示词</span><textarea className={ta} rows={3} value={data.prompt ?? ""} onChange={e => set({ prompt: e.target.value })} /></label>
           <label className={wrap}><span className={lbl}>视频提供商</span><select className={sel} value={provider} onChange={e => set({ videoProvider: e.target.value as CanvasNodeData["videoProvider"] })}><option value="kling">Kling（官方直连）</option><option value="tokenstar">TokenStar 网关</option><option value="302ai">302.ai</option></select></label>
           {provider === "kling" && <><label className={wrap}><span className={lbl}>Kling 模式</span><select className={sel} value={data.klingMode ?? "image-to-video"} onChange={e => set({ klingMode: e.target.value as CanvasNodeData["klingMode"] })}><option value="image-to-video">首帧生视频</option><option value="reference-image">参考图生视频（主体一致性）</option><option value="text-to-video">文生视频</option><option value="omni">Omni 视频编辑</option></select></label>{data.klingMode === "reference-image" && <><p className="mb-3 rounded-md bg-amber-50 px-2 py-1.5 text-[10px] text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">需先创建主体元素，将 ElementId 填入下方字段。</p><label className={wrap}><span className={lbl}>主体元素 ID（逗号分隔）</span><input className={inp} value={data.klingElementId ?? ""} onChange={e => set({ klingElementId: e.target.value })} /></label></>}{(data.klingMode === "image-to-video" || data.klingMode === "reference-image" || !data.klingMode) && <label className={wrap}><span className={lbl}>首帧 URL（可选）</span><input className={inp} value={data.referenceImageUrl ?? ""} onChange={e => set({ referenceImageUrl: e.target.value })} /></label>}{data.klingMode === "omni" && <label className={wrap}><span className={lbl}>参考视频 URL</span><input className={inp} value={data.referenceVideoUrl ?? ""} onChange={e => set({ referenceVideoUrl: e.target.value })} /></label>}</>}
@@ -473,6 +475,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const videoUrl = text(record(data.output?.value).videoUrl || record(data.output?.value).resultUrl || record(data.output?.value).finalVideoUrl || data.resultUrl || "");
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
   const [previewOpen, setPreviewOpen] = useState(false);
+  const activeVideoModel = videoModelPresetIdFromData(data);
 
   const renderHandle = (label: string, handleId: string, borderColorClass: string, bgColorClass: string, connectedBgColorClass: string) => {
     const isConnected = connectedHandles.has(handleId);
@@ -541,6 +544,11 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
          </div>
          <div className="flex items-center justify-between px-6 pb-6">
             <div className="flex gap-2">
+              <PillDropdown
+                 value={activeVideoModel}
+                 options={videoModelOptions.map(option => ({ value: option.id, label: option.label }))}
+                 onChange={v => updateNodeData(id, videoModelPatch(String(v) as VideoModelPresetId))}
+              />
               <PillDropdown 
                  value={data.model || "Kling 3.0 Omni"} 
                  options={["Kling 3.0 Omni", "Kling 3.0 Turbo", "Kling 2.6", "Seedance 2.0", "Seedance 2.0 mini"].map(o => ({ value: o, label: o }))}

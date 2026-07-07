@@ -1,6 +1,7 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { NodeExecutionStatus, NodeType } from "./nodeTypes";
 import type { StoryboardImagePrompt } from "./story";
+import type { VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
 
 export type ImageAnnotation =
   | { id: string; type: "arrow"; x1: number; y1: number; x2: number; y2: number; color: string; label?: string }
@@ -13,7 +14,7 @@ export type CanvasNodeData = {
   instruction?: string; inputText?: string; wordCount?: number;
   model?: string; size?: string; referenceImageUrl?: string; imagePromptPreset?: "character-turnaround" | "scene-nine-grid" | "scene-top-view"; temperature?: number;
   duration?: number; voiceStyle?: string; voice?: string; emotion?: string; volume?: number; resolution?: string; fps?: string; videoInputMode?: "text-to-video" | "image-to-video";
-  videoProvider?: "mock" | "302ai" | "302-sora2" | "tokenstar" | "kling"; tokenstarMode?: "text-to-video" | "asset-video" | "kling-image" | "kling-text" | "kling-omni"; generateAudio?: boolean; referenceImageAssetUrl?: string; referenceVideoAssetUrl?: string; referenceAudioAssetUrl?: string; klingMode?: "text-to-video" | "image-to-video" | "reference-image" | "omni"; klingElementId?: string; referenceVideoUrl?: string; taskId?: string; resultUrl?: string; rawStatus?: string; lastPollAt?: string;
+  videoModelPreset?: VideoModelPresetId; videoProvider?: "mock" | "302ai" | "302-sora2" | "tokenstar" | "kling"; tokenstarMode?: "text-to-video" | "asset-video" | "kling-image" | "kling-text" | "kling-omni"; generateAudio?: boolean; referenceImageAssetUrl?: string; referenceVideoAssetUrl?: string; referenceAudioAssetUrl?: string; klingMode?: "text-to-video" | "image-to-video" | "reference-image" | "omni"; klingElementId?: string; referenceVideoUrl?: string; taskId?: string; resultUrl?: string; rawStatus?: string; lastPollAt?: string;
   storyBrief?: string; numberOfScenes?: number;
   scriptTone?: string; targetShotCount?: number; storyboardImagePrompts?: StoryboardImagePrompt[]; batchId?: string; shotNumber?: number; sourceStoryboardNodeId?: string;
   imageUrl?: string; notes?: string; format?: string; generationContext?: string;

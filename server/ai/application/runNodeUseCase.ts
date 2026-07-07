@@ -48,7 +48,7 @@ async function runKlingVideo(input: Record<string, unknown>): Promise<RunNodeRes
   if (!prompt) return fail("Kling video requires a prompt.");
   const image = text(input.image);
   if ((klingMode === "image-to-video" || klingMode === "reference-image") && !image) return fail("Kling 首帧/参考图生视频需要连接一张图片或填写参考图 URL。请连接已生成的图像节点，或在设置里填首帧 URL。");
-  const output = await createKlingImageVideo({ prompt, image, negativePrompt: optionalText(input.negativePrompt), duration: optionalNumber(input.duration), resolution: optionalText(input.resolution) });
+  const output = await createKlingImageVideo({ prompt, image, modelName: optionalText(input.model), negativePrompt: optionalText(input.negativePrompt), duration: optionalNumber(input.duration), resolution: optionalText(input.resolution) });
   return { ok: true, provider: "kling", output: await archiveResultMedia({ ...output, klingMode }, { sourceProvider: "kling", mediaTypeHint: "video" }), polling: { intervalMs: Number(process.env.KLING_POLL_INTERVAL_MS || 5000) } };
 }
 
