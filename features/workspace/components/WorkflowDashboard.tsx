@@ -119,10 +119,10 @@ export function WorkflowDashboard() {
             <h2 className="mb-5 text-base font-semibold">Projects</h2>
             {!verified ? (
               <div className="grid gap-5 md:grid-cols-3">
-                <div className="rounded border border-[#e7eaf0] bg-white p-4">
+                <Link href="/workspace/local" className="block rounded border border-[#e7eaf0] bg-white p-4 transition hover:border-[#404040] hover:bg-[#fafafa]">
                   <h3 className="font-semibold">Blank canvas</h3>
                   <p className="mt-5 inline-flex rounded bg-[#f0f1f3] px-2 py-1 text-xs text-[#404040]">No shared workflows loaded</p>
-                </div>
+                </Link>
               </div>
             ) : (
               <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">

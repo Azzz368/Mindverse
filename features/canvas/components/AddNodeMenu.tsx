@@ -2,6 +2,7 @@
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { archiveImageFile } from "@/features/canvas/services/mediaArchiveClient";
 import { useLang } from "@/components/providers/LangProvider";
+import { imagePromptPresets } from "@/shared/workflow/imagePromptPresets";
 import type { CanvasNodeData, NodeType } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
@@ -19,6 +20,15 @@ const getTools = (t: Strings) => [
   { id: "storyboard-image", type: "storyboardImage", cat: "Storyboard", title: t.nodeNames["storyboardImage"], desc: t.toolDescStoryboardImage, iconSrc: "/icons/5.png" },
   { id: "gpt-image-2", type: "image", cat: "Image", title: "GPT Image 2", desc: t.toolDescGptImage, iconSrc: "/icons/2.png" },
   { id: "gpt-image-2-tokenstar", type: "image", cat: "Image", title: "GPT Image 2 (TokenStar)", desc: "TokenStar GPT Image 2 text/image generation", iconSrc: "/icons/2.png", data: { title: "GPT Image 2 (TokenStar)", model: "gpt-image-2(tokenstar)", size: "2048x2048" } },
+  ...Object.entries(imagePromptPresets).map(([id, preset]) => ({
+    id: `gpt-image-2-tokenstar-${id}`,
+    type: "image",
+    cat: "Image",
+    title: preset.label,
+    desc: `TokenStar GPT Image 2 · ${preset.desc}`,
+    iconSrc: "/icons/2.png",
+    data: { title: preset.label, model: "gpt-image-2(tokenstar)", imagePromptPreset: id, size: preset.size, prompt: "" },
+  })),
   { id: "nano-banana-tokenstar", type: "image", cat: "Image", title: "Nano Banana (TokenStar)", desc: "TokenStar Nano Banana image generation/editing", iconSrc: "/icons/2.png", data: { title: "Nano Banana (TokenStar)", model: "nano banana(tokenstar)", size: "1024x1024" } },
   { id: "gemini-3.1-flash-image-preview", type: "image", cat: "Image", title: "gemini-3.1-flash-image-preview", desc: "Google Nano-Banana-2 image generation/editing via 302.ai", iconSrc: "/icons/2.png", data: { title: "gemini-3.1-flash-image-preview", model: "gemini-3.1-flash-image-preview", size: "1024x1024" } },
   { id: "upload-image", type: "upload_image", cat: "Image", title: t.uploadImage, desc: t.toolDescUploadImage, iconSrc: "/icons/normal.png" },
