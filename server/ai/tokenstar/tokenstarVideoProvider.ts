@@ -20,6 +20,7 @@ const summary = (value: unknown) => {
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value : undefined;
 const numberText = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? String(value) : text(value);
+const hasFields = (value: Record<string, unknown>) => Object.keys(value).length > 0;
 const taskId = (raw: Record<string, unknown>) => text(raw.id) || text(raw.task_id) || text(raw.taskId) || text(record(raw.data).id) || text(record(raw.data).task_id) || text(record(raw.data).taskId) || text(record(raw.output).id) || text(record(raw.output).task_id) || text(record(raw.output).taskId);
 const klingTaskId = (raw: Record<string, unknown>) => taskId(raw) || text(raw.JobId) || text(record(raw.Response).JobId) || text(record(raw.Result).JobId) || text(record(record(raw.Response).Result).JobId);
 const statusFor = (rawStatus: string | undefined, hasResult: boolean, hasTask = false, hasError = false): NormalizedVideoTask["status"] => {
@@ -32,7 +33,7 @@ const statusFor = (rawStatus: string | undefined, hasResult: boolean, hasTask = 
   // so the caller keeps polling until result_url appears.
   if (["COMPLETED", "SUCCESS", "SUCCEEDED", "DONE", "SUCCEED"].includes(status || "")) return "running";
   if (/^\d+$/.test(status || "")) return hasTask ? "running" : "pending";
-  if (["RUNNING", "IN_PROGRESS", "PROCESSING", "SUBMITTED", "PENDING", "QUEUED"].includes(status || "")) return "running";
+  if (["RUNNING", "IN_PROGRESS", "PROCESSING", "SUBMITTED", "PENDING", "QUEUED", "CREATED", "GENERATING", "WAITING"].includes(status || "")) return "running";
   if (hasTask && !hasResult) return "pending";
   return "pending";
 };
@@ -47,9 +48,11 @@ const normalizedKling = (task: string | undefined, raw: unknown, pollAction: str
   const root = record(raw), response = record(root.Response), result = record(response.Result), data = record(root.data), error = record(response.Error) || record(root.error);
   const resultUrl = text(response.ResultVideoUrl) || text(result.ResultVideoUrl) || text(root.ResultVideoUrl) || text(data.ResultVideoUrl) || text(data.result_url) || text(data.video_url);
   const id = task || klingTaskId(root);
-  const errorMessage = text(response.ErrorMessage) || text(response.Message) || text(result.ErrorMessage) || text(result.Message) || text(result.FailReason) || text(result.Reason) || text(error.Message) || text(error.message) || text(root.ErrorMessage) || text(root.message);
-  const rawStatus = errorMessage ? "ERROR" : numberText(response.Status) || numberText(result.Status) || numberText(root.Status) || numberText(data.Status) || text(response.StatusStr) || text(result.StatusStr) || text(root.status);
-  return { taskId: id, resultUrl, errorMessage, status: statusFor(rawStatus, Boolean(resultUrl), Boolean(id), Boolean(errorMessage)), rawStatus, pollAction, raw };
+  const rawStatus = numberText(response.Status) || numberText(result.Status) || numberText(root.Status) || numberText(data.Status) || text(response.StatusStr) || text(result.StatusStr) || text(root.status);
+  const possibleError = text(response.ErrorMessage) || text(result.ErrorMessage) || text(result.FailReason) || text(result.Reason) || text(error.Message) || text(error.message) || text(root.ErrorMessage) || text(root.message);
+  const failed = statusFor(rawStatus, Boolean(resultUrl), Boolean(id), hasFields(error)) === "failed";
+  const errorMessage = failed ? possibleError || text(response.Message) || text(result.Message) : undefined;
+  return { taskId: id, resultUrl, errorMessage, status: statusFor(rawStatus, Boolean(resultUrl), Boolean(id), Boolean(errorMessage) || hasFields(error)), rawStatus, pollAction, raw };
 };
 const firstOmniVideoUrl = (raw: unknown) => {
   const root = record(raw), data = record(root.data), taskResult = record(data.task_result);
@@ -82,6 +85,25 @@ const omniPrompt = (prompt: string, imageCount: number, videoCount: number, elem
     elementCount ? `reference elements are available as ${Array.from({ length: elementCount }, (_, index) => `<<<element_${index + 1}>>>`).join(", ")}` : "",
   ].filter(Boolean).join("; ");
   return refs ? `${refs}.\n${prompt}` : prompt;
+};
+const klingOmniActionBody = (input: TokenStarCreateVideoInput, prompt: string, imageUrls: string[], videoUrls: string[], elementIds: string[]) => {
+  const imageList = imageUrls.map((url, index) => ({
+    ImageUrl: url,
+    ...(imageUrls.length === 1 && index === 0 ? { Type: "first_frame" } : {}),
+  }));
+  const body: Record<string, unknown> = {
+    Model: input.model || process.env.TOKENSTAR_KLING_OMNI_MODEL || process.env.KLING_OMNI_MODEL || "kling-v3-omni",
+    Prompt: omniPrompt(prompt, imageUrls.length, videoUrls.length, elementIds.length),
+    AspectRatio: input.ratio || process.env.TOKENSTAR_DEFAULT_RATIO || "16:9",
+    Duration: input.duration || Number(process.env.TOKENSTAR_DEFAULT_DURATION || 5),
+    Mode: omniModeFor(input.resolution || process.env.TOKENSTAR_KLING_MODE),
+    Sound: input.generateAudio === true ? "on" : "off",
+    LogoAdd: 0,
+  };
+  if (imageList.length) body.ImageList = imageList;
+  if (videoUrls[0]) body.VideoList = [{ VideoUrl: videoUrls[0], ReferType: "base", KeepOriginalSound: "no" }];
+  if (elementIds.length) body.ElementList = elementIds.map((id) => ({ ElementId: id }));
+  return body;
 };
 const isAssetUrl = (value: string) => /^asset:\/\/[^\s]+$/i.test(value);
 const existingAssetUrls = (label: string, values: readonly string[] = []) => {
@@ -119,20 +141,8 @@ export async function createKlingOmniVideo(input: TokenStarCreateVideoInput): Pr
   if (elementIds.length) await Promise.all(elementIds.map((elementId) => waitForAigcElement(elementId)));
   const prompt = input.prompt.trim();
   if (!prompt) throw new TokenStarError("Kling Omni requires a prompt.", 400);
-  const request = {
-    model_name: input.model || process.env.TOKENSTAR_KLING_OMNI_MODEL || process.env.KLING_OMNI_MODEL || "kling-v3-omni",
-    prompt: omniPrompt(prompt, imageUrls.length, videoUrls.length, elementIds.length),
-    ...(imageUrls.length ? { image_list: imageUrls.map((url) => ({ image_url: url })) } : {}),
-    ...(videoUrls.length ? { video_list: videoUrls.map((url) => ({ video_url: url, refer_type: "feature", keep_original_sound: "no" })) } : {}),
-    ...(elementIds.length ? { element_list: elementIds.map((id) => ({ element_id: elementId(id) })) } : {}),
-    mode: omniModeFor(input.resolution || process.env.TOKENSTAR_KLING_MODE),
-    aspect_ratio: input.ratio || process.env.TOKENSTAR_DEFAULT_RATIO || "16:9",
-    duration: String(input.duration || Number(process.env.TOKENSTAR_DEFAULT_DURATION || 5)),
-    sound: input.generateAudio === true ? "on" : "off",
-    ...(input.callbackUrl ? { callback_url: input.callbackUrl } : {}),
-  };
-  const raw = await tokenstarJsonRequest<TokenStarCreateVideoResponse>("/v1/videos/omni-video", request);
-  return { ...normalizedOmni(undefined, raw), request: { imageCount: imageUrls.length, videoCount: videoUrls.length, elementCount: elementIds.length, imageUrls, videoUrls, prompt } };
+  const raw = await tokenstarActionJsonRequest<TokenStarCreateVideoResponse>("/v1/video/generations", "SubmitVideoEditKlingJob", klingOmniActionBody(input, prompt, imageUrls, videoUrls, elementIds));
+  return { ...normalizedKling(klingTaskId(record(raw)), raw, "DescribeVideoEditKlingJob"), request: { imageCount: imageUrls.length, videoCount: videoUrls.length, elementCount: elementIds.length, imageUrls, videoUrls, prompt, transport: "SubmitVideoEditKlingJob" } };
 }
 export async function createSeedanceAssetVideo(input: TokenStarCreateVideoInput): Promise<NormalizedVideoTask> {
   const references = await createReferenceAssets({ imageUrls: input.referenceImageUrls, videoUrls: input.referenceVideoUrls, audioUrls: input.referenceAudioUrls });
