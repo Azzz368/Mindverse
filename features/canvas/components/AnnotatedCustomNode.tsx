@@ -25,6 +25,11 @@ const GLOW_COLORS: Record<string, string> = {
 const RUNNABLE_TYPES = new Set(["prompt", "text", "script", "image", "video", "audio", "storyboard", "storyboardImage", "output"]);
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value : "";
+const nodeImageUrl = (node: CanvasNode) => {
+  const value = record(node.data.output?.value);
+  return text(value.imageUrl || value.revisedImageUrl || node.data.imageUrl || "");
+};
+const materialLabel = (node: CanvasNode) => node.data.title || (node.data.nodeType === "reference" ? "Reference" : "Image");
 
 function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; nodeId: string; onClose(): void }) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
@@ -471,11 +476,24 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
 function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: any) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const edges = useCanvasStore((s) => s.edges);
+  const allNodes = useCanvasStore((s) => s.nodes);
   const connectedHandles = new Set(edges.filter(e => e.target === id).map(e => e.targetHandle || ""));
   const videoUrl = text(record(data.output?.value).videoUrl || record(data.output?.value).resultUrl || record(data.output?.value).finalVideoUrl || data.resultUrl || "");
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const activeVideoModel = videoModelPresetIdFromData(data);
+  const connectedSourceIds = new Set(edges.filter(e => e.target === id).map(e => e.source));
+  const materialOptions = allNodes
+    .filter((item: CanvasNode) => connectedSourceIds.has(item.id))
+    .filter((item: CanvasNode) => item.id !== id && ["image", "reference"].includes(item.data.nodeType) && nodeImageUrl(item))
+    .map((item: CanvasNode) => ({ node: item, imageUrl: nodeImageUrl(item), label: materialLabel(item) }));
+  const selectedReferenceIds = (data.videoReferenceNodeIds || []).filter((refId: string) => materialOptions.some((item) => item.node.id === refId));
+  const selectedMaterials = selectedReferenceIds.map((refId: string) => materialOptions.find((item) => item.node.id === refId)).filter(Boolean) as typeof materialOptions;
+  const toggleMaterial = (nodeId: string) => {
+    const current = data.videoReferenceNodeIds || [];
+    updateNodeData(id, { videoReferenceNodeIds: current.includes(nodeId) ? current.filter((item: string) => item !== nodeId) : [...current, nodeId].slice(0, 7) });
+  };
 
   const renderHandle = (label: string, handleId: string, borderColorClass: string, bgColorClass: string, connectedBgColorClass: string) => {
     const isConnected = connectedHandles.has(handleId);
@@ -535,10 +553,55 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
 
       <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[800px] -translate-x-1/2 overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
          <div className="p-6 pb-4">
+            <div className="mb-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setMaterialPickerOpen((open) => !open); }}
+                className="nodrag rounded-full border border-[#c9ccd1] px-3 py-1.5 text-[12px] font-semibold text-[#030303] hover:border-[#030303] dark:border-slate-600 dark:text-slate-100 dark:hover:border-cyan-300"
+              >
+                @引用素材
+              </button>
+              <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+                {selectedMaterials.map((item, index) => (
+                  <button
+                    key={item.node.id}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleMaterial(item.node.id); }}
+                    className="nodrag relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-[#c9ccd1] bg-[#f0f1f3] dark:border-slate-600 dark:bg-slate-800"
+                    title={`${index + 1}: ${item.label}`}
+                  >
+                    <img src={item.imageUrl} alt={item.label} className="h-full w-full object-cover" />
+                    <span className="absolute right-0.5 top-0.5 rounded-full bg-[#030303]/85 px-1.5 py-0.5 text-[10px] font-bold text-white">@{index + 1}</span>
+                  </button>
+                ))}
+                {!selectedMaterials.length && <span className="text-[12px] text-[#676f7b] dark:text-slate-400">选择素材后可在提示词中写 @1、@2 指定图片</span>}
+              </div>
+            </div>
+            {materialPickerOpen && (
+              <div className="nodrag mb-3 grid max-h-44 grid-cols-6 gap-2 overflow-y-auto rounded-xl border border-[#e7eaf0] bg-[#f8f9fa] p-2 dark:border-slate-700 dark:bg-[#071019]" onClick={(e) => e.stopPropagation()}>
+                {materialOptions.map((item) => {
+                  const selectedIndex = selectedReferenceIds.indexOf(item.node.id);
+                  return (
+                    <button
+                      key={item.node.id}
+                      type="button"
+                      onClick={() => toggleMaterial(item.node.id)}
+                      className={`relative h-20 overflow-hidden rounded-lg border text-left ${selectedIndex >= 0 ? "border-[#030303] ring-2 ring-[#030303]/15 dark:border-cyan-300 dark:ring-cyan-300/20" : "border-[#dfe3ea] hover:border-[#030303] dark:border-slate-700 dark:hover:border-cyan-300"}`}
+                      title={item.label}
+                    >
+                      <img src={item.imageUrl} alt={item.label} className="h-full w-full object-cover" />
+                      <div className="absolute inset-x-0 bottom-0 truncate bg-black/65 px-1.5 py-1 text-[10px] font-medium text-white">{item.label}</div>
+                      {selectedIndex >= 0 && <span className="absolute right-1 top-1 rounded-full bg-[#030303] px-1.5 py-0.5 text-[10px] font-bold text-white dark:bg-cyan-400 dark:text-[#030303]">@{selectedIndex + 1}</span>}
+                    </button>
+                  );
+                })}
+                {!materialOptions.length && <div className="col-span-6 px-2 py-6 text-center text-[12px] text-[#676f7b] dark:text-slate-400">请先把图片或素材节点连到这个 VideoNode</div>}
+              </div>
+            )}
             <AutoGrowTextarea
                value={data.prompt ?? ""}
                onChange={(v) => updateNodeData(id, { prompt: v })}
-               placeholder="请为以下创意写一个完整的、可拍摄的10秒短片剧本..."
+               placeholder="描述你想要生成的画面内容，可用 @1、@2 引用上方素材..."
                minHeight={96}
             />
          </div>
