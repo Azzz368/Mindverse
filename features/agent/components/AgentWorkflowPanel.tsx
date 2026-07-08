@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { requestAgentDialogue } from "@/features/agent/services/agentClient";
+import { agentWorkflowSkills, type AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 import type { AgentCanvasEditPlan, AgentCanvasOrganizePlan, AgentDialogueResponse, AgentWorkflowPlan, CanvasEditPatch, CanvasPatch } from "@/shared/agent/agentSchema";
 
 const createSuggestions = [
@@ -75,6 +76,7 @@ export function AgentWorkflowPanel() {
   const applyAgentEditPatch = useCanvasStore((state) => state.applyAgentEditPatch);
   const generateAgentOrganize = useCanvasStore((state) => state.generateAgentOrganize);
   const runAgentWorkflow = useCanvasStore((state) => state.runAgentWorkflow);
+  const runAgentSkill = useCanvasStore((state) => state.runAgentSkill);
   const addStoryChainNode = useCanvasStore((state) => state.addStoryChainNode);
   const markSelectedWorkflow = useCanvasStore((state) => state.markSelectedWorkflow);
   const clearSelectedWorkflowMark = useCanvasStore((state) => state.clearSelectedWorkflowMark);
@@ -86,6 +88,7 @@ export function AgentWorkflowPanel() {
   const busy = agentStatus === "planning" || agentStatus === "building" || agentStatus === "running" || dialogueBusy;
   const canSubmit = brief.trim().length > 0 && !busy;
   const suggestions = mode === "edit" ? editSuggestions : createSuggestions;
+  const workflowSkills = Object.values(agentWorkflowSkills);
   const selectedWorkflowNodeCount = new Set([...nodes.filter((node) => node.selected).map((node) => node.id), ...(selectedNodeId ? [selectedNodeId] : [])]).size;
   const workflowOrderNumber = Math.max(1, Number.parseInt(workflowOrder, 10) || 1);
 
@@ -229,6 +232,14 @@ export function AgentWorkflowPanel() {
     setLocalError(null);
     setPreview(null);
     void runAgentWorkflow(brief);
+  };
+
+  const useWorkflowSkill = (skillId: AgentWorkflowSkillId, sourceBrief = brief) => {
+    if (busy) return;
+    setLocalError(null);
+    setPreview(null);
+    void runAgentSkill(skillId, sourceBrief);
+    setOpen(false);
   };
 
   const markWorkflow = () => {
@@ -391,9 +402,14 @@ export function AgentWorkflowPanel() {
                   <div className="mt-3 rounded-xl border border-[#dce2ea] bg-[#f7f9fc] p-3">
                     <div className="text-[12px] font-semibold text-[#111827]">可执行 brief</div>
                     <p className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-[#5f6b7a]">{item.response.brief}</p>
-                    <Button type="button" className="mt-3 rounded-full border-[#111827] bg-[#111827] px-3 py-1 text-[11px] text-white hover:border-[#263244] hover:bg-[#263244]" onClick={() => { setMode("create"); setBrief(item.response.brief || item.content); }}>
-                      用这个生成工作流
-                    </Button>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button type="button" className="rounded-full border-[#111827] bg-[#111827] px-3 py-1 text-[11px] text-white hover:border-[#263244] hover:bg-[#263244]" onClick={() => { setMode("create"); setBrief(item.response.brief || item.content); }}>
+                        ????????
+                      </Button>
+                      <Button type="button" className="rounded-full px-3 py-1 text-[11px]" disabled={busy} onClick={() => useWorkflowSkill("fixed-scene-action-video", item.response.brief || item.content)}>
+                        ???? Skill
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -414,6 +430,30 @@ export function AgentWorkflowPanel() {
             </button>
           ))}
         </div>
+
+        {mode === "create" && (
+          <div className="rounded-[18px] border border-[#dce2ea] bg-white p-4 shadow-[0_8px_28px_rgba(15,23,42,0.08)]">
+            <div className="mb-3">
+              <div className="text-[13px] font-semibold text-[#111827]">Workflow Skills</div>
+              <p className="mt-1 text-[12px] leading-5 text-[#5f6b7a]">选择一个专用技能，输入框里的故事目标会作为参数传入。</p>
+            </div>
+            <div className="grid gap-2">
+              {workflowSkills.map((skill) => (
+                <button
+                  key={skill.id}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => useWorkflowSkill(skill.id)}
+                  className="rounded-xl border border-[#e1e6ee] bg-[#f7f9fc] px-3 py-3 text-left transition hover:border-[#c8d2df] hover:bg-white disabled:opacity-50"
+                >
+                  <span className="block text-[13px] font-semibold text-[#111827]">{skill.label}</span>
+                  <span className="mt-1 block text-[12px] leading-5 text-[#5f6b7a]">{skill.description}</span>
+                  <span className="mt-2 inline-flex rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-[#697386]">默认 {skill.defaultDuration}s</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {(agentMessage || localError || agentStatus !== "idle") && (
           <div className="flex items-start gap-2 rounded-xl border border-[#e1e6ee] bg-white px-3 py-2 text-[12px] text-[#5f6b7a] shadow-sm">

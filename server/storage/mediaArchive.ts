@@ -20,6 +20,26 @@ const mediaFields: Array<{ key: string; originalKey?: string; mediaType: MediaTy
 
 const dateKey = () => new Date().toISOString().slice(0, 10);
 const cleanSegment = (value: string | undefined) => value?.replace(/[^a-z0-9_-]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+const mediaDownloadRetries = Math.max(1, Number(process.env.MEDIA_ARCHIVE_DOWNLOAD_RETRIES || 3));
+const mediaDownloadTimeoutMs = Math.max(10_000, Number(process.env.MEDIA_ARCHIVE_DOWNLOAD_TIMEOUT_MS || 180_000));
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const retryableStatus = (status: number) => status === 408 || status === 429 || status >= 500;
+
+const errorCauseForLog = (error: unknown) => {
+  if (!(error instanceof Error) || !("cause" in error)) return undefined;
+  const cause = (error as Error & { cause?: unknown }).cause;
+  if (!cause) return undefined;
+  if (cause instanceof Error) return { name: cause.name, message: cause.message };
+  if (typeof cause === "object") return cause;
+  return String(cause);
+};
+
+const errorForLog = (error: unknown) => {
+  if (!(error instanceof Error)) return error;
+  return { name: error.name, message: error.message, cause: errorCauseForLog(error) };
+};
 
 const extensionFor = (mimeType: string | undefined, mediaType: MediaType) => {
   const normalized = mimeType?.split(";")[0]?.trim().toLowerCase();
@@ -38,11 +58,44 @@ const extensionFor = (mimeType: string | undefined, mediaType: MediaType) => {
   return mediaType === "image" ? "png" : mediaType === "video" ? "mp4" : "mp3";
 };
 
+const fetchMediaOnce = async (url: string) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error(`Media download timed out after ${mediaDownloadTimeoutMs}ms.`)), mediaDownloadTimeoutMs);
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        Accept: "video/*,image/*,audio/*,*/*",
+        "User-Agent": "Mindverse-Media-Archiver/1.0",
+      },
+    });
+    if (!response.ok) {
+      const error = new Error(`Media download failed (${response.status} ${response.statusText}).`) as Error & { retryable?: boolean };
+      error.retryable = retryableStatus(response.status);
+      throw error;
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return { buffer: Buffer.from(arrayBuffer), mimeType: response.headers.get("content-type") || undefined };
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 const downloadHttps = async (url: string) => {
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Media download failed (${response.status} ${response.statusText}).`);
-  const arrayBuffer = await response.arrayBuffer();
-  return { buffer: Buffer.from(arrayBuffer), mimeType: response.headers.get("content-type") || undefined };
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= mediaDownloadRetries; attempt += 1) {
+    try {
+      return await fetchMediaOnce(url);
+    } catch (error) {
+      lastError = error;
+      const retryable = !(error instanceof Error) || (error as Error & { retryable?: boolean }).retryable !== false;
+      if (!retryable || attempt >= mediaDownloadRetries) break;
+      await pause(Math.min(1000 * 2 ** (attempt - 1), 5000));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Media download failed.");
 };
 
 const decodeDataUrl = (url: string) => {
@@ -82,7 +135,7 @@ export async function archiveMedia(url: string, mediaType: MediaType, context: A
       sourceTaskId: context.sourceTaskId,
     };
   } catch (error) {
-    console.error("Bunny media archive failed", { mediaType, originalUrl: url, error: error instanceof Error ? error.message : error });
+    console.error("Bunny media archive failed", { mediaType, originalUrl: url, error: errorForLog(error) });
     return null;
   }
 }

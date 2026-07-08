@@ -16,6 +16,12 @@ Interaction rules:
 - The `brief` must be detailed enough for workflow planning: logline, tone, protagonist, setting, conflict, story beats, visual style, key shots, and constraints.
 - Each assistant response should represent one useful story-chain step that can be placed on the canvas.
 
+Fixed-scene video workflow readiness:
+- If the user asks for a fixed-scene activity video, character turnaround, scene nine-grid, top-view layout, continuous video, or a 10-30 second cinematic clip, develop the idea toward the `fixed-scene-action-video` workflow skill.
+- Clarify or infer these production fields: main character design, optional second character, fixed location, scene atmosphere, top-view movement route, duration, shot count, aspect ratio, tone/genre, opening position, key action, emotional progression, and ending hook.
+- When finalizing this kind of idea, the `brief` must explicitly include those fields in natural language so the workflow skill can generate role-specific image prompts and a VideoNode prompt.
+- If the user has not specified duration or shot count, propose a compact default such as "10 seconds, 5 shots" instead of blocking.
+
 Output rules:
 - Output only JSON matching `AgentDialogueResponse`.
 - `stage` must be one of: ask, offer_options, expand_option, finalize_brief.

@@ -15,6 +15,9 @@ import { imageUrlFrom, inputFor, keyframePatchFromPrompt, promptFrom, revisionPr
 import { canRunRemotely, makeOutput, outputFor, outputFromProvider } from "@/features/canvas/domain/nodeOutputNormalizer";
 import { arrangeWorkflowNodes, connectedNodeIdsFrom, selectedNodeIdsFrom } from "@/features/canvas/domain/canvasLayout";
 import { applyEditPatchToState, dedupePatch, offsetPatchTo } from "@/features/agent/domain/agentPatch";
+import { buildFixedSceneVideoSkill, type AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
+
+const DEFAULT_AGENT_IMAGE_MODEL = "gpt-image-2(tokenstar)";
 
 type AgentStatus = "idle" | "planning" | "building" | "running" | "completed" | "error";
 type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; selectedNodeId: string | null; lastError: string | null; agentStatus: AgentStatus; agentMessage: string | null;
@@ -33,7 +36,7 @@ type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEd
   setGroupLockedByGroupId(groupId: string, locked: boolean): void;
   setProjectName(name: string): void; setSelectedNode(id: string | null): void; onNodesChange(changes: NodeChange<CanvasNode>[]): void; onEdgesChange(changes: EdgeChange<WorkflowEdge>[]): void; onConnect(connection: Connection): void;
   addNode(type: NodeType): void; updateNodeData(id: string, patch: Partial<CanvasNodeData>): void; removeNode(id: string): void; duplicateNode(id: string): void; createImageRevision(sourceId: string, annotations: ImageAnnotation[], instruction: string): Promise<void>; createKeyframeBatch(sourceId: string): void; setCanvas(nodes: CanvasNode[], edges: WorkflowEdge[]): void;
-  runNode(id: string): Promise<void>; pollNode(id: string): Promise<void>; runWorkflow(): Promise<void>; generateAgentPlan(userPrompt: string): Promise<{ plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }>; applyAgentPatch(patch: CanvasPatch): void; generateAgentEdit(userInstruction: string): Promise<{ editPlan: AgentCanvasEditPlan; patch: CanvasEditPatch; summary: string }>; applyAgentEditPatch(patch: CanvasEditPatch): void; generateAgentOrganize(userInstruction: string): Promise<{ organizePlan: AgentCanvasOrganizePlan; patch: CanvasEditPatch; summary: string }>; runAgentWorkflow(brief: string): Promise<void>; saveCanvas(): void; loadCanvas(): void; clearCanvas(): void; exportCanvasJson(): string; importCanvasJson(raw: string): void; applyTemplate(template: Template): void; };
+  runNode(id: string): Promise<void>; pollNode(id: string): Promise<void>; runWorkflow(): Promise<void>; generateAgentPlan(userPrompt: string): Promise<{ plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }>; applyAgentPatch(patch: CanvasPatch): void; generateAgentEdit(userInstruction: string): Promise<{ editPlan: AgentCanvasEditPlan; patch: CanvasEditPatch; summary: string }>; applyAgentEditPatch(patch: CanvasEditPatch): void; generateAgentOrganize(userInstruction: string): Promise<{ organizePlan: AgentCanvasOrganizePlan; patch: CanvasEditPatch; summary: string }>; runAgentWorkflow(brief: string): Promise<void>; runAgentSkill(skillId: AgentWorkflowSkillId, brief: string): Promise<void>; saveCanvas(): void; loadCanvas(): void; clearCanvas(): void; exportCanvasJson(): string; importCanvasJson(raw: string): void; applyTemplate(template: Template): void; };
 const initialNodes: CanvasNode[] = [];
 const isSnapshot = (value: unknown): value is CanvasSnapshot => Boolean(value && typeof value === "object" && Array.isArray((value as CanvasSnapshot).nodes) && Array.isArray((value as CanvasSnapshot).edges));
 const pollTimers = new Map<string, number>();
@@ -139,7 +142,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         id: `image-${crypto.randomUUID()}`,
         type: "creative",
         position: { x: source.position.x + 350 + (index % 3) * 320, y: source.position.y + Math.floor(index / 3) * 260 },
-        data: { nodeType: "image", model: "", ...keyframePatchFromPrompt(item, index, sourceId, batchId) },
+        data: { nodeType: "image", model: DEFAULT_AGENT_IMAGE_MODEL, ...keyframePatchFromPrompt(item, index, sourceId, batchId) },
       };
     });
     const reusableIds = downstreamImages.map((node) => node.id);
@@ -245,9 +248,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const negativePrompt = "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay";
     const continuity = "只生成一个单独的电影拍摄画面，不要拼贴图或分镜板，电影剧照质感，无文字，保持人物、服装、场景、光线、道具和故事连续性";
     const mainImage = makeTemplateNode("image", { x: 613.2296482571714, y: -554.2449289599219 }, {
-      title: "gpt-image-2",
+      title: "gpt-image-2 (TokenStar)",
       prompt: `以这个背景，生成${idea}的图片`,
-      model: "gpt-image-2",
+      model: DEFAULT_AGENT_IMAGE_MODEL,
       size: "1024x1024",
       referenceImageUrl: "",
     });
@@ -268,7 +271,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       negativePrompt,
       aspectRatio: "16:9",
       size: "1536x1024",
-      model: "",
+      model: DEFAULT_AGENT_IMAGE_MODEL,
       shotNumber: 1,
       sourceStoryboardNodeId: storyboardImage.id,
     });
@@ -278,7 +281,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       negativePrompt,
       aspectRatio: "16:9",
       size: "1536x1024",
-      model: "",
+      model: DEFAULT_AGENT_IMAGE_MODEL,
       shotNumber: 2,
       sourceStoryboardNodeId: storyboardImage.id,
     });
@@ -288,7 +291,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       negativePrompt,
       aspectRatio: "16:9",
       size: "1536x1024",
-      model: "",
+      model: DEFAULT_AGENT_IMAGE_MODEL,
       shotNumber: 3,
       sourceStoryboardNodeId: storyboardImage.id,
     });
@@ -341,6 +344,73 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       agentStatus: "completed",
       agentMessage: "已按导入模板搭建流程图。请检查节点参数后手动运行。",
     }));
+  },
+  runAgentSkill: async (skillId, brief) => {
+    if (skillId !== "fixed-scene-action-video") {
+      set({ agentStatus: "error", agentMessage: `Unknown workflow skill: ${skillId}`, lastError: `Unknown workflow skill: ${skillId}` });
+      return;
+    }
+    const skill = buildFixedSceneVideoSkill(brief);
+    set({ agentStatus: "building", agentMessage: `Building ${skill.title} skill...`, lastError: null });
+    const groupId = `skill-${skillId}-${crypto.randomUUID()}`;
+    const groupColor = "#22c55e";
+    const makeTemplateNode = (type: NodeType, position: { x: number; y: number }, patch: Partial<CanvasNodeData>): CanvasNode => {
+      const node = makeNode(type, position);
+      return { ...node, data: { ...node.data, ...patch, status: "idle", output: undefined, error: undefined, groupId, groupColor } };
+    };
+    const referenceNodes = skill.references.map((reference, index) => makeTemplateNode("image", { x: 60, y: 20 + index * 320 }, {
+      title: reference.title,
+      prompt: reference.prompt,
+      negativePrompt: reference.negativePrompt || skill.negativePrompt,
+      model: DEFAULT_AGENT_IMAGE_MODEL,
+      size: "2048x2048",
+      aspectRatio: "1:1",
+      imagePromptPreset: reference.preset,
+      referenceImageUrl: "",
+    }));
+    const directorPrompt = makeTemplateNode("text", { x: 440, y: 270 }, {
+      title: `${skill.title} Director Prompt`,
+      instruction: "Read this as the final VideoNode prompt. Keep material @ references exactly.",
+      inputText: skill.videoPrompt,
+      model: "",
+      temperature: 0.2,
+    });
+    const video = makeTemplateNode("video", { x: 860, y: 300 }, {
+      title: skill.title,
+      prompt: skill.videoPrompt,
+      aspectRatio: skill.aspectRatio,
+      referenceImageUrl: "",
+      fps: "",
+      ...videoModelPatch("kling-v3-omni-tokenstar"),
+      duration: skill.duration,
+      resolution: "1080p",
+      generateAudio: false,
+      videoReferenceNodeIds: referenceNodes.map((node) => node.id),
+      referenceImageAssetUrl: "",
+      referenceVideoAssetUrl: "",
+      referenceAudioAssetUrl: "",
+      klingElementId: "",
+      referenceVideoUrl: "",
+    });
+    const output = makeTemplateNode("output", { x: 1260, y: 350 }, {
+      title: `${skill.title} Output`,
+      format: "Creative package",
+    });
+    const nodes = [...referenceNodes, directorPrompt, video, output];
+    const edges = [
+      ...referenceNodes.map((node) => edgeFor(node, video)),
+      edgeFor(directorPrompt, video),
+      edgeFor(video, output),
+    ];
+    set({
+      pendingAgentPatch: { nodes, edges },
+      ghostType: null,
+      ghostData: null,
+      ghostMediaUrl: null,
+      lastError: null,
+      agentStatus: "completed",
+      agentMessage: `${skill.title} skill is ready. Click the canvas to choose where to place it.`,
+    });
   },
   saveCanvas: () => { const { projectName, nodes, edges } = get(); canvasStorage.save({ version: 1, projectName, nodes, edges }); },
   loadCanvas: () => { try { const snapshot = canvasStorage.load(); if (!snapshot || !isSnapshot(snapshot)) throw new Error("No valid saved canvas found."); set({ projectName: snapshot.projectName || "Untitled creative flow", nodes: restoreStatuses(snapshot.nodes), edges: snapshot.edges, selectedNodeId: null, lastError: null }); } catch (error) { set({ lastError: error instanceof Error ? error.message : "Could not load canvas" }); } },
