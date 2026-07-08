@@ -16,6 +16,8 @@ import { canRunRemotely, makeOutput, outputFor, outputFromProvider } from "@/fea
 import { arrangeWorkflowNodes, connectedNodeIdsFrom, selectedNodeIdsFrom } from "@/features/canvas/domain/canvasLayout";
 import { applyEditPatchToState, dedupePatch, offsetPatchTo } from "@/features/agent/domain/agentPatch";
 
+const DEFAULT_AGENT_IMAGE_MODEL = "gpt-image-2(tokenstar)";
+
 type AgentStatus = "idle" | "planning" | "building" | "running" | "completed" | "error";
 type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; selectedNodeId: string | null; lastError: string | null; agentStatus: AgentStatus; agentMessage: string | null;
   ghostType: NodeType | null; ghostData: Partial<CanvasNodeData> | null; setGhostType(type: NodeType | null, data?: Partial<CanvasNodeData>): void; placeGhostNode(position: { x: number; y: number }): void;
@@ -139,7 +141,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         id: `image-${crypto.randomUUID()}`,
         type: "creative",
         position: { x: source.position.x + 350 + (index % 3) * 320, y: source.position.y + Math.floor(index / 3) * 260 },
-        data: { nodeType: "image", model: "", ...keyframePatchFromPrompt(item, index, sourceId, batchId) },
+        data: { nodeType: "image", model: DEFAULT_AGENT_IMAGE_MODEL, ...keyframePatchFromPrompt(item, index, sourceId, batchId) },
       };
     });
     const reusableIds = downstreamImages.map((node) => node.id);
@@ -245,9 +247,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const negativePrompt = "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay";
     const continuity = "只生成一个单独的电影拍摄画面，不要拼贴图或分镜板，电影剧照质感，无文字，保持人物、服装、场景、光线、道具和故事连续性";
     const mainImage = makeTemplateNode("image", { x: 613.2296482571714, y: -554.2449289599219 }, {
-      title: "gpt-image-2",
+      title: "gpt-image-2 (TokenStar)",
       prompt: `以这个背景，生成${idea}的图片`,
-      model: "gpt-image-2",
+      model: DEFAULT_AGENT_IMAGE_MODEL,
       size: "1024x1024",
       referenceImageUrl: "",
     });
@@ -268,7 +270,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       negativePrompt,
       aspectRatio: "16:9",
       size: "1536x1024",
-      model: "",
+      model: DEFAULT_AGENT_IMAGE_MODEL,
       shotNumber: 1,
       sourceStoryboardNodeId: storyboardImage.id,
     });
@@ -278,7 +280,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       negativePrompt,
       aspectRatio: "16:9",
       size: "1536x1024",
-      model: "",
+      model: DEFAULT_AGENT_IMAGE_MODEL,
       shotNumber: 2,
       sourceStoryboardNodeId: storyboardImage.id,
     });
@@ -288,7 +290,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       negativePrompt,
       aspectRatio: "16:9",
       size: "1536x1024",
-      model: "",
+      model: DEFAULT_AGENT_IMAGE_MODEL,
       shotNumber: 3,
       sourceStoryboardNodeId: storyboardImage.id,
     });

@@ -9,6 +9,7 @@ const bool = (value: unknown) => typeof value === "boolean" ? value : undefined;
 const safeId = (value: string) => value.trim().replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "step";
 const hasChinese = (value: string) => /[\u3400-\u9fff]/.test(value);
 const tokenstarMode = (value: string) => value === "kling-reference" || value === "kling-image-to-video" ? "kling-image" : value === "kling-text-to-video" ? "kling-text" : value;
+const DEFAULT_AGENT_IMAGE_MODEL = "gpt-image-2(tokenstar)";
 const sceneCountFor = (plan: AgentWorkflowPlan, params: Record<string, unknown>) =>
   Math.max(1, Math.min(30, Math.round(plan.sceneCount || number(params.targetShotCount) || number(params.numberOfScenes) || 3)));
 const asksForMultipleVideos = (prompt: string) =>
@@ -25,7 +26,7 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
   if (step.kind === "script") return { title: step.label, storyBrief: prompt, scriptTone: plan.style || text(params.scriptTone) || (zh ? "电影感、喜剧节奏、完整可拍摄剧本" : "Cinematic, fictional"), numberOfScenes: sceneCountFor(plan, params), model: text(params.model) };
   if (step.kind === "storyboard") { const count = sceneCountFor(plan, params); return { title: step.label, storyBrief: prompt, numberOfScenes: count, targetShotCount: count, model: text(params.model) }; }
   if (step.kind === "storyboardImage") return { title: step.label, aspectRatio, negativePrompt: text(params.negativePrompt) || "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay" };
-  if (step.kind === "image") return { title: step.label, prompt, negativePrompt: text(params.negativePrompt) || "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay", model: text(params.model) || "gpt-image-2", size: text(params.size) || "1536x1024", aspectRatio, referenceImageUrl: "", shotNumber: number(params.shotNumber) };
+  if (step.kind === "image") return { title: step.label, prompt, negativePrompt: text(params.negativePrompt) || "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay", model: text(params.model) || DEFAULT_AGENT_IMAGE_MODEL, size: text(params.size) || "1536x1024", aspectRatio, referenceImageUrl: "", shotNumber: number(params.shotNumber) };
   if (step.kind === "video") {
     const provider = text(params.videoProvider) || plan.videoProvider || "tokenstar";
     const hasImageInput = upstreamKinds.includes("image") || upstreamKinds.includes("reference");

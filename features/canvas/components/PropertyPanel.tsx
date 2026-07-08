@@ -2,13 +2,15 @@
 import { useMemo } from "react";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { Textarea } from "@/components/ui/Textarea";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
+import { ImeInput, ImeTextarea } from "./ImeTextFields";
 import type { CanvasNodeData } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
 type Field = { key: keyof CanvasNodeData; label: string; kind?: "textarea" | "number" | "select"; options?: string[] };
+const imeInputClass = "w-full rounded-md border border-[#e7eaf0] bg-white px-3 py-2 text-sm text-[#030303] outline-none placeholder:text-[#939393] focus:border-[#030303] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600 dark:focus:border-cyan-400";
+const imeTextareaClass = "min-h-20 w-full resize-y rounded-md border border-[#e7eaf0] bg-white px-3 py-2 text-sm text-[#030303] outline-none placeholder:text-[#939393] focus:border-[#030303] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600 dark:focus:border-cyan-400";
 
 function buildFields(t: Strings): Record<string, Field[]> {
   return {
@@ -95,13 +97,15 @@ export function PropertyPanel() {
           <label className="block" key={field.key}>
             <span className="mb-1.5 block text-xs text-[#676f7b] dark:text-slate-400">{field.label}</span>
             {field.kind === "textarea" ? (
-              <Textarea value={String(node.data[field.key] ?? "")} onChange={(event) => change(field.key, event.target.value)} />
+              <ImeTextarea className={imeTextareaClass} value={String(node.data[field.key] ?? "")} onValueChange={(value) => change(field.key, value)} />
             ) : field.kind === "select" ? (
               <Select value={String(node.data[field.key] ?? "")} onChange={(event) => change(field.key, event.target.value)}>
                 {field.options?.map((option) => <option key={option}>{option || t.serverDefault}</option>)}
               </Select>
+            ) : field.kind === "number" ? (
+              <Input type="number" value={String(node.data[field.key] ?? "")} onChange={(event) => change(field.key, event.target.value)} />
             ) : (
-              <Input type={field.kind === "number" ? "number" : "text"} value={String(node.data[field.key] ?? "")} onChange={(event) => change(field.key, event.target.value)} />
+              <ImeInput className={imeInputClass} type="text" value={String(node.data[field.key] ?? "")} onValueChange={(value) => change(field.key, value)} />
             )}
           </label>
         ))}
@@ -121,7 +125,7 @@ export function PropertyPanel() {
           </label>
           <label className="mt-3 block">
             <span className="mb-1.5 block text-xs text-[#676f7b] dark:text-slate-400">或填写图片 URL</span>
-            <Input value={node.data.referenceImageUrl?.startsWith("data:") ? "" : String(node.data.referenceImageUrl ?? "")} placeholder={node.data.referenceImageUrl?.startsWith("data:") ? "已使用本地上传图片" : "https://..."} onChange={(event) => updateNodeData(node.id, { referenceImageUrl: event.target.value })} />
+            <ImeInput className={imeInputClass} value={node.data.referenceImageUrl?.startsWith("data:") ? "" : String(node.data.referenceImageUrl ?? "")} placeholder={node.data.referenceImageUrl?.startsWith("data:") ? "已使用本地上传图片" : "https://..."} onValueChange={(value) => updateNodeData(node.id, { referenceImageUrl: value })} />
           </label>
           {node.data.referenceImageUrl && (
             <button
