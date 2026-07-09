@@ -1,3 +1,3 @@
-export const nodeTypes = ["prompt", "text", "script", "storyboard", "storyboardImage", "image", "video", "audio", "reference", "output"] as const;
+export const nodeTypes = ["prompt", "text", "script", "storyboard", "storyboardImage", "image", "video", "videoEdit", "audio", "reference", "output"] as const;
 export type NodeType = (typeof nodeTypes)[number];
 export type NodeExecutionStatus = "idle" | "running" | "waiting" | "success" | "error";

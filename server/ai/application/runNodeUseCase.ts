@@ -5,18 +5,19 @@ import type { KlingVideoMode } from "@/server/ai/tokenstar/klingVideoProvider";
 import { generateTokenStarImage, generateTokenStarImageRevision, isTokenStarImageModel } from "@/server/ai/tokenstar/tokenstarImageProvider";
 import { createKlingImageVideo as tsKlingImage, createKlingTextVideo, createKlingOmniVideo, createSeedanceAssetVideo, createSeedanceVideo } from "@/server/ai/tokenstar/tokenstarVideoProvider";
 import { createSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
+import { createFfmpegVideoEdit } from "@/server/video/ffmpegEditRunner";
 import { parseScript, scriptInstruction } from "@/shared/workflow/storyPipeline";
 import { archiveResultMedia } from "@/server/storage/mediaArchive";
 import type { GenerateAudioInput, GenerateImageInput, GenerateImageRevisionInput, GenerateStoryboardInput, GenerateTextInput, GenerateVideoInput } from "@/server/ai/types";
 
-export type RunnableNodeType = "text" | "script" | "image" | "image-revision" | "video" | "audio" | "storyboard";
+export type RunnableNodeType = "text" | "script" | "image" | "image-revision" | "video" | "videoEdit" | "audio" | "storyboard";
 
 export type RunNodeResult =
   | { ok: true; provider: string; output: unknown; polling: { intervalMs: number; maxAttempts?: number } }
   | { ok: false; error: { message: string; code?: string; status: number } };
 
 export const isRunnableNodeType = (value: unknown): value is RunnableNodeType =>
-  ["text", "script", "image", "image-revision", "video", "audio", "storyboard"].includes(String(value));
+  ["text", "script", "image", "image-revision", "video", "videoEdit", "audio", "storyboard"].includes(String(value));
 
 const fail = (message: string, status = 400, code?: string): RunNodeResult => ({ ok: false, error: { message, status, ...(code ? { code } : {}) } });
 
@@ -96,6 +97,20 @@ async function runScript(input: Record<string, unknown>) {
 }
 
 export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Record<string, unknown>): Promise<RunNodeResult> {
+  if (nodeType === "videoEdit") {
+    const output = await createFfmpegVideoEdit({
+      prompt: optionalText(rawInput.prompt),
+      editPlan: optionalText(rawInput.editPlan),
+      referenceVideoUrls: urls(rawInput.referenceVideoUrls),
+      preserveAudio: typeof rawInput.preserveAudio === "boolean" ? rawInput.preserveAudio : true,
+      transition: rawInput.transition === "fade" ? "fade" : "none",
+      resolution: optionalText(rawInput.resolution),
+      aspectRatio: optionalText(rawInput.aspectRatio),
+      fps: optionalText(rawInput.fps) || optionalNumber(rawInput.fps),
+    });
+    return { ok: true, provider: "ffmpeg", output, polling: { intervalMs: 0 } };
+  }
+
   if (nodeType === "video" && rawInput.videoProvider === "302-sora2") return runSora2Video(rawInput);
   if (nodeType === "video" && (rawInput.videoProvider === "kling" || rawInput.videoProvider === "" || (!rawInput.videoProvider && process.env.AI_VIDEO_PROVIDER !== "302ai" && process.env.AI_VIDEO_PROVIDER !== "tokenstar"))) return runKlingVideo(rawInput);
   if (nodeType === "video" && (rawInput.videoProvider === "tokenstar" || (!rawInput.videoProvider && process.env.AI_VIDEO_PROVIDER === "tokenstar"))) return runTokenstarVideo(rawInput);
