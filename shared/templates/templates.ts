@@ -1,5 +1,5 @@
 import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/shared/canvas";
-import { videoModelPatch } from "@/shared/workflow/videoModelPresets";
+import { videoModelPatch, videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
 
 const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "status">> = {
   prompt: { prompt: "Describe an atmospheric creative direction", negativePrompt: "", style: "Cinematic", aspectRatio: "16:9" },
@@ -28,5 +28,14 @@ export const templates: Template[] = [
 ];
 export function buildTemplate(template: Template): { nodes: CanvasNode[]; edges: WorkflowEdge[] } {
   const nodes = template.types.map((type, index) => { const node = makeNode(type, { x: 90 + index * 340, y: 170 + (index % 2) * 80 }); node.data.title = `${template.name}: ${node.data.title.replace("New ", "")}`; return node; });
-  return { nodes, edges: nodes.slice(1).map((node, index) => ({ id: `edge-${nodes[index].id}-${node.id}`, source: nodes[index].id, target: node.id, animated: true })) };
+  nodes.forEach((node, index) => {
+    if (node.data.nodeType !== "video") return;
+    const hasUpstreamMedia = nodes.slice(0, index).some((source) => ["image", "reference", "video", "audio"].includes(source.data.nodeType));
+    if (hasUpstreamMedia) node.data = { ...node.data, ...videoModelPatch("seedance-2.0-assets") };
+  });
+  return { nodes, edges: nodes.slice(1).map((node, index) => {
+    const source = nodes[index];
+    const targetHandle = node.data.nodeType === "video" ? videoTargetHandleForNodeType(source.data.nodeType, node.data) : undefined;
+    return { id: `edge-${source.id}-${node.id}`, source: source.id, target: node.id, ...(targetHandle ? { targetHandle } : {}), animated: true };
+  }) };
 }

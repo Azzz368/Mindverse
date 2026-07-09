@@ -1,6 +1,7 @@
 import { makeNode } from "@/shared/templates/templates";
 import type { AgentWorkflowPlan, CanvasPatch } from "@/shared/agent/agentSchema";
 import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/shared/canvas";
+import { videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
@@ -31,21 +32,25 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
     const provider = text(params.videoProvider) || plan.videoProvider || "tokenstar";
     const hasImageInput = upstreamKinds.includes("image") || upstreamKinds.includes("reference");
     const hasVideoInput = upstreamKinds.includes("video");
-    const selectedTokenstarMode = tokenstarMode(text(params.tokenstarMode) || (provider === "tokenstar" ? hasVideoInput ? "kling-omni" : "kling-image" : ""));
+    const selectedTokenstarMode = tokenstarMode(text(params.tokenstarMode) || (provider === "tokenstar" ? (hasImageInput || hasVideoInput || upstreamKinds.includes("audio")) ? "asset-video" : "text-to-video" : ""));
+    const fallbackModel = selectedTokenstarMode === "asset-video" ? "seedance-2.0-asset-fast"
+      : selectedTokenstarMode === "kling-omni" ? "kling-v3-omni"
+      : selectedTokenstarMode === "kling-image" || selectedTokenstarMode === "kling-text" ? "kling-v3"
+      : "";
     return {
       title: step.label,
       prompt: step.prompt || step.purpose || plan.userPrompt,
       negativePrompt: text(params.negativePrompt),
       duration: number(params.duration) || 10,
       aspectRatio,
-      model: text(params.model),
+      model: text(params.model) || fallbackModel,
       resolution: text(params.resolution) || "480p",
       fps: text(params.fps),
       referenceImageUrl: "",
       videoInputMode: provider === "tokenstar" && !hasVideoInput ? "image-to-video" : hasImageInput ? "image-to-video" : "text-to-video",
       videoProvider: provider === "kling" || provider === "302ai" || provider === "302-sora2" ? provider : "tokenstar",
       tokenstarMode: selectedTokenstarMode === "asset-video" || selectedTokenstarMode === "kling-image" || selectedTokenstarMode === "kling-text" || selectedTokenstarMode === "kling-omni" ? selectedTokenstarMode : "text-to-video",
-      klingMode: hasVideoInput ? "omni" : "image-to-video",
+      klingMode: selectedTokenstarMode === "kling-omni" ? "omni" : selectedTokenstarMode === "kling-text" ? "text-to-video" : "image-to-video",
       generateAudio: bool(params.generateAudio) ?? plan.includeAudio ?? true,
       referenceImageAssetUrl: "",
       referenceVideoAssetUrl: "",
@@ -99,7 +104,10 @@ export function compileWorkflowPlanToCanvas(plan: AgentWorkflowPlan): CanvasPatc
     dependencies.forEach((sourceStepId) => {
       const source = stepIdToNodeId.get(sourceStepId);
       const target = stepIdToNodeId.get(step.id);
-      if (source && target) edges.push({ id: `edge-${source}-${target}`, source, target, animated: true });
+      const sourceNode = source ? nodes.find((node) => node.id === source) : undefined;
+      const targetNode = target ? nodes.find((node) => node.id === target) : undefined;
+      const targetHandle = sourceNode && targetNode?.data.nodeType === "video" ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data) : undefined;
+      if (source && target) edges.push({ id: `edge-${source}-${target}`, source, target, ...(targetHandle ? { targetHandle } : {}), animated: true });
     });
   });
   return { nodes, edges };
@@ -135,10 +143,25 @@ function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
       return;
     }
 
-  if (step.kind === "video") {
-    const keyframes = keyframeStepsBeforeVideo(steps, index);
-    if (keyframes.length) {
+    if (step.kind === "video") {
+      const explicitMediaDependencies = explicit.filter((id) => {
+        const kind = byId.get(id)?.kind;
+        return kind === "image" || kind === "reference" || kind === "video" || kind === "audio";
+      });
+      if (explicitMediaDependencies.length) {
+        map.set(step.id, explicitMediaDependencies);
+        return;
+      }
+
+      const keyframes = keyframeStepsBeforeVideo(steps, index);
+      if (keyframes.length) {
         map.set(step.id, keyframes.map((item) => item.id));
+        return;
+      }
+
+      const previousMedia = mediaStepsBeforeVideo(steps, index);
+      if (previousMedia.length) {
+        map.set(step.id, previousMedia.map((item) => item.id));
         return;
       }
     }
@@ -181,6 +204,11 @@ function keyframeStepsBeforeVideo(steps: AgentWorkflowPlan["steps"], videoIndex:
   })();
   const start = storyboardIndex >= 0 ? storyboardIndex + 1 : 0;
   return steps.slice(start, videoIndex).filter((step) => step.kind === "image");
+}
+
+function mediaStepsBeforeVideo(steps: AgentWorkflowPlan["steps"], videoIndex: number) {
+  const mediaKinds = new Set<NodeType>(["image", "reference", "video", "audio"]);
+  return steps.slice(0, videoIndex).filter((step) => mediaKinds.has(step.kind));
 }
 
 function positionFor(kind: NodeType, level: number, row: number) {
