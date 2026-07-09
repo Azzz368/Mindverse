@@ -8,6 +8,7 @@ import { TemplateGallery } from "./TemplateGallery";
 import { TopBar } from "./TopBar";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { ACCESS_KEY, getWorkflowSnapshot, saveWorkflowSnapshot } from "@/features/workspace/services/workflowClient";
+import type { CanvasSnapshot } from "@/shared/canvas";
 
 function PendingTaskRecovery() {
   const nodes = useCanvasStore((state) => state.nodes); const pollNode = useCanvasStore((state) => state.pollNode); const seen = useRef(new Set<string>());
@@ -21,6 +22,10 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
   const setProjectName = useCanvasStore((state) => state.setProjectName);
   const setCanvas = useCanvasStore((state) => state.setCanvas);
   const loadedRemoteWorkflow = useRef(!workflowId);
+  const saveTimerRef = useRef<number | null>(null);
+  const savingRef = useRef(false);
+  const pendingSaveRef = useRef<{ accessCode: string; name: string; snapshot: CanvasSnapshot } | null>(null);
+  const lastSavedJsonRef = useRef("");
 
   useEffect(() => {
     if (!workflowId || typeof window === "undefined") return;
@@ -47,11 +52,41 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
     if (!workflowId || !loadedRemoteWorkflow.current || typeof window === "undefined") return;
     const accessCode = window.localStorage.getItem(ACCESS_KEY) || "";
     if (!accessCode) return;
-    const timer = window.setTimeout(() => {
-      void saveWorkflowSnapshot(workflowId, { accessCode, name: projectName, snapshot: { version: 1, projectName, nodes, edges } })
-        .catch((error) => console.error("Remote workflow save failed", error));
+    const snapshot: CanvasSnapshot = { version: 1, projectName, nodes, edges };
+    const payload = { accessCode, name: projectName, snapshot };
+    const payloadJson = JSON.stringify(payload);
+    if (payloadJson === lastSavedJsonRef.current) return;
+    pendingSaveRef.current = payload;
+
+    const flushSave = async () => {
+      if (!workflowId || savingRef.current) return;
+      const next = pendingSaveRef.current;
+      if (!next) return;
+      pendingSaveRef.current = null;
+      savingRef.current = true;
+      try {
+        await saveWorkflowSnapshot(workflowId, next);
+        lastSavedJsonRef.current = JSON.stringify(next);
+      } catch (error) {
+        pendingSaveRef.current = pendingSaveRef.current || next;
+        console.error("Remote workflow save failed", error);
+      } finally {
+        savingRef.current = false;
+        if (pendingSaveRef.current) void flushSave();
+      }
+    };
+
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      void flushSave();
     }, 1000);
-    return () => window.clearTimeout(timer);
+    return () => {
+      if (saveTimerRef.current) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+    };
   }, [edges, nodes, projectName, workflowId]);
 
   return (
