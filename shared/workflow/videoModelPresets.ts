@@ -20,12 +20,26 @@ export type VideoModelPatch = {
   generateAudio?: boolean;
 };
 
+export type VideoInputPortKind = "text" | "image" | "video" | "audio";
+
+export type VideoInputPort = {
+  id: string;
+  label: string;
+  kind: VideoInputPortKind;
+};
+
 export type VideoModelPreset = {
   id: VideoModelPresetId;
   label: string;
   desc: string;
   patch: VideoModelPatch;
+  inputPorts: VideoInputPort[];
 };
+
+const textPort: VideoInputPort = { id: "text", label: "Text", kind: "text" };
+const imagePort: VideoInputPort = { id: "image", label: "Image", kind: "image" };
+const videoPort: VideoInputPort = { id: "video", label: "Video", kind: "video" };
+const audioPort: VideoInputPort = { id: "audio", label: "Audio", kind: "audio" };
 
 export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
   "seedance-2.0": {
@@ -33,54 +47,87 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     label: "Seedance 2.0",
     desc: "TokenStar text-to-video",
     patch: { videoModelPreset: "seedance-2.0", videoProvider: "tokenstar", model: "seedance-2.0-fast", tokenstarMode: "text-to-video", videoInputMode: "text-to-video", duration: 8, resolution: "720p", generateAudio: true },
+    inputPorts: [textPort],
   },
   "seedance-2.0-assets": {
     id: "seedance-2.0-assets",
     label: "Seedance 2.0 Assets",
     desc: "TokenStar image/video/audio references",
     patch: { videoModelPreset: "seedance-2.0-assets", videoProvider: "tokenstar", model: "seedance-2.0-asset-fast", tokenstarMode: "asset-video", videoInputMode: "image-to-video", duration: 5, resolution: "720p", generateAudio: true },
+    inputPorts: [textPort, imagePort, videoPort, audioPort],
   },
   "gen-4.5": {
     id: "gen-4.5",
     label: "Gen-4.5",
     desc: "302.ai text-to-video",
     patch: { videoModelPreset: "gen-4.5", videoProvider: "302ai", model: "gen-4.5", videoInputMode: "text-to-video", duration: 10, resolution: "720p" },
+    inputPorts: [textPort],
   },
   "kling-v2.6": {
     id: "kling-v2.6",
     label: "Kling v2.6",
     desc: "Official Kling image-to-video",
     patch: { videoModelPreset: "kling-v2.6", videoProvider: "kling", model: "kling-v2-6", videoInputMode: "image-to-video", klingMode: "image-to-video", duration: 5, resolution: "720p" },
+    inputPorts: [textPort, imagePort],
   },
   "kling-v3-tokenstar": {
     id: "kling-v3-tokenstar",
     label: "Kling v3",
     desc: "TokenStar Kling image-to-video",
     patch: { videoModelPreset: "kling-v3-tokenstar", videoProvider: "tokenstar", model: "kling-v3", videoInputMode: "image-to-video", tokenstarMode: "kling-image", klingMode: "image-to-video", duration: 5, resolution: "720p", generateAudio: true },
+    inputPorts: [textPort, imagePort],
   },
   "kling-v3-omni-tokenstar": {
     id: "kling-v3-omni-tokenstar",
     label: "Kling v3 Omni",
     desc: "TokenStar multi-reference Omni video",
     patch: { videoModelPreset: "kling-v3-omni-tokenstar", videoProvider: "tokenstar", model: "kling-v3-omni", videoInputMode: "image-to-video", tokenstarMode: "kling-omni", klingMode: "omni", duration: 5, resolution: "1080p", generateAudio: false },
+    inputPorts: [textPort, imagePort, videoPort],
   },
   "kling-v3-text-tokenstar": {
     id: "kling-v3-text-tokenstar",
     label: "Kling v3 Text",
     desc: "TokenStar Kling text-to-video",
     patch: { videoModelPreset: "kling-v3-text-tokenstar", videoProvider: "tokenstar", model: "kling-v3", videoInputMode: "text-to-video", tokenstarMode: "kling-text", klingMode: "text-to-video", duration: 5, resolution: "720p", generateAudio: true },
+    inputPorts: [textPort],
   },
   "sora-2": {
     id: "sora-2",
     label: "Sora 2",
     desc: "302.ai image-to-video",
     patch: { videoModelPreset: "sora-2", videoProvider: "302-sora2", model: "sora-2", videoInputMode: "image-to-video", duration: 8, resolution: "720p" },
+    inputPorts: [textPort, imagePort],
   },
 };
 
 export const videoModelOptions = Object.values(videoModelPresets);
 
 export const videoModelPatch = (id: VideoModelPresetId): VideoModelPatch => ({ ...videoModelPresets[id].patch });
+
+export const videoInputPortsForPreset = (id: VideoModelPresetId) => videoModelPresets[id].inputPorts;
+
+export const videoInputKindForNodeType = (nodeType: string): VideoInputPortKind | undefined => {
+  if (nodeType === "image" || nodeType === "reference") return "image";
+  if (nodeType === "video") return "video";
+  if (nodeType === "audio") return "audio";
+  if (nodeType === "text" || nodeType === "prompt" || nodeType === "script" || nodeType === "storyboard") return "text";
+  return undefined;
+};
+
+export const videoTargetHandleForNodeType = (
+  sourceNodeType: string,
+  targetData: {
+    videoModelPreset?: string;
+    videoProvider?: string;
+    model?: string;
+    tokenstarMode?: string;
+    klingMode?: string;
+  },
+) => {
+  const kind = videoInputKindForNodeType(sourceNodeType);
+  if (!kind) return undefined;
+  return videoInputPortsForPreset(videoModelPresetIdFromData(targetData)).find((port) => port.kind === kind)?.id;
+};
 
 export const videoModelPresetIdFromData = (data: {
   videoModelPreset?: string;

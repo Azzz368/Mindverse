@@ -1,5 +1,5 @@
 ﻿"use client";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Badge } from "@/components/ui/Badge";
@@ -7,7 +7,7 @@ import { ImageAnnotationEditor } from "./ImageAnnotationEditor";
 import { ImeInput, ImeTextarea } from "./ImeTextFields";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
-import { videoModelOptions, videoModelPatch, videoModelPresetIdFromData, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
+import { videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
@@ -26,6 +26,12 @@ const GLOW_COLORS: Record<string, string> = {
 const RUNNABLE_TYPES = new Set(["prompt", "text", "script", "image", "video", "audio", "storyboard", "storyboardImage", "output"]);
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value : "";
+const videoPortStyles: Record<VideoInputPortKind, { border: string; connected: string }> = {
+  text: { border: "border-[#f59e0b]", connected: "bg-[#f59e0b]" },
+  image: { border: "border-[#84cc16]", connected: "bg-[#84cc16]" },
+  video: { border: "border-[#7322e3]", connected: "bg-[#7322e3]" },
+  audio: { border: "border-[#f5510b]", connected: "bg-[#f5510b]" },
+};
 const nodeImageUrl = (node: CanvasNode) => {
   const value = record(node.data.output?.value);
   return text(value.imageUrl || value.revisedImageUrl || node.data.imageUrl || "");
@@ -487,15 +493,22 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const edges = useCanvasStore((s) => s.edges);
   const allNodes = useCanvasStore((s) => s.nodes);
-  const connectedHandles = new Set(edges.filter(e => e.target === id).map(e => e.targetHandle || ""));
+  const updateNodeInternals = useUpdateNodeInternals();
+  const incomingEdges = edges.filter(e => e.target === id);
+  const connectedHandles = new Set(incomingEdges.map(e => e.targetHandle || ""));
   const videoUrl = text(record(data.output?.value).videoUrl || record(data.output?.value).resultUrl || record(data.output?.value).finalVideoUrl || data.resultUrl || "");
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
   const [previewOpen, setPreviewOpen] = useState(false);
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const activeVideoModel = videoModelPresetIdFromData(data);
-  const connectedSourceIds = new Set(edges.filter(e => e.target === id).map(e => e.source));
+  const inputPorts = videoInputPortsForPreset(activeVideoModel);
+  const inputPortKey = inputPorts.map((port) => port.id).join(",");
+  const supportsImageInput = inputPorts.some((port) => port.kind === "image");
+  const imageSourceIds = new Set(incomingEdges
+    .filter((edge) => !edge.targetHandle || edge.targetHandle === "image" || edge.targetHandle === "start-frame" || edge.targetHandle === "ref-image" || edge.targetHandle.startsWith("ref-image-"))
+    .map((edge) => edge.source));
   const materialOptions = allNodes
-    .filter((item: CanvasNode) => connectedSourceIds.has(item.id))
+    .filter((item: CanvasNode) => imageSourceIds.has(item.id))
     .filter((item: CanvasNode) => item.id !== id && ["image", "reference"].includes(item.data.nodeType) && nodeImageUrl(item))
     .map((item: CanvasNode) => ({ node: item, imageUrl: nodeImageUrl(item), label: materialLabel(item) }));
   const selectedReferenceIds = (data.videoReferenceNodeIds || []).filter((refId: string) => materialOptions.some((item) => item.node.id === refId));
@@ -504,6 +517,10 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
     const current = data.videoReferenceNodeIds || [];
     updateNodeData(id, { videoReferenceNodeIds: current.includes(nodeId) ? current.filter((item: string) => item !== nodeId) : [...current, nodeId].slice(0, 7) });
   };
+
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, inputPortKey, updateNodeInternals]);
 
   const renderHandle = (label: string, handleId: string, borderColorClass: string, bgColorClass: string, connectedBgColorClass: string) => {
     const isConnected = connectedHandles.has(handleId);
@@ -531,10 +548,10 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
         )}
 
         <div className="absolute -left-[145px] top-[75px] flex flex-col gap-[36px]">
-           {renderHandle("Text", "text", "border-[#f59e0b]", "bg-white dark:bg-[#101c29]", "bg-[#f59e0b]")}
-           {renderHandle("Start Frame", "start-frame", "border-[#84cc16]", "bg-white dark:bg-[#101c29]", "bg-[#84cc16]")}
-           {renderHandle("Last Frame", "last-frame", "border-[#84cc16]", "bg-white dark:bg-[#101c29]", "bg-[#84cc16]")}
-           {renderHandle("Reference image", "ref-image", "border-[#84cc16]", "bg-white dark:bg-[#101c29]", "bg-[#84cc16]")}
+           {inputPorts.map((port) => {
+             const style = videoPortStyles[port.kind];
+             return renderHandle(port.label, port.id, style.border, "bg-white dark:bg-[#101c29]", style.connected);
+           })}
         </div>
 
         <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
@@ -563,7 +580,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
 
       <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[800px] -translate-x-1/2 overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
          <div className="p-6 pb-4">
-            <div className="mb-3 flex items-center gap-2">
+            {supportsImageInput && <div className="mb-3 flex items-center gap-2">
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setMaterialPickerOpen((open) => !open); }}
@@ -586,8 +603,8 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                 ))}
                 {!selectedMaterials.length && <span className="text-[12px] text-[#676f7b] dark:text-slate-400">选择素材后可在提示词中写 @1、@2 指定图片</span>}
               </div>
-            </div>
-            {materialPickerOpen && (
+            </div>}
+            {supportsImageInput && materialPickerOpen && (
               <div className="nodrag mb-3 grid max-h-44 grid-cols-6 gap-2 overflow-y-auto rounded-xl border border-[#e7eaf0] bg-[#f8f9fa] p-2 dark:border-slate-700 dark:bg-[#071019]" onClick={(e) => e.stopPropagation()}>
                 {materialOptions.map((item) => {
                   const selectedIndex = selectedReferenceIds.indexOf(item.node.id);

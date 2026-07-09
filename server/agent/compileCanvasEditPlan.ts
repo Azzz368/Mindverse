@@ -1,6 +1,7 @@
 import { makeNode } from "@/shared/templates/templates";
 import type { AgentCanvasEditPlan, AgentEditOperation, CanvasEditPatch } from "@/shared/agent/agentSchema";
 import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/shared/canvas";
+import { videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
 
 const forbiddenPatchKeys = new Set([
   "b64_json",
@@ -118,7 +119,7 @@ const makeRevisionNode = (target: CanvasNode, dataPatch: Partial<CanvasNodeData>
   }));
 };
 
-const addEdgeIfNew = (edges: WorkflowEdge[], source: string, target: string, existingEdgeIds: Set<string>, warnings: string[]) => {
+const addEdgeIfNew = (edges: WorkflowEdge[], source: string, target: string, existingEdgeIds: Set<string>, warnings: string[], nodeById?: Map<string, CanvasNode>) => {
   if (source === target) {
     warnings.push(`Skipped self connection on ${source}.`);
     return;
@@ -126,7 +127,10 @@ const addEdgeIfNew = (edges: WorkflowEdge[], source: string, target: string, exi
   const id = edgeIdFor(source, target);
   if (existingEdgeIds.has(id)) return;
   existingEdgeIds.add(id);
-  edges.push({ id, source, target, animated: true });
+  const sourceNode = nodeById?.get(source);
+  const targetNode = nodeById?.get(target);
+  const targetHandle = sourceNode && targetNode?.data.nodeType === "video" ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data) : undefined;
+  edges.push({ id, source, target, ...(targetHandle ? { targetHandle } : {}), animated: true });
 };
 
 export function compileCanvasEditPlanToPatch({
@@ -182,7 +186,7 @@ export function compileCanvasEditPlanToPatch({
       if (targetNode && selected.has(target)) {
         const revision = makeRevisionNode(targetNode, dataPatch, operation);
         registerCreated(operation.id, [revision]);
-        addEdgeIfNew(createEdges, target, revision.id, edgeIds, warnings);
+        addEdgeIfNew(createEdges, target, revision.id, edgeIds, warnings, nodeById);
         warnings.push(`Preserved selected node ${target}; created ${revision.id} as an editable revision instead.`);
         return;
       }
@@ -235,7 +239,7 @@ export function compileCanvasEditPlanToPatch({
         warnings.push(`Skipped connectNodes: source or target was not found.`);
         return;
       }
-      addEdgeIfNew(createEdges, source, target, edgeIds, warnings);
+      addEdgeIfNew(createEdges, source, target, edgeIds, warnings, nodeById);
       return;
     }
 
@@ -252,7 +256,7 @@ export function compileCanvasEditPlanToPatch({
       const node = makeEditableNode(operation.nodeType, position, patchFromParams(operation));
       registerCreated(operation.id, [node]);
       resolveNodeIds(operation.dependsOn || (operation.sourceNodeId ? [operation.sourceNodeId] : undefined), nodeById, createdByOperation)
-        .forEach((source) => addEdgeIfNew(createEdges, source, node.id, edgeIds, warnings));
+        .forEach((source) => addEdgeIfNew(createEdges, source, node.id, edgeIds, warnings, nodeById));
       return;
     }
 
@@ -285,7 +289,7 @@ export function compileCanvasEditPlanToPatch({
       }));
       registerCreated(operation.id, nodes);
       const sources = resolveNodeIds(operation.dependsOn || (operation.sourceNodeId ? [operation.sourceNodeId] : undefined), nodeById, createdByOperation);
-      sources.forEach((source) => nodes.forEach((node) => addEdgeIfNew(createEdges, source, node.id, edgeIds, warnings)));
+      sources.forEach((source) => nodes.forEach((node) => addEdgeIfNew(createEdges, source, node.id, edgeIds, warnings, nodeById)));
       return;
     }
 

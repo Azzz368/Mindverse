@@ -1,6 +1,7 @@
 import { asRecord, asText } from "./values";
 import { imagePromptWithPreset } from "@/shared/workflow/imagePromptPresets";
-import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/shared/canvas";
+import { videoInputPortsForPreset, videoModelPresetIdFromData, type VideoInputPortKind } from "@/shared/workflow/videoModelPresets";
+import type { CanvasNode, CanvasNodeData, ImageAnnotation, WorkflowEdge } from "@/shared/canvas";
 
 const MAX_PROVIDER_PROMPT_LENGTH = 2400;
 
@@ -97,6 +98,42 @@ const referencedImageUrlsFrom = (node: CanvasNode, upstream: CanvasNode[]) => {
     .filter(Boolean);
 };
 
+type UpstreamConnection = { node: CanvasNode; targetHandle?: string | null };
+
+const legacyVideoHandleKind = (handleId: string | undefined | null): VideoInputPortKind | undefined => {
+  if (!handleId) return undefined;
+  if (handleId === "text") return "text";
+  if (handleId === "image" || handleId === "start-frame" || handleId === "ref-image" || handleId.startsWith("ref-image-")) return "image";
+  if (handleId === "video" || handleId === "reference-video") return "video";
+  if (handleId === "audio" || handleId === "reference-audio") return "audio";
+  return undefined;
+};
+
+const nodeKind = (source: CanvasNode): VideoInputPortKind | undefined => {
+  if (source.data.nodeType === "image" || source.data.nodeType === "reference") return "image";
+  if (source.data.nodeType === "video") return "video";
+  if (source.data.nodeType === "audio") return "audio";
+  if (["text", "prompt", "script", "storyboard"].includes(source.data.nodeType)) return "text";
+  return undefined;
+};
+
+const upstreamConnectionsFrom = (upstream: CanvasNode[], incomingEdges: WorkflowEdge[] = []): UpstreamConnection[] => {
+  if (!incomingEdges.length) return upstream.map((source) => ({ node: source }));
+  return upstream.map((source) => ({
+    node: source,
+    targetHandle: incomingEdges.find((edge) => edge.source === source.id)?.targetHandle,
+  }));
+};
+
+const videoSourcesForKind = (connections: UpstreamConnection[], kind: VideoInputPortKind, supportedKinds: Set<VideoInputPortKind>) =>
+  connections
+    .filter(({ node, targetHandle }) => {
+      const handleKind = legacyVideoHandleKind(targetHandle);
+      if (handleKind) return handleKind === kind;
+      return supportedKinds.has(kind) && nodeKind(node) === kind;
+    })
+    .map(({ node }) => node);
+
 export const percentage = (value: number) => `${Math.round(value * 100)}%`;
 
 export const revisionPromptFrom = (sourcePrompt: string | undefined, annotations: ImageAnnotation[], instruction: string) => {
@@ -123,7 +160,7 @@ export const revisionPromptFrom = (sourcePrompt: string | undefined, annotations
   );
 };
 
-export const inputFor = (node: CanvasNode, upstream: CanvasNode[]) => {
+export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges: WorkflowEdge[] = []) => {
   const d = node.data;
   const prompt = promptFrom(node, upstream);
   const inputs = upstream.map((source) => source.data.output?.value).filter((value) => value !== undefined);
@@ -131,8 +168,6 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[]) => {
   const upstreamImageUrls = upstream.filter((source) => source.data.nodeType === "image").map(imageUrlFrom).filter(Boolean);
   const upstreamReferenceImageUrls = upstream.filter((source) => source.data.nodeType === "reference").map(imageUrlFrom).filter(Boolean);
   const explicitReferenceImageUrls = referencedImageUrlsFrom(node, upstream);
-  const upstreamVideoUrls = upstream.filter((source) => source.data.nodeType === "video").map(videoUrlFrom).filter(Boolean);
-  const upstreamAudioUrls = upstream.filter((source) => source.data.nodeType === "audio").map(audioUrlFrom).filter(Boolean);
 
   if (d.nodeType === "script") {
     return {
@@ -169,18 +204,34 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[]) => {
   }
 
   if (d.nodeType === "video") {
-    const fallbackReferenceImageUrls = [...(d.referenceImageUrl ? [d.referenceImageUrl] : []), ...upstreamImageUrls, ...upstreamReferenceImageUrls].filter(Boolean);
-    const referenceImageUrls = explicitReferenceImageUrls.length ? explicitReferenceImageUrls : fallbackReferenceImageUrls;
-    const videoPrompt = ownPromptFrom(d) || prompt;
+    const activeVideoModel = videoModelPresetIdFromData(d);
+    const supportedKinds = new Set(videoInputPortsForPreset(activeVideoModel).map((port) => port.kind));
+    const connections = upstreamConnectionsFrom(upstream, incomingEdges);
+    const textSources = videoSourcesForKind(connections, "text", supportedKinds);
+    const imageSources = videoSourcesForKind(connections, "image", supportedKinds);
+    const videoSources = videoSourcesForKind(connections, "video", supportedKinds);
+    const audioSources = videoSourcesForKind(connections, "audio", supportedKinds);
+    const handleImageUrls = [
+      ...imageSources.filter((source) => source.data.nodeType === "image").map(imageUrlFrom),
+      ...imageSources.filter((source) => source.data.nodeType === "reference").map(imageUrlFrom),
+    ].filter(Boolean);
+    const selectedImageUrls = explicitReferenceImageUrls.filter((url) => handleImageUrls.includes(url));
+    const referenceImageUrls = supportedKinds.has("image")
+      ? [...(d.referenceImageUrl ? [d.referenceImageUrl] : []), ...(selectedImageUrls.length ? selectedImageUrls : handleImageUrls)].filter(Boolean)
+      : [];
+    const referenceVideoUrls = supportedKinds.has("video") ? videoSources.map(videoUrlFrom).filter(Boolean) : [];
+    const referenceAudioUrls = supportedKinds.has("audio") ? audioSources.map(audioUrlFrom).filter(Boolean) : [];
+    const promptSources = textSources.length ? textSources : supportedKinds.has("text") ? upstream.filter((source) => nodeKind(source) === "text") : [];
+    const videoPrompt = ownPromptFrom(d) || promptFrom(node, promptSources);
 
     return {
       prompt: limitProviderPrompt(videoPromptReferences(videoPrompt)),
       negativePrompt: d.negativePrompt,
       model: d.model,
-      image: d.referenceImageUrl || referenceImageUrls[0] || upstreamImage,
+      image: supportedKinds.has("image") ? d.referenceImageUrl || referenceImageUrls[0] : undefined,
       referenceImageUrls,
-      referenceVideoUrls: upstreamVideoUrls,
-      referenceAudioUrls: upstreamAudioUrls,
+      referenceVideoUrls,
+      referenceAudioUrls,
       useImageInput: d.videoInputMode === "image-to-video",
       duration: d.duration,
       resolution: d.resolution,
@@ -195,7 +246,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[]) => {
       referenceAudioAssetUrl: d.referenceAudioAssetUrl,
       klingMode: d.klingMode || "image-to-video",
       klingElementId: d.klingElementId,
-      referenceVideoUrl: d.referenceVideoUrl || upstreamVideoUrls[0] || undefined,
+      referenceVideoUrl: supportedKinds.has("video") ? d.referenceVideoUrl || referenceVideoUrls[0] || undefined : undefined,
     };
   }
 

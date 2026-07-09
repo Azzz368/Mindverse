@@ -21,6 +21,7 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
   const edges = useCanvasStore((state) => state.edges);
   const setProjectName = useCanvasStore((state) => state.setProjectName);
   const setCanvas = useCanvasStore((state) => state.setCanvas);
+  const normalizeVideoConnections = useCanvasStore((state) => state.normalizeVideoConnections);
   const loadedRemoteWorkflow = useRef(!workflowId);
   const saveTimerRef = useRef<number | null>(null);
   const savingRef = useRef(false);
@@ -47,6 +48,10 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
       }
     })();
   }, [setCanvas, setProjectName, workflowId]);
+
+  useEffect(() => {
+    normalizeVideoConnections();
+  }, [edges, nodes, normalizeVideoConnections]);
 
   useEffect(() => {
     if (!workflowId || !loadedRemoteWorkflow.current || typeof window === "undefined") return;
