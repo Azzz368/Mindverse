@@ -22,6 +22,8 @@ const importantFields = (node: CanvasNode) => {
     `status: ${data.status}`,
   ];
   if (data.prompt) fields.push(`prompt: ${short(data.prompt)}`);
+  if (data.editPlan) fields.push(`editPlan: ${short(data.editPlan)}`);
+  if (data.nodeType === "videoEdit") fields.push(`preserveAudio: ${data.preserveAudio !== false}`);
   if (data.storyBrief) fields.push(`storyBrief: ${short(data.storyBrief)}`);
   if (data.instruction) fields.push(`instruction: ${short(data.instruction)}`);
   if (data.model) fields.push(`model: ${short(data.model, 80)}`);

@@ -111,7 +111,7 @@ const legacyVideoHandleKind = (handleId: string | undefined | null): VideoInputP
 
 const nodeKind = (source: CanvasNode): VideoInputPortKind | undefined => {
   if (source.data.nodeType === "image" || source.data.nodeType === "reference") return "image";
-  if (source.data.nodeType === "video") return "video";
+  if (source.data.nodeType === "video" || source.data.nodeType === "videoEdit") return "video";
   if (source.data.nodeType === "audio") return "audio";
   if (["text", "prompt", "script", "storyboard"].includes(source.data.nodeType)) return "text";
   return undefined;
@@ -247,6 +247,23 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       klingMode: d.klingMode || "image-to-video",
       klingElementId: d.klingElementId,
       referenceVideoUrl: supportedKinds.has("video") ? d.referenceVideoUrl || referenceVideoUrls[0] || undefined : undefined,
+    };
+  }
+
+  if (d.nodeType === "videoEdit") {
+    const upstreamVideoUrls = upstream
+      .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoEdit")
+      .map(videoUrlFrom)
+      .filter(Boolean);
+    return {
+      prompt: limitProviderPrompt(ownPromptFrom(d) || prompt),
+      editPlan: limitProviderPrompt(d.editPlan || ""),
+      referenceVideoUrls: upstreamVideoUrls,
+      preserveAudio: d.preserveAudio !== false,
+      transition: d.transition || "none",
+      resolution: d.resolution || "720p",
+      aspectRatio: d.aspectRatio || "16:9",
+      fps: d.fps || "30",
     };
   }
 

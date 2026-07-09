@@ -16,6 +16,7 @@ Rules:
 - For "more keyframes", create parallel image branch nodes after storyboardImage.
 - For selected image/reference to video, create a video node connected from the selected node.
 - For TokenStar Kling image-to-video, use `videoProvider=tokenstar`, `tokenstarMode=kling-image`, `klingMode=image-to-video`, `videoInputMode=image-to-video`.
+- For video trimming, concatenation, muting, audio preservation, or transcode-only edits, create or update a `videoEdit` node and connect the relevant video nodes to it. Put the FFmpeg edit plan in `params.editPlan` or `dataPatch.editPlan` as JSON.
 
 Return format:
 `{"title":"...","description":"...","userInstruction":"...","intent":"modify_nodes","targetNodeIds":["node-id"],"operations":[{"id":"op-1","type":"updateNodeData","targetNodeId":"video-1","dataPatch":{"aspectRatio":"9:16"},"reason":"..."}],"warnings":[],"requiresConfirmation":true}`

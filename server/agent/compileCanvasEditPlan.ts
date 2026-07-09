@@ -19,7 +19,7 @@ const forbiddenPatchKeys = new Set([
   "error",
 ]);
 
-const safeNodeTypes: NodeType[] = ["prompt", "text", "script", "storyboard", "storyboardImage", "image", "video", "audio", "reference", "output"];
+const safeNodeTypes: NodeType[] = ["prompt", "text", "script", "storyboard", "storyboardImage", "image", "video", "videoEdit", "audio", "reference", "output"];
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : undefined;
@@ -53,7 +53,7 @@ const patchFromParams = (operation: AgentEditOperation): Partial<CanvasNodeData>
   const params = object(operation.params);
   const dataPatch: Record<string, unknown> = {};
   if (operation.label) dataPatch.title = operation.label;
-  ["prompt", "negativePrompt", "style", "aspectRatio", "instruction", "inputText", "model", "size", "scriptTone", "format", "resolution", "fps", "voiceStyle", "voice", "emotion", "videoProvider", "tokenstarMode", "klingMode", "videoInputMode"].forEach((key) => {
+  ["prompt", "editPlan", "negativePrompt", "style", "aspectRatio", "instruction", "inputText", "model", "size", "scriptTone", "format", "resolution", "fps", "voiceStyle", "voice", "emotion", "videoProvider", "tokenstarMode", "klingMode", "videoInputMode", "transition"].forEach((key) => {
     const value = params[key];
     if (typeof value === "string" && value.trim()) dataPatch[key] = value.trim();
   });
@@ -62,6 +62,7 @@ const patchFromParams = (operation: AgentEditOperation): Partial<CanvasNodeData>
     if (value !== undefined) dataPatch[key] = value;
   });
   if (typeof params.generateAudio === "boolean") dataPatch.generateAudio = params.generateAudio;
+  if (typeof params.preserveAudio === "boolean") dataPatch.preserveAudio = params.preserveAudio;
   return sanitizeDataPatch({ ...dataPatch, ...operation.dataPatch });
 };
 

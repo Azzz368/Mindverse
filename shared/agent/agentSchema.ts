@@ -151,7 +151,7 @@ export type AgentDialogueResponse = {
 };
 
 const goals: AgentWorkflowGoal[] = ["story_to_video", "image_to_video", "storyboard_only", "ad_package", "custom"];
-const kinds: AgentStepKind[] = ["prompt", "text", "script", "storyboard", "storyboardImage", "image", "video", "audio", "reference", "output"];
+const kinds: AgentStepKind[] = ["prompt", "text", "script", "storyboard", "storyboardImage", "image", "video", "videoEdit", "audio", "reference", "output"];
 const aspectRatios = ["16:9", "9:16", "1:1"] as const;
 const videoProviders = ["tokenstar", "kling", "302ai", "302-sora2"] as const;
 const editOperationTypes: AgentEditOperationType[] = ["createNode", "updateNodeData", "deleteNode", "connectNodes", "disconnectNodes", "replaceNodeType", "moveNode", "duplicateNode", "createBranch", "updateEdge", "noop"];
@@ -168,7 +168,7 @@ const safeId = (value: string, fallback: string) => {
 const hasChinese = (value: string) => /[\u3400-\u9fff]/.test(value);
 const fallbackLabel = (kind: AgentStepKind, index: number, zh: boolean) => {
   if (!zh) return `${kind[0].toUpperCase()}${kind.slice(1)} ${index + 1}`;
-  const labels: Record<AgentStepKind, string> = {
+  const labels: Partial<Record<AgentStepKind, string>> = {
     prompt: "创意输入",
     text: "文本生成",
     script: "完整剧本",

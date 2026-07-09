@@ -59,6 +59,16 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
       referenceVideoUrl: "",
     };
   }
+  if (step.kind === "videoEdit") return {
+    title: step.label,
+    prompt: step.purpose || "",
+    editPlan: text(params.editPlan) || step.prompt || plan.userPrompt,
+    preserveAudio: bool(params.preserveAudio) ?? true,
+    transition: text(params.transition) === "fade" ? "fade" : "none",
+    resolution: text(params.resolution) || "720p",
+    fps: text(params.fps) || "30",
+    aspectRatio,
+  };
   if (step.kind === "audio") return { title: step.label, prompt, duration: number(params.duration) || 12, voiceStyle: text(params.voiceStyle) || (zh ? "氛围感" : "Atmospheric"), model: text(params.model), voice: text(params.voice), emotion: text(params.emotion), volume: number(params.volume) || 1 };
   if (step.kind === "reference") return { title: step.label, imageUrl: "", notes: step.purpose || prompt };
   return { title: step.label, format: text(params.format) || (zh ? "创作包" : "Creative package") };
@@ -166,6 +176,23 @@ function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
       }
     }
 
+    if (step.kind === "videoEdit") {
+      const explicitVideoDependencies = explicit.filter((id) => {
+        const kind = byId.get(id)?.kind;
+        return kind === "video" || kind === "videoEdit";
+      });
+      if (explicitVideoDependencies.length) {
+        map.set(step.id, explicitVideoDependencies);
+        return;
+      }
+
+      const previousVideos = steps.slice(0, index).filter((item) => item.kind === "video" || item.kind === "videoEdit");
+      if (previousVideos.length) {
+        map.set(step.id, previousVideos.map((item) => item.id));
+        return;
+      }
+    }
+
     map.set(step.id, fallback);
   });
   return map;
@@ -215,6 +242,7 @@ function positionFor(kind: NodeType, level: number, row: number) {
   const x = level * 300;
   if (kind === "image") return { x, y: 180 + row * 190 };
   if (kind === "video") return { x, y: 90 + row * 190 };
+  if (kind === "videoEdit") return { x, y: 90 + row * 190 };
   return { x, y: row * 170 };
 }
 
