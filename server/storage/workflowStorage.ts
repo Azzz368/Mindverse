@@ -114,10 +114,17 @@ export async function createWorkflow(accessCodeValue: unknown, nameValue: unknow
 
 export async function getWorkflow(accessCodeValue: unknown, workflowId: string) {
   const accessCode = requireAccessCode(accessCodeValue);
-  return withLocalFallback(
-    () => getJsonFromBunny<StoredWorkflow>(workflowPath(accessCode, workflowId)),
-    () => getLocalJson<StoredWorkflow>(workflowPath(accessCode, workflowId)),
-  );
+  if (process.env.WORKFLOW_STORAGE_PROVIDER === "local") return getLocalJson<StoredWorkflow>(workflowPath(accessCode, workflowId));
+  try {
+    const remote = await getJsonFromBunny<StoredWorkflow>(workflowPath(accessCode, workflowId));
+    if (remote) return remote;
+    if (canUseLocalFallback()) return getLocalJson<StoredWorkflow>(workflowPath(accessCode, workflowId));
+    return null;
+  } catch (error) {
+    if (!canUseLocalFallback()) throw error;
+    console.warn("Bunny workflow storage unavailable; using local workflow storage.", error instanceof Error ? error.message : error);
+    return getLocalJson<StoredWorkflow>(workflowPath(accessCode, workflowId));
+  }
 }
 
 export async function saveWorkflow(accessCodeValue: unknown, workflowId: string, snapshot: CanvasSnapshot, nameValue?: unknown) {

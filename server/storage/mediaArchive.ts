@@ -22,6 +22,8 @@ const dateKey = () => new Date().toISOString().slice(0, 10);
 const cleanSegment = (value: string | undefined) => value?.replace(/[^a-z0-9_-]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 const mediaDownloadRetries = Math.max(1, Number(process.env.MEDIA_ARCHIVE_DOWNLOAD_RETRIES || 3));
 const mediaDownloadTimeoutMs = Math.max(10_000, Number(process.env.MEDIA_ARCHIVE_DOWNLOAD_TIMEOUT_MS || 180_000));
+const mediaArchiveBlocking = process.env.MEDIA_ARCHIVE_BLOCKING === "true";
+const mediaArchiveResponseBudgetMs = Math.max(1000, Number(process.env.MEDIA_ARCHIVE_RESPONSE_BUDGET_MS || 8000));
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -140,6 +142,25 @@ export async function archiveMedia(url: string, mediaType: MediaType, context: A
   }
 }
 
+async function archiveMediaForResponse(url: string, mediaType: MediaType, context: ArchiveContext = {}) {
+  const archive = archiveMedia(url, mediaType, context);
+  if (mediaArchiveBlocking) return archive;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      archive,
+      new Promise<null>((resolve) => {
+        timeout = setTimeout(() => {
+          console.warn("Bunny media archive deferred", { mediaType, originalUrl: url, budgetMs: mediaArchiveResponseBudgetMs });
+          resolve(null);
+        }, mediaArchiveResponseBudgetMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 export async function archiveResultMedia<T>(result: T, context: ArchiveResultContext = {}): Promise<T> {
   if (!result || typeof result !== "object" || Array.isArray(result)) return result;
   const output = { ...(result as Record<string, unknown>) };
@@ -149,7 +170,7 @@ export async function archiveResultMedia<T>(result: T, context: ArchiveResultCon
     const value = output[field.key];
     if (typeof value !== "string" || !value) continue;
     const mediaType = field.mediaType === "hint" ? context.mediaTypeHint || "video" : field.mediaType;
-    const archived = await archiveMedia(value, mediaType, { ...context, sourceTaskId });
+    const archived = await archiveMediaForResponse(value, mediaType, { ...context, sourceTaskId });
     if (!archived) continue;
     output[field.key] = archived.cdnUrl;
     const originalKey = originalKeyFor(field, mediaType);

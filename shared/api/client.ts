@@ -1,11 +1,20 @@
 import type { RawApiPayload } from "./response";
 
 async function parseApiPayload<T>(response: Response, fallbackMessage: string): Promise<T> {
-  const payload = await response.json().catch(() => ({})) as RawApiPayload & T;
+  const raw = await response.text().catch(() => "");
+  let payload = {} as RawApiPayload & T;
+  try {
+    payload = raw ? JSON.parse(raw) as RawApiPayload & T : payload;
+  } catch {
+    if (!response.ok) {
+      const detail = raw.trim().replace(/\s+/g, " ").slice(0, 160);
+      throw new Error(`${fallbackMessage} (${response.status}${detail ? `: ${detail}` : ""})`);
+    }
+  }
   if (!response.ok || !payload.ok) {
     const message = payload.error && typeof payload.error.message === "string" && payload.error.message
       ? payload.error.message
-      : fallbackMessage;
+      : `${fallbackMessage}${response.ok ? "" : ` (${response.status})`}`;
     throw new Error(message);
   }
   return payload;
