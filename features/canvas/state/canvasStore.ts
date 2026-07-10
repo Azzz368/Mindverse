@@ -235,7 +235,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       for (const id of targetIds) await get().runNode(id);
     })();
   },
-  setCanvas: (nodes, edges, agentMemory) => set({ nodes: restoreStatuses(nodes), edges: withVideoTargetHandles(nodes, edges), agentMemory: agentMemory || null, selectedNodeId: null, lastError: null }),
+  setCanvas: (nodes, edges, agentMemory) => { const activeNodes = nodes.filter((node) => node.data.nodeType !== "storyboardImage"); const activeIds = new Set(activeNodes.map((node) => node.id)); set({ nodes: restoreStatuses(activeNodes), edges: withVideoTargetHandles(activeNodes, edges.filter((edge) => activeIds.has(edge.source) && activeIds.has(edge.target))), agentMemory: agentMemory || null, selectedNodeId: null, lastError: null }); },
   generateAgentPlan: async (userPrompt) => {
     const prompt = userPrompt.trim();
     if (!prompt) throw new Error("Agent brief is empty.");
@@ -391,17 +391,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       referenceAudioAssetUrl: "",
       klingElementId: "",
     });
-    const nodes = [mainImage, storyboard, storyboardImage, shot1, shot2, shot3, videoA, videoB];
-    const edges = [
-      edgeFor(storyboard, storyboardImage),
-      edgeFor(storyboardImage, shot1),
-      edgeFor(storyboardImage, shot2),
-      edgeFor(storyboardImage, shot3),
-      edgeFor(shot1, videoA),
-      edgeFor(shot2, videoA),
-      edgeFor(mainImage, videoB),
-      edgeFor(shot1, videoB),
-    ];
+    const nodes = [storyboard];
+    const edges: WorkflowEdge[] = [];
     const clean = dedupePatch({ nodes, edges }, get().nodes, get().edges);
     set((state) => ({
       projectName: state.nodes.length ? state.projectName : `Agent: ${idea.slice(0, 32)}`,
@@ -410,7 +401,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       selectedNodeId: clean.nodes[0]?.id || storyboard.id,
       lastError: null,
       agentStatus: "completed",
-      agentMessage: "已按导入模板搭建流程图。请检查节点参数后手动运行。",
+      agentMessage: "Storyboard 已创建。运行后会自动生成 Text* Script 与 Image* Scene 树状分支。",
     }));
   },
   runAgentSkill: async (skillId, brief) => {

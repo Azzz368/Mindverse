@@ -13,7 +13,7 @@ Rules:
 - For TikTok or vertical shorts, update image/video aspectRatio to 9:16 and add vertical short-video style.
 - For Hong Kong style, append cinematic Hong Kong visual language without replacing original content.
 - For background music, create an audio node and connect it to output; create output if none exists.
-- For "more keyframes", create parallel image branch nodes after storyboardImage.
+- For "more keyframes", update the Storyboard scene count and rerun it so it regenerates its `Text* Script` and `Image* Scene` branches.
 - For selected image/reference to video, create a video node connected from the selected node.
 - For TokenStar Kling image-to-video, use `videoProvider=tokenstar`, `tokenstarMode=kling-image`, `klingMode=image-to-video`, `videoInputMode=image-to-video`.
 - For video trimming, concatenation, muting, audio preservation, or transcode-only edits, create or update a `videoEdit` node and connect the relevant video nodes to it. Put the FFmpeg edit plan in `params.editPlan` or `dataPatch.editPlan` as JSON.

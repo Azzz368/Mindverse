@@ -21,7 +21,7 @@ export function makeNode(type: NodeType, position = { x: 140, y: 120 }): CanvasN
 }
 export type Template = { id: string; name: string; description: string; types: NodeType[] };
 export const templates: Template[] = [
-  { id: "story-package", name: "Story to Storyboard Package", description: "Brief to script to shots to keyframe prompts", types: ["prompt", "script", "storyboard", "storyboardImage", "output"] },
+  { id: "story-package", name: "Story to Storyboard Package", description: "Brief to script to storyboard scenes", types: ["prompt", "script", "storyboard", "output"] },
   { id: "ad", name: "E-commerce Product Ad", description: "Brief → hero visual → campaign copy", types: ["prompt", "image", "text", "output"] },
   { id: "film", name: "Short Film Storyboard", description: "Brief → scenes → keyframe → motion", types: ["prompt", "storyboard", "image", "video", "output"] },
   { id: "music", name: "Music Video Concept", description: "Mood → visual route → motion concept", types: ["prompt", "audio", "storyboard", "video", "output"] },

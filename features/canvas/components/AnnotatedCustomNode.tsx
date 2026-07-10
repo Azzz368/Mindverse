@@ -24,7 +24,7 @@ const GLOW_COLORS: Record<string, string> = {
   reference: "#64748b",
   output: "#64748b",
 };
-const RUNNABLE_TYPES = new Set(["prompt", "text", "script", "image", "video", "videoEdit", "audio", "storyboard", "storyboardImage", "output"]);
+const RUNNABLE_TYPES = new Set(["prompt", "text", "script", "image", "video", "videoEdit", "audio", "storyboard", "output"]);
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value : "";
 const videoPortStyles: Record<VideoInputPortKind, { border: string; connected: string }> = {
@@ -302,8 +302,13 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const edges = useCanvasStore((s) => s.edges);
   const connectedHandles = new Set(edges.filter((e) => e.target === id).map((e) => e.targetHandle || ""));
-  const generatedText = text(record(data.output?.value).generatedText);
-  const textContent = data.textContent ?? (data.inputText || generatedText);
+  const isScript = data.nodeType === "script";
+  const scriptOutput = record(data.output?.value);
+  const scriptScenes = Array.isArray(scriptOutput.scenes) ? scriptOutput.scenes.map(record) : [];
+  const generatedText = isScript
+    ? [text(scriptOutput.title), text(scriptOutput.logline), ...scriptScenes.map((scene, index) => [`Scene ${scene.sceneNumber || index + 1}`, text(scene.action), ...(Array.isArray(scene.dialogue) ? scene.dialogue.map(text) : [])].filter(Boolean).join("\n"))].filter(Boolean).join("\n\n")
+    : text(scriptOutput.generatedText);
+  const textContent = data.textContent ?? (data.inputText || generatedText || data.storyBrief || "");
   const previousGeneratedText = useRef(generatedText);
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
 
@@ -322,7 +327,7 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
           <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.text || "#ebe46b" } as React.CSSProperties} />
         )}
 
-        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">Text</div>
+        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{isScript ? "Script" : "Text"}</div>
 
         <div className="absolute -left-[145px] top-[95px] flex flex-col gap-[36px]">
           <HandleDot label="Input" handleId="input-1" borderColorClass="border-[#f59e0b]" bgClass="bg-white dark:bg-[#101c29]" connectedBgClass="bg-[#f59e0b]" selected={!!selected} connected={connectedHandles.has("input-1")} />
@@ -351,9 +356,9 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
       <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[520px] -translate-x-1/2 overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
         <div className="p-6 pb-4">
           <AutoGrowTextarea
-            value={data.instruction ?? ""}
-            onChange={(v) => updateNodeData(id, { instruction: v })}
-            placeholder="输入给 Agent 的修改、扩写或重写指令…"
+            value={isScript ? data.storyBrief ?? "" : data.instruction ?? ""}
+            onChange={(v) => updateNodeData(id, isScript ? { storyBrief: v } : { instruction: v })}
+            placeholder={isScript ? "输入故事概要，让 Agent 编写或重写剧本…" : "输入给 Agent 的修改、扩写或重写指令…"}
             minHeight={80}
           />
         </div>
@@ -365,9 +370,9 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
               onChange={(v) => updateNodeData(id, { model: String(v) })}
             />
             <PillDropdown
-              value={data.wordCount || 200}
-              options={[100, 200, 500, 1000].map((n) => ({ value: n, label: `${n} words` }))}
-              onChange={(v) => updateNodeData(id, { wordCount: Number(v) })}
+              value={isScript ? data.numberOfScenes || 3 : data.wordCount || 200}
+              options={(isScript ? [3, 4, 5, 6, 7, 8] : [100, 200, 500, 1000]).map((n) => ({ value: n, label: isScript ? `${n} scene` : `${n} words` }))}
+              onChange={(v) => updateNodeData(id, isScript ? { numberOfScenes: Number(v) } : { wordCount: Number(v) })}
             />
             <button type="button" title="语音输入（即将支持）" className="nodrag grid h-9 w-9 place-items-center rounded-full bg-[#f0f1f3] text-[#404040] dark:bg-slate-800 dark:text-slate-300">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
@@ -378,7 +383,7 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
             disabled={isGenerating}
             className="nodrag flex h-11 items-center justify-center rounded-full bg-[#030303] px-6 text-[15px] font-bold text-white transition hover:bg-[#1a1a1a] disabled:opacity-50 dark:bg-cyan-500 dark:text-[#030303] dark:hover:bg-cyan-400"
           >
-            Save
+            {isScript ? "Run" : "Save"}
           </button>
         </div>
       </div>
@@ -780,14 +785,13 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
 }
 
 export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode>) {
-  const removeNode = useCanvasStore((s) => s.removeNode), duplicateNode = useCanvasStore((s) => s.duplicateNode), createImageRevision = useCanvasStore((s) => s.createImageRevision), createKeyframeBatch = useCanvasStore((s) => s.createKeyframeBatch), runNode = useCanvasStore((s) => s.runNode);
+  const removeNode = useCanvasStore((s) => s.removeNode), duplicateNode = useCanvasStore((s) => s.duplicateNode), createImageRevision = useCanvasStore((s) => s.createImageRevision), runNode = useCanvasStore((s) => s.runNode);
   const { t } = useLang();
   const [viewUrl, setViewUrl] = useState(""), [annotatingUrl, setAnnotatingUrl] = useState(""), [settingsOpen, setSettingsOpen] = useState(false);
   const [cardSize, setCardSize] = useState({ w: 280, h: 0 });
   const node = { id, data } as CanvasNode;
   const isGenerating = data.status === "running" || data.status === "waiting";
   const isWaiting = record(data.output?.value).status === "pending";
-  const keyframePrompts = data.nodeType === "storyboardImage" && Array.isArray((record(data.output?.value)).prompts) ? (record(data.output?.value).prompts as unknown[]) : [];
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
 
   if (data.nodeType === "video") {
@@ -796,7 +800,7 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
   if (data.nodeType === "image") {
     return <ImageNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} createImageRevision={createImageRevision} />;
   }
-  if (data.nodeType === "text") {
+  if (data.nodeType === "text" || data.nodeType === "script") {
     return <TextNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} />;
   }
   if (data.nodeType === "storyboard") {
@@ -844,16 +848,6 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
           {isWaiting && !isGenerating && <p className="mt-2 text-[10px] text-sky-600 dark:text-sky-200">{t.waitingGeneration}</p>}
           {data.error && <p className="mt-2 text-[11px] text-rose-600 dark:text-rose-300">{data.error}</p>}
           {data.revisionOf && <p className="mt-2 text-[10px] text-violet-600 dark:text-violet-200">{t.revisionOf}</p>}
-          {data.nodeType === "storyboardImage" && (
-            <button
-              type="button"
-              disabled={!keyframePrompts.length}
-              onClick={(e) => { e.stopPropagation(); createKeyframeBatch(id); }}
-              className="nodrag mt-3 w-full rounded-md border border-violet-300 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700 disabled:opacity-40 dark:border-violet-400/60 dark:bg-violet-400/10 dark:text-violet-100"
-            >
-              {t.generateKeyframes(keyframePrompts.length || 0)}
-            </button>
-          )}
         </div>
         <div className="nodrag flex shrink-0 items-center justify-end gap-1 border-t border-[#e7eaf0] px-2 py-1.5 dark:border-slate-800">
           <button onClick={() => duplicateNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-cyan-200">{t.duplicate}</button>

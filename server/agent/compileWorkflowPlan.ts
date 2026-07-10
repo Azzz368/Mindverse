@@ -26,7 +26,6 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
   if (step.kind === "text") return { title: step.label, instruction: step.purpose || (zh ? "扩展创作方向。" : "Expand the creative direction."), inputText: prompt, model: text(params.model), temperature: number(params.temperature) ?? 0.7 };
   if (step.kind === "script") return { title: step.label, storyBrief: prompt, scriptTone: plan.style || text(params.scriptTone) || (zh ? "电影感、喜剧节奏、完整可拍摄剧本" : "Cinematic, fictional"), numberOfScenes: sceneCountFor(plan, params), model: text(params.model) };
   if (step.kind === "storyboard") { const count = sceneCountFor(plan, params); return { title: step.label, storyBrief: prompt, numberOfScenes: count, targetShotCount: count, model: text(params.model) }; }
-  if (step.kind === "storyboardImage") return { title: step.label, aspectRatio, negativePrompt: text(params.negativePrompt) || "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay" };
   if (step.kind === "image") return { title: step.label, prompt, negativePrompt: text(params.negativePrompt) || "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay", model: text(params.model) || DEFAULT_AGENT_IMAGE_MODEL, size: text(params.size) || "1536x1024", aspectRatio, referenceImageUrl: "", shotNumber: number(params.shotNumber) };
   if (step.kind === "video") {
     const provider = text(params.videoProvider) || plan.videoProvider || "tokenstar";
@@ -145,14 +144,6 @@ function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
     const explicit = (step.dependsOn || []).filter((id) => byId.has(id) && id !== step.id);
     const previous = index > 0 ? [steps[index - 1].id] : [];
     const fallback = explicit.length ? explicit : previous;
-    const storyboardImage = lastStepBefore(steps, index, "storyboardImage");
-
-    if (step.kind === "image" && storyboardImage) {
-      const nonImageDependencies = explicit.filter((id) => byId.get(id)?.kind !== "image" && id !== storyboardImage.id);
-      map.set(step.id, unique([storyboardImage.id, ...nonImageDependencies]));
-      return;
-    }
-
     if (step.kind === "video") {
       const explicitMediaDependencies = explicit.filter((id) => {
         const kind = byId.get(id)?.kind;
@@ -163,9 +154,9 @@ function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
         return;
       }
 
-      const keyframes = keyframeStepsBeforeVideo(steps, index);
-      if (keyframes.length) {
-        map.set(step.id, keyframes.map((item) => item.id));
+      const sceneImages = imageStepsBeforeVideo(steps, index);
+      if (sceneImages.length) {
+        map.set(step.id, sceneImages.map((item) => item.id));
         return;
       }
 
@@ -215,22 +206,8 @@ function buildLevelMap(steps: AgentWorkflowPlan["steps"], dependencyMap: Map<str
   return levels;
 }
 
-function lastStepBefore(steps: AgentWorkflowPlan["steps"], index: number, kind: NodeType) {
-  for (let i = index - 1; i >= 0; i -= 1) {
-    if (steps[i].kind === kind) return steps[i];
-  }
-  return undefined;
-}
-
-function keyframeStepsBeforeVideo(steps: AgentWorkflowPlan["steps"], videoIndex: number) {
-  const storyboardIndex = (() => {
-    for (let i = videoIndex - 1; i >= 0; i -= 1) {
-      if (steps[i].kind === "storyboardImage") return i;
-    }
-    return -1;
-  })();
-  const start = storyboardIndex >= 0 ? storyboardIndex + 1 : 0;
-  return steps.slice(start, videoIndex).filter((step) => step.kind === "image");
+function imageStepsBeforeVideo(steps: AgentWorkflowPlan["steps"], videoIndex: number) {
+  return steps.slice(0, videoIndex).filter((step) => step.kind === "image");
 }
 
 function mediaStepsBeforeVideo(steps: AgentWorkflowPlan["steps"], videoIndex: number) {
