@@ -43,7 +43,7 @@ export const audioUrlFrom = (node: CanvasNode) => {
 };
 
 const ownPromptFrom = (data: CanvasNodeData) =>
-  [data.prompt, data.instruction, data.inputText, data.storyBrief].filter(Boolean).join("\n\n");
+  [data.prompt, data.instruction, data.textContent ?? data.inputText, data.storyBrief].filter(Boolean).join("\n\n");
 
 export const contextFrom = (upstream: CanvasNode[]) =>
   upstream
@@ -62,7 +62,7 @@ export const contextFrom = (upstream: CanvasNode[]) =>
       }
 
       if (source.data.nodeType === "text") {
-        return `Text direction: ${asText(asRecord(value).generatedText)}`;
+        return `Text direction: ${source.data.textContent ?? source.data.inputText ?? asText(asRecord(value).generatedText)}`;
       }
 
       if (source.data.nodeType === "prompt") {

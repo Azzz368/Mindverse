@@ -3,7 +3,7 @@ import { videoModelPatch, videoTargetHandleForNodeType } from "@/shared/workflow
 
 const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "status">> = {
   prompt: { prompt: "Describe an atmospheric creative direction", negativePrompt: "", style: "Cinematic", aspectRatio: "16:9" },
-  text: { instruction: "Turn this brief into an engaging creative draft", inputText: "", model: "", temperature: 0.7 },
+  text: { instruction: "Turn this brief into an engaging creative draft", model: "", temperature: 0.7 },
   script: { storyBrief: "A fictional creative story", scriptTone: "Cinematic, warm, fictional", numberOfScenes: 3, model: "" },
   image: { prompt: "A cinematic editorial image", model: "gpt-image-2", size: "1024x1024", referenceImageUrl: "" },
   video: { prompt: "A gentle cinematic movement", aspectRatio: "16:9", referenceImageUrl: "", fps: "", ...videoModelPatch("seedance-2.0"), referenceImageAssetUrl: "", referenceVideoAssetUrl: "", referenceAudioAssetUrl: "" },
@@ -15,7 +15,8 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   output: { format: "Creative package" },
 };
 export function makeNode(type: NodeType, position = { x: 140, y: 120 }): CanvasNode {
-  const title = type === "image" ? "gpt-image-2" : type === "videoEdit" ? "Video Edit" : `New ${type[0].toUpperCase()}${type.slice(1)}`;
+  const prefix = type === "videoEdit" ? "Video" : `${type[0].toUpperCase()}${type.slice(1)}`;
+  const title = type === "image" ? "Image* gpt-image-2" : `${prefix}* New ${prefix}`;
   return { id: `${type}-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: type, title, status: "idle", ...defaults[type] } };
 }
 export type Template = { id: string; name: string; description: string; types: NodeType[] };
@@ -28,7 +29,7 @@ export const templates: Template[] = [
   { id: "social", name: "Social Media Campaign", description: "Strategy → copy → imagery → delivery", types: ["prompt", "text", "image", "output"] },
 ];
 export function buildTemplate(template: Template): { nodes: CanvasNode[]; edges: WorkflowEdge[] } {
-  const nodes = template.types.map((type, index) => { const node = makeNode(type, { x: 90 + index * 340, y: 170 + (index % 2) * 80 }); node.data.title = `${template.name}: ${node.data.title.replace("New ", "")}`; return node; });
+  const nodes = template.types.map((type, index) => { const node = makeNode(type, { x: 90 + index * 340, y: 170 + (index % 2) * 80 }); const prefix = type === "videoEdit" ? "Video" : `${type[0].toUpperCase()}${type.slice(1)}`; node.data.title = `${prefix}* ${template.name}`; return node; });
   nodes.forEach((node, index) => {
     if (node.data.nodeType !== "video") return;
     const hasUpstreamMedia = nodes.slice(0, index).some((source) => ["image", "reference", "video", "audio"].includes(source.data.nodeType));

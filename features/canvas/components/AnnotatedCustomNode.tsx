@@ -303,8 +303,14 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
   const edges = useCanvasStore((s) => s.edges);
   const connectedHandles = new Set(edges.filter((e) => e.target === id).map((e) => e.targetHandle || ""));
   const generatedText = text(record(data.output?.value).generatedText);
+  const textContent = data.textContent ?? (data.inputText || generatedText);
+  const previousGeneratedText = useRef(generatedText);
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
-  const [previewOpen, setPreviewOpen] = useState(false);
+
+  useEffect(() => {
+    if (generatedText && generatedText !== previousGeneratedText.current) updateNodeData(id, { textContent: generatedText });
+    previousGeneratedText.current = generatedText;
+  }, [generatedText, id, updateNodeData]);
 
   return (
     <>
@@ -328,17 +334,15 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
 
         <div className="flex-1 p-6">
           <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800 border-[6px] border-transparent">
-            {generatedText ? (
-              <>
-                <p className="max-h-full overflow-y-auto px-4 py-3 text-[12px] leading-5 text-[#1a1a1a] dark:text-slate-200">{generatedText}</p>
-                <ExpandIcon onClick={() => setPreviewOpen(true)} />
-              </>
-            ) : isGenerating ? (
+            {isGenerating ? (
               <div className="absolute inset-0 m-auto h-12 w-12 animate-pulse rounded-2xl bg-[#c9ccd1] dark:bg-slate-600" />
             ) : (
-              <div className="flex h-[72px] w-[72px] items-center justify-center rounded-[24px] border-[6px] border-[#e7eaf0] bg-[#f0f1f3] dark:border-slate-600 dark:bg-slate-700" style={{ transform: "scale(1.2)" }}>
-                <span className="text-2xl font-bold text-[#a8abae] dark:text-slate-400">T</span>
-              </div>
+              <ImeTextarea
+                value={textContent}
+                onValueChange={(value) => updateNodeData(id, { textContent: value })}
+                placeholder="在这里直接写作，或使用下方 Agent Prompt 生成内容…"
+                className="h-full w-full resize-none overflow-y-auto rounded-[14px] border-0 bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_33px,rgba(148,163,184,0.18)_34px,transparent_35px)] px-5 py-3 text-[13px] leading-[35px] text-[#1a1a1a] outline-none placeholder:text-[#a8abae] dark:bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_33px,rgba(148,163,184,0.22)_34px,transparent_35px)] dark:text-slate-200 dark:placeholder:text-slate-500"
+              />
             )}
           </div>
         </div>
@@ -349,7 +353,7 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
           <AutoGrowTextarea
             value={data.instruction ?? ""}
             onChange={(v) => updateNodeData(id, { instruction: v })}
-            placeholder="输入文本生成指令…"
+            placeholder="输入给 Agent 的修改、扩写或重写指令…"
             minHeight={80}
           />
         </div>
@@ -379,13 +383,77 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
         </div>
       </div>
 
-      {previewOpen && typeof document !== "undefined" && createPortal(
-        <div className="fixed inset-0 z-[9999] grid place-items-center bg-black/85 p-8" onClick={() => setPreviewOpen(false)}>
-          <div className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-6 dark:bg-[#101c29]" onClick={(e) => e.stopPropagation()}>
-            <p className="whitespace-pre-wrap text-sm leading-6 text-[#1a1a1a] dark:text-slate-200">{generatedText}</p>
-            <button onClick={() => setPreviewOpen(false)} className="mx-auto mt-4 block rounded bg-[#030303] px-4 py-2 text-sm text-white hover:bg-[#1a1a1a] dark:bg-cyan-600 dark:hover:bg-cyan-500">Close</button>
+    </>
+  );
+}
+
+function StoryboardPlaceholderIcon() {
+  return (
+    <div className="flex h-[92px] w-[118px] items-center justify-center rounded-[24px] border-[6px] border-[#d4d5d7] text-[#a8abae] dark:border-slate-600 dark:text-slate-400">
+      <svg width="58" height="46" viewBox="0 0 58 46" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="19" cy="14" r="8" />
+        <circle cx="36" cy="19" r="6" />
+        <path d="M16 29h17v12H16z" /><path d="M33 32h8l5 5v4h-13z" />
+      </svg>
+    </div>
+  );
+}
+
+function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
+  const updateNodeData = useCanvasStore((s) => s.updateNodeData);
+  const visualGroupColor = data.workflowId ? undefined : data.groupColor;
+  const sceneCount = data.targetShotCount ?? data.numberOfScenes ?? 3;
+
+  return (
+    <>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+        {visualGroupColor && !selected && <div className="absolute inset-[-1.4px] -z-10 rounded-[26px] border-[1.4px]" style={{ borderColor: visualGroupColor }} />}
+        {isGenerating && <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.storyboard || "#3eedb8" } as React.CSSProperties} />}
+        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">Storyboard</div>
+
+        <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
+        <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
+
+        <div className="flex-1 p-6">
+          <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800">
+            {isGenerating ? (
+              <div className="absolute inset-0 m-auto h-12 w-12 animate-pulse rounded-2xl bg-[#c9ccd1] dark:bg-slate-600" />
+            ) : <StoryboardPlaceholderIcon />}
           </div>
-        </div>, document.body)}
+        </div>
+      </div>
+
+      <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[640px] -translate-x-1/2 overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
+        <div className="p-6 pb-4">
+          <AutoGrowTextarea
+            value={data.storyBrief ?? ""}
+            onChange={(value) => updateNodeData(id, { storyBrief: value })}
+            placeholder="描述故事、角色、风格和希望发生的情节…"
+            minHeight={80}
+          />
+        </div>
+        <div className="flex items-center justify-between px-6 pb-6">
+          <div className="flex gap-2">
+            <PillDropdown
+              value={data.model || "GPT 4o mini"}
+              options={["GPT 4o mini", "Claude sonnet 4.6", "Gemini 3.1 Pro"].map((value) => ({ value, label: value }))}
+              onChange={(value) => updateNodeData(id, { model: String(value) })}
+            />
+            <PillDropdown
+              value={sceneCount}
+              options={[3, 4, 5, 6, 7, 8].map((value) => ({ value, label: `${value} scene` }))}
+              onChange={(value) => { const count = Number(value); updateNodeData(id, { numberOfScenes: count, targetShotCount: count }); }}
+            />
+          </div>
+          <button
+            onClick={(event) => { event.stopPropagation(); void runNode(id); }}
+            disabled={isGenerating}
+            className="nodrag flex h-11 items-center justify-center rounded-full bg-[#030303] px-6 text-[15px] font-bold text-white transition hover:bg-[#1a1a1a] disabled:opacity-50 dark:bg-cyan-500 dark:text-[#030303] dark:hover:bg-cyan-400"
+          >
+            Run
+          </button>
+        </div>
+      </div>
     </>
   );
 }
@@ -730,6 +798,9 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
   }
   if (data.nodeType === "text") {
     return <TextNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} />;
+  }
+  if (data.nodeType === "storyboard") {
+    return <StoryboardNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} />;
   }
 
   return (

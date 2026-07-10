@@ -28,7 +28,7 @@ type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEd
   addMediaNode(dataUrl: string, position: { x: number; y: number }): void;
   updateAgentMemory(patch: Partial<AgentProjectMemory>): void;
   clearAgentMemory(): void;
-  normalizeVideoConnections(): void;
+  normalizeVideoConnections(): void; materializeStoryboardBranch(storyboardId: string): void;
   addStoryChainNode(content: string, title?: string): void;
   runGroup(groupId: string): Promise<void>;
   setGroupColor(nodeIds: string[], color: string): void;
@@ -66,6 +66,50 @@ const withVideoTargetHandles = (nodes: CanvasNode[], edges: WorkflowEdge[]): Wor
     return targetHandle ? [{ ...edge, targetHandle }] : [];
   });
 };
+const storyboardBranchFrom = (storyboard: CanvasNode, value: unknown): { nodes: CanvasNode[]; edges: WorkflowEdge[] } => {
+  const scenes = Array.isArray(value) ? value.map(asRecord).slice(0, 12) : [];
+  const firstY = storyboard.position.y - Math.max(0, scenes.length - 1) * 155;
+  const nodes: CanvasNode[] = [];
+  const edges: WorkflowEdge[] = [];
+
+  scenes.forEach((scene, index) => {
+    const sceneNumber = Number(scene.sceneNumber) || index + 1;
+    const description = asText(scene.description) || `Scene ${sceneNumber}`;
+    const visualPrompt = asText(scene.visualPrompt) || description;
+    const camera = asText(scene.camera);
+    const duration = Number(scene.duration) || 0;
+    const script = [description, camera && `Camera: ${camera}`, duration && `Duration: ${duration}s`].filter(Boolean).join("\n");
+    const textNode = makeNode("text", { x: storyboard.position.x + 470, y: firstY + index * 310 });
+    const imageNode = makeNode("image", { x: storyboard.position.x + 800, y: firstY + index * 310 });
+
+    textNode.data = {
+      ...textNode.data,
+      title: `Text* Script ${sceneNumber}`,
+      textContent: script,
+      instruction: "Polish or revise this scene script while preserving the established story continuity.",
+      sourceStoryboardNodeId: storyboard.id,
+      storyboardGenerated: true,
+    };
+    imageNode.data = {
+      ...imageNode.data,
+      title: `Image* Scene ${sceneNumber}`,
+      prompt: visualPrompt,
+      aspectRatio: storyboard.data.aspectRatio || "16:9",
+      size: "1536x1024",
+      model: DEFAULT_AGENT_IMAGE_MODEL,
+      shotNumber: sceneNumber,
+      sourceStoryboardNodeId: storyboard.id,
+      storyboardGenerated: true,
+    };
+    nodes.push(textNode, imageNode);
+    edges.push(
+      { id: `edge-${storyboard.id}-${textNode.id}`, source: storyboard.id, target: textNode.id, style: { strokeDasharray: "7 7", strokeWidth: 1.5 } },
+      { id: `edge-${textNode.id}-${imageNode.id}`, source: textNode.id, target: imageNode.id, targetHandle: "text", style: { strokeDasharray: "7 7", strokeWidth: 1.5 } },
+    );
+  });
+
+  return { nodes, edges };
+};
 export const useCanvasStore = create<CanvasState>((set, get) => ({
   projectName: "Untitled creative flow", nodes: initialNodes, edges: [], agentMemory: null, selectedNodeId: null, lastError: null, agentStatus: "idle", agentMessage: null, ghostType: null, ghostData: null, ghostMediaUrl: null, pendingAgentPatch: null,
   setGhostType: (ghostType, ghostData) => set({ ghostType, ghostData: ghostType ? ghostData ?? null : null }),
@@ -73,11 +117,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   setGhostMedia: (dataUrl) => set({ ghostMediaUrl: dataUrl }),
   updateAgentMemory: (patch) => set((state) => ({ agentMemory: mergeAgentProjectMemory(state.agentMemory, patch) })),
   clearAgentMemory: () => set({ agentMemory: null }),
-  placeGhostMedia: (position) => { const { ghostMediaUrl } = get(); if (!ghostMediaUrl) return; const node: CanvasNode = { id: `reference-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: "reference", title: "图片素材", status: "idle", imageUrl: ghostMediaUrl, notes: "" } }; set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id, ghostMediaUrl: null })); },
+  placeGhostMedia: (position) => { const { ghostMediaUrl } = get(); if (!ghostMediaUrl) return; const node: CanvasNode = { id: `reference-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: "reference", title: "Reference* 图片素材", status: "idle", imageUrl: ghostMediaUrl, notes: "" } }; set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id, ghostMediaUrl: null })); },
   setPendingAgentPatch: (pendingAgentPatch) => set({ pendingAgentPatch, ghostType: null, ghostData: null, ghostMediaUrl: null, agentMessage: pendingAgentPatch ? "请在画布上点击工作流起点。" : null }),
   placeAgentPatch: (position) => { const { pendingAgentPatch } = get(); if (!pendingAgentPatch) return; const placed = offsetPatchTo(pendingAgentPatch, position); set((state) => { const clean = dedupePatch(placed, state.nodes, state.edges); return { nodes: [...state.nodes, ...clean.nodes], edges: [...state.edges, ...clean.edges], selectedNodeId: clean.nodes[0]?.id || state.selectedNodeId, pendingAgentPatch: null, agentStatus: "completed", agentMessage: "工作流已放置到画布。请检查节点参数后手动运行。", lastError: null }; }); },
-  addMediaNode: (dataUrl, position) => { const node: CanvasNode = { id: `reference-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: "reference", title: "图片素材", status: "idle", imageUrl: dataUrl, notes: "" } }; set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id })); },
+  addMediaNode: (dataUrl, position) => { const node: CanvasNode = { id: `reference-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: "reference", title: "Reference* 图片素材", status: "idle", imageUrl: dataUrl, notes: "" } }; set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id })); },
   normalizeVideoConnections: () => { const { nodes, edges } = get(); const next = withVideoTargetHandles(nodes, edges); if (next.length !== edges.length || next.some((edge, index) => edge.targetHandle !== edges[index]?.targetHandle)) set({ edges: next }); },
+  materializeStoryboardBranch: (storyboardId) => { const storyboard = get().nodes.find((node) => node.id === storyboardId && node.data.nodeType === "storyboard"); const scenes = storyboard?.data.output?.value; if (!storyboard || !Array.isArray(scenes)) return; const signature = JSON.stringify(scenes); if (storyboard.data.storyboardBranchSignature === signature) return; const branch = storyboardBranchFrom(storyboard, scenes); set((state) => { const previousIds = new Set(state.nodes.filter((node) => node.data.sourceStoryboardNodeId === storyboardId && node.data.storyboardGenerated).map((node) => node.id)); return { nodes: [...state.nodes.filter((node) => !previousIds.has(node.id)).map((node) => node.id === storyboardId ? { ...node, data: { ...node.data, storyboardBranchSignature: signature } } : node), ...branch.nodes], edges: [...state.edges.filter((edge) => !previousIds.has(edge.source) && !previousIds.has(edge.target)), ...branch.edges] }; }); },
   addStoryChainNode: (content, title) => set((state) => {
     const chain = state.nodes.filter((node) => node.data.groupId === "story-chain");
     const previous = chain.at(-1);
@@ -271,25 +316,25 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const negativePrompt = "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay";
     const continuity = "只生成一个单独的电影拍摄画面，不要拼贴图或分镜板，电影剧照质感，无文字，保持人物、服装、场景、光线、道具和故事连续性";
     const mainImage = makeTemplateNode("image", { x: 613.2296482571714, y: -554.2449289599219 }, {
-      title: "gpt-image-2 (TokenStar)",
+      title: "Image* gpt-image-2 (TokenStar)",
       prompt: `以这个背景，生成${idea}的图片`,
       model: DEFAULT_AGENT_IMAGE_MODEL,
       size: "1024x1024",
       referenceImageUrl: "",
     });
     const storyboard = makeTemplateNode("storyboard", { x: -163, y: -12 }, {
-      title: "New Storyboard",
+      title: "Storyboard* New Storyboard",
       storyBrief: idea,
       numberOfScenes: 3,
       model: "",
     });
     const storyboardImage = makeTemplateNode("storyboardImage", { x: 230, y: -18 }, {
-      title: "New StoryboardImage",
+      title: "Image* Storyboard Scenes",
       aspectRatio: "16:9",
       negativePrompt,
     });
     const shot1 = makeTemplateNode("image", { x: 617.990547772805, y: -171.3366443837011 }, {
-      title: "Shot 01 - Keyframe",
+      title: "Image* Shot 01 - Keyframe",
       prompt: `${idea}的第一个关键帧。校园或主要场景开场，主角走入画面并与周围人物互动，现代建筑背景，阳光明媚，无文字和无 UI。中景，展示人物与环境的互动。对称构图，主角位于画面中央，周围人物在两侧。50mm定焦镜头，自然光，轻微跟随镜头，轻松愉快，保持人物、服装和场景连续。${continuity}`,
       negativePrompt,
       aspectRatio: "16:9",
@@ -299,7 +344,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       sourceStoryboardNodeId: storyboardImage.id,
     });
     const shot2 = makeTemplateNode("image", { x: 603.5370785454384, y: 115.19856370493375 }, {
-      title: "Shot 02 - Keyframe",
+      title: "Image* Shot 02 - Keyframe",
       prompt: `${idea}的第二个关键帧。主角与周围人物在开放空间互动或合影，开心的表情，标志性背景，无文字和无 UI。特写或中近景，捕捉人物表情和互动。圆形构图，主角位于中心，人物围绕在周围。35mm广角镜头，自然光，欢乐、亲切、充满互动，保持人物、服装和场景连续。${continuity}`,
       negativePrompt,
       aspectRatio: "16:9",
@@ -309,7 +354,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       sourceStoryboardNodeId: storyboardImage.id,
     });
     const shot3 = makeTemplateNode("image", { x: 616.4406456459226, y: 461.6027416762248 }, {
-      title: "Shot 03 - Keyframe",
+      title: "Image* Shot 03 - Keyframe",
       prompt: `${idea}的第三个关键帧。主角在室内或安静空间与人物交流，生动手势，温馨环境，无文字和无 UI。中景，对角线构图，主角在一侧，其他人物在对面形成对话氛围。50mm定焦镜头，轻微推镜，柔和室内灯光，温暖色调，动作节奏缓慢，保持人物、服装和场景连续。${continuity}`,
       negativePrompt,
       aspectRatio: "16:9",
@@ -319,7 +364,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       sourceStoryboardNodeId: storyboardImage.id,
     });
     const videoA = makeTemplateNode("video", { x: 1178.259822152543, y: 1.4588804763947536 }, {
-      title: "New Video",
+      title: "Video* New Video",
       prompt: "",
       aspectRatio: "16:9",
       referenceImageUrl: "",
@@ -333,7 +378,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       klingElementId: "",
     });
     const videoB = makeTemplateNode("video", { x: 1181, y: -258 }, {
-      title: "New Video",
+      title: "Video* New Video",
       prompt: "",
       aspectRatio: "16:9",
       referenceImageUrl: "",
@@ -392,7 +437,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       referenceImageUrl: "",
     }));
     const directorPrompt = makeTemplateNode("text", { x: 440, y: 270 }, {
-      title: `${skill.title} Director Prompt`,
+      title: `Prompt* ${skill.title} Director Prompt`,
       instruction: "Read this as the final VideoNode prompt. Keep material @ references exactly.",
       inputText: skill.videoPrompt,
       model: "",
@@ -416,7 +461,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       referenceVideoUrl: "",
     });
     const output = makeTemplateNode("output", { x: 1260, y: 350 }, {
-      title: `${skill.title} Output`,
+      title: `Output* ${skill.title} Output`,
       format: "Creative package",
     });
     const nodes = [...referenceNodes, directorPrompt, video, output];
