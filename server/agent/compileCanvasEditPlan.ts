@@ -131,7 +131,7 @@ const addEdgeIfNew = (edges: WorkflowEdge[], source: string, target: string, exi
   const sourceNode = nodeById?.get(source);
   const targetNode = nodeById?.get(target);
   const targetHandle = sourceNode && targetNode?.data.nodeType === "video" ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data) : undefined;
-  edges.push({ id, source, target, ...(targetHandle ? { targetHandle } : {}), animated: true });
+  edges.push({ id, source, target, ...(targetHandle ? { targetHandle } : {}) });
 };
 
 export function compileCanvasEditPlanToPatch({

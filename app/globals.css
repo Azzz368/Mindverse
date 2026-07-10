@@ -67,6 +67,12 @@ button { cursor: pointer; }
 .react-flow__node { font-size: 12px; }
 .react-flow__attribution { display: none; }
 
+/* Existing saved workflows may contain animated edges. Keep their visual style,
+   but stop the continuous SVG dash animation when many nodes are present. */
+.react-flow__edge.animated path {
+  animation: none !important;
+}
+
 .react-flow__group-backdrop {
   position: absolute;
   pointer-events: none;

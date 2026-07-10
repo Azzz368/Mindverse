@@ -12,6 +12,7 @@ import type { NodeType, WorkflowEdge } from "@/shared/canvas";
 type AlignGuide = { type: "v" | "h"; pos: number };
 const SNAP_THRESHOLD = 10;
 const GROUP_PADDING = 40;
+const MAX_ALIGNMENT_GUIDE_NODES = 60;
 
 /* ── Morandicolor palette (10 colours) ───────────────────────── */
 const MORANDI = [
@@ -253,7 +254,12 @@ export function CreativeCanvas() {
   }, [onEdgesChange]);
 
   const handleNodeDrag = useCallback((_: MouseEvent | TouchEvent, draggedNode: { id: string; position: { x: number; y: number } }) => {
-    const allNodes = getNodes(), guides: AlignGuide[] = [], nx = draggedNode.position.x, ny = draggedNode.position.y;
+    const allNodes = getNodes();
+    if (allNodes.length > MAX_ALIGNMENT_GUIDE_NODES) {
+      setAlignGuides([]);
+      return;
+    }
+    const guides: AlignGuide[] = [], nx = draggedNode.position.x, ny = draggedNode.position.y;
     for (const other of allNodes) {
       if (other.id === draggedNode.id) continue;
       if (Math.abs(nx - other.position.x) < SNAP_THRESHOLD) guides.push({ type: "v", pos: other.position.x });
@@ -345,10 +351,13 @@ export function CreativeCanvas() {
         onPaneContextMenu={handlePaneContextMenu}
         onSelectionContextMenu={handleSelectionContextMenu}
         fitView
+        minZoom={0.15}
+        maxZoom={2}
         deleteKeyCode={["Backspace", "Delete"]}
         selectionKeyCode="Control"
         multiSelectionKeyCode="Control"
-        defaultEdgeOptions={{ animated: true, style: { stroke: edgeColor } }}
+        onlyRenderVisibleElements
+        defaultEdgeOptions={{ animated: false, style: { stroke: edgeColor } }}
         reconnectRadius={20}
         onReconnectStart={handleReconnectStart}
         onReconnect={handleReconnect}

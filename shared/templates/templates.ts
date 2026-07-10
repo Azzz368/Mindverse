@@ -37,6 +37,6 @@ export function buildTemplate(template: Template): { nodes: CanvasNode[]; edges:
   return { nodes, edges: nodes.slice(1).map((node, index) => {
     const source = nodes[index];
     const targetHandle = node.data.nodeType === "video" ? videoTargetHandleForNodeType(source.data.nodeType, node.data) : undefined;
-    return { id: `edge-${source.id}-${node.id}`, source: source.id, target: node.id, ...(targetHandle ? { targetHandle } : {}), animated: true };
+    return { id: `edge-${source.id}-${node.id}`, source: source.id, target: node.id, ...(targetHandle ? { targetHandle } : {}) };
   }) };
 }

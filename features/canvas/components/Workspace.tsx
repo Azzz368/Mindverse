@@ -57,11 +57,6 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
     if (!workflowId || !loadedRemoteWorkflow.current || typeof window === "undefined") return;
     const accessCode = window.localStorage.getItem(ACCESS_KEY) || "";
     if (!accessCode) return;
-    const snapshot: CanvasSnapshot = { version: 1, projectName, nodes, edges };
-    const payload = { accessCode, name: projectName, snapshot };
-    const payloadJson = JSON.stringify(payload);
-    if (payloadJson === lastSavedJsonRef.current) return;
-    pendingSaveRef.current = payload;
 
     const flushSave = async () => {
       if (!workflowId || savingRef.current) return;
@@ -84,8 +79,13 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => {
       saveTimerRef.current = null;
+      const snapshot: CanvasSnapshot = { version: 1, projectName, nodes, edges };
+      const payload = { accessCode, name: projectName, snapshot };
+      const payloadJson = JSON.stringify(payload);
+      if (payloadJson === lastSavedJsonRef.current) return;
+      pendingSaveRef.current = payload;
       void flushSave();
-    }, 1000);
+    }, 1200);
     return () => {
       if (saveTimerRef.current) {
         window.clearTimeout(saveTimerRef.current);

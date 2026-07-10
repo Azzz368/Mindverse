@@ -51,7 +51,7 @@ const schedulePoll = (id: string, run: () => void, intervalMs = 3000) => {
 const restoreStatuses = (nodes: CanvasNode[]): CanvasNode[] => nodes.map((node) => { if (node.data.status !== "running") return node; const polling = ["pending", "running"].includes(asText(asRecord(node.data.output?.value).status)); const status: CanvasNodeData["status"] = polling ? "waiting" : "idle"; return { ...node, data: { ...node.data, status } }; });
 const edgeFor = (source: CanvasNode, target: CanvasNode): WorkflowEdge => {
   const targetHandle = target.data.nodeType === "video" ? videoTargetHandleForNodeType(source.data.nodeType, target.data) : undefined;
-  return { id: `edge-${source.id}-${target.id}`, source: source.id, target: target.id, ...(targetHandle ? { targetHandle } : {}), animated: true };
+  return { id: `edge-${source.id}-${target.id}`, source: source.id, target: target.id, ...(targetHandle ? { targetHandle } : {}) };
 };
 const withVideoTargetHandles = (nodes: CanvasNode[], edges: WorkflowEdge[]): WorkflowEdge[] => {
   const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -92,7 +92,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     };
     return {
       nodes: [...state.nodes, node],
-      edges: previous ? [...state.edges, { id: `edge-${previous.id}-${node.id}`, source: previous.id, target: node.id, animated: true }] : state.edges,
+      edges: previous ? [...state.edges, { id: `edge-${previous.id}-${node.id}`, source: previous.id, target: node.id }] : state.edges,
       selectedNodeId: node.id,
     };
   }),
@@ -131,7 +131,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   runGroup: async (groupId) => { const { nodes } = get(); const group = nodes.filter((n) => n.data.groupId === groupId); for (const n of group) await get().runNode(n.id); },
   setProjectName: (projectName) => set({ projectName }), setSelectedNode: (selectedNodeId) => set({ selectedNodeId }),
   onNodesChange: (changes) => set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) as CanvasNode[] })), onEdgesChange: (changes) => set((state) => ({ edges: applyEdgeChanges(changes, state.edges) })),
-  onConnect: (connection) => set((state) => ({ edges: addEdge({ ...connection, id: `edge-${crypto.randomUUID()}`, animated: true }, state.edges) })),
+  onConnect: (connection) => set((state) => ({ edges: addEdge({ ...connection, id: `edge-${crypto.randomUUID()}` }, state.edges) })),
   addNode: (type) => { const node = makeNode(type, { x: 160 + (get().nodes.length % 4) * 55, y: 120 + (get().nodes.length % 5) * 60 }); set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id })); },
   updateNodeData: (id, patch) => set((state) => {
     const nodes = state.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, ...patch } } : node);
@@ -176,7 +176,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       ],
       edges: [
         ...current.edges,
-        ...missingImages.map((image) => ({ id: `edge-${sourceId}-${image.id}`, source: sourceId, target: image.id, animated: true })),
+        ...missingImages.map((image) => ({ id: `edge-${sourceId}-${image.id}`, source: sourceId, target: image.id })),
       ],
       selectedNodeId: targetIds[0] || null,
       lastError: null,

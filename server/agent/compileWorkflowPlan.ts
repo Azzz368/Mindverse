@@ -117,7 +117,7 @@ export function compileWorkflowPlanToCanvas(plan: AgentWorkflowPlan): CanvasPatc
       const sourceNode = source ? nodes.find((node) => node.id === source) : undefined;
       const targetNode = target ? nodes.find((node) => node.id === target) : undefined;
       const targetHandle = sourceNode && targetNode?.data.nodeType === "video" ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data) : undefined;
-      if (source && target) edges.push({ id: `edge-${source}-${target}`, source, target, ...(targetHandle ? { targetHandle } : {}), animated: true });
+      if (source && target) edges.push({ id: `edge-${source}-${target}`, source, target, ...(targetHandle ? { targetHandle } : {}) });
     });
   });
   return { nodes, edges };

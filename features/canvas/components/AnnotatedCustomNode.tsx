@@ -308,9 +308,9 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
 
   return (
     <>
-      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-2 bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
         {visualGroupColor && !selected && (
-          <div className="absolute inset-[-2px] -z-10 rounded-[26px] border-2" style={{ borderColor: visualGroupColor }} />
+          <div className="absolute inset-[-1.4px] -z-10 rounded-[26px] border-[1.4px]" style={{ borderColor: visualGroupColor }} />
         )}
         {isGenerating && (
           <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.text || "#ebe46b" } as React.CSSProperties} />
@@ -402,9 +402,9 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
 
   return (
     <>
-      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-2 bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
         {visualGroupColor && !selected && (
-          <div className="absolute inset-[-2px] -z-10 rounded-[26px] border-2" style={{ borderColor: visualGroupColor }} />
+          <div className="absolute inset-[-1.4px] -z-10 rounded-[26px] border-[1.4px]" style={{ borderColor: visualGroupColor }} />
         )}
         {isGenerating && (
           <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.image || "#3bf657" } as React.CSSProperties} />
@@ -509,6 +509,8 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const videoUrl = text(record(data.output?.value).videoUrl || record(data.output?.value).resultUrl || record(data.output?.value).finalVideoUrl || data.resultUrl || "");
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const activeVideoModel = videoModelPresetIdFromData(data);
   const inputPorts = videoInputPortsForPreset(activeVideoModel);
@@ -532,6 +534,21 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
     updateNodeInternals(id);
   }, [id, inputPortKey, updateNodeInternals]);
 
+  useEffect(() => {
+    videoRef.current?.pause();
+    setIsPlaying(false);
+  }, [videoUrl]);
+
+  const togglePlayback = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      void video.play().catch(() => setIsPlaying(false));
+      return;
+    }
+    video.pause();
+  };
+
   const renderHandle = (label: string, handleId: string, borderColorClass: string, bgColorClass: string, connectedBgColorClass: string) => {
     const isConnected = connectedHandles.has(handleId);
     return (
@@ -548,10 +565,10 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
 
   return (
     <>
-      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-2 bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
         
         {visualGroupColor && !selected && (
-          <div className="absolute inset-[-2px] -z-10 rounded-[26px] border-2" style={{ borderColor: visualGroupColor }} />
+          <div className="absolute inset-[-1.4px] -z-10 rounded-[26px] border-[1.4px]" style={{ borderColor: visualGroupColor }} />
         )}
         {isGenerating && (
           <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS[data.nodeType] || "#22d3ee" } as React.CSSProperties} />
@@ -569,10 +586,18 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
         <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Kling 3.0 Omni"}</div>
 
         <div className="flex-1 p-6">
-          <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800 border-[6px] border-transparent">
+          <div className="group relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800 border-[6px] border-transparent">
              {videoUrl ? (
                <>
-                 <video src={videoUrl} autoPlay loop muted playsInline className="absolute inset-0 h-full w-full rounded-[14px] object-cover" />
+                 <video ref={videoRef} src={videoUrl} loop muted playsInline preload="metadata" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} className="absolute inset-0 h-full w-full rounded-[14px] object-cover" />
+                 <button
+                   type="button"
+                   onClick={(event) => { event.stopPropagation(); togglePlayback(); }}
+                   title={isPlaying ? "暂停视频" : "播放视频"}
+                   className={`nodrag absolute left-1/2 top-1/2 z-10 grid h-11 w-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-sm transition-opacity hover:bg-black/70 ${isPlaying ? "opacity-0 group-hover:opacity-100" : "opacity-100"}`}
+                 >
+                   {isPlaying ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zm6 0h4v14h-4z" /></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="ml-0.5"><path d="M8 5v14l11-7z" /></svg>}
+                 </button>
                  <ExpandIcon onClick={() => setPreviewOpen(true)} />
                </>
              ) : (
