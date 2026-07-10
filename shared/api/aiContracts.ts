@@ -8,9 +8,11 @@ import type {
   CanvasEditPatch,
   CanvasPatch,
 } from "@/shared/agent/agentSchema";
+import type { AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
+import type { AgentProjectMemory } from "@/shared/agent/projectMemory";
 import type { CanvasNode, NodeType, WorkflowEdge } from "@/shared/canvas";
 
-export type CanvasSnapshotPayload = { version: 1; projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[] };
+export type CanvasSnapshotPayload = { version: 1; projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; agentMemory?: AgentProjectMemory };
 
 export type RunNodeRequest = { nodeType: NodeType; input: Record<string, unknown> };
 export type RunNodeResponse = { ok: true; output?: unknown; provider?: string; polling?: PollingConfig };
@@ -32,3 +34,24 @@ export type AgentOrganizeResponse = { ok: true; organizePlan?: AgentCanvasOrgani
 
 export type AgentDialogueRequest = { userMessage: string; conversation: AgentDialogueMessage[] };
 export type AgentDialogueApiResponse = { ok: true; response?: AgentDialogueResponse };
+
+export type AgentRouterIntent = "dialogue" | "create" | "edit" | "organize" | "skill";
+export type AgentRouterRequest = {
+  userMessage: string;
+  canvasSnapshot: CanvasSnapshotPayload;
+  selectedNodeIds: string[];
+  conversation?: AgentDialogueMessage[];
+  forceIntent?: AgentRouterIntent;
+};
+export type AgentRouterResponse = {
+  ok: true;
+  intent: AgentRouterIntent;
+  summary?: string;
+  response?: AgentDialogueResponse;
+  plan?: AgentWorkflowPlan;
+  editPlan?: AgentCanvasEditPlan;
+  organizePlan?: AgentCanvasOrganizePlan;
+  patch?: CanvasPatch | CanvasEditPatch;
+  skillId?: AgentWorkflowSkillId;
+  skillBrief?: string;
+};

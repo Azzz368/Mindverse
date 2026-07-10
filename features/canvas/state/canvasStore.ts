@@ -15,16 +15,19 @@ import { imageUrlFrom, inputFor, keyframePatchFromPrompt, promptFrom, revisionPr
 import { canRunRemotely, makeOutput, outputFor, outputFromProvider } from "@/features/canvas/domain/nodeOutputNormalizer";
 import { arrangeWorkflowNodes, connectedNodeIdsFrom, selectedNodeIdsFrom } from "@/features/canvas/domain/canvasLayout";
 import { applyEditPatchToState, dedupePatch, offsetPatchTo } from "@/features/agent/domain/agentPatch";
+import { mergeAgentProjectMemory, type AgentProjectMemory } from "@/shared/agent/projectMemory";
 import { buildFixedSceneVideoSkill, type AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 
 const DEFAULT_AGENT_IMAGE_MODEL = "gpt-image-2(tokenstar)";
 
 type AgentStatus = "idle" | "planning" | "building" | "running" | "completed" | "error";
-type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; selectedNodeId: string | null; lastError: string | null; agentStatus: AgentStatus; agentMessage: string | null;
+type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; agentMemory: AgentProjectMemory | null; selectedNodeId: string | null; lastError: string | null; agentStatus: AgentStatus; agentMessage: string | null;
   ghostType: NodeType | null; ghostData: Partial<CanvasNodeData> | null; setGhostType(type: NodeType | null, data?: Partial<CanvasNodeData>): void; placeGhostNode(position: { x: number; y: number }): void;
   ghostMediaUrl: string | null; setGhostMedia(dataUrl: string): void; placeGhostMedia(position: { x: number; y: number }): void;
   pendingAgentPatch: CanvasPatch | null; setPendingAgentPatch(patch: CanvasPatch | null): void; placeAgentPatch(position: { x: number; y: number }): void;
   addMediaNode(dataUrl: string, position: { x: number; y: number }): void;
+  updateAgentMemory(patch: Partial<AgentProjectMemory>): void;
+  clearAgentMemory(): void;
   normalizeVideoConnections(): void;
   addStoryChainNode(content: string, title?: string): void;
   runGroup(groupId: string): Promise<void>;
@@ -36,7 +39,7 @@ type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEd
   arrangeWorkflows(): void;
   setGroupLockedByGroupId(groupId: string, locked: boolean): void;
   setProjectName(name: string): void; setSelectedNode(id: string | null): void; onNodesChange(changes: NodeChange<CanvasNode>[]): void; onEdgesChange(changes: EdgeChange<WorkflowEdge>[]): void; onConnect(connection: Connection): void;
-  addNode(type: NodeType): void; updateNodeData(id: string, patch: Partial<CanvasNodeData>): void; removeNode(id: string): void; duplicateNode(id: string): void; createImageRevision(sourceId: string, annotations: ImageAnnotation[], instruction: string): Promise<void>; createKeyframeBatch(sourceId: string): void; setCanvas(nodes: CanvasNode[], edges: WorkflowEdge[]): void;
+  addNode(type: NodeType): void; updateNodeData(id: string, patch: Partial<CanvasNodeData>): void; removeNode(id: string): void; duplicateNode(id: string): void; createImageRevision(sourceId: string, annotations: ImageAnnotation[], instruction: string): Promise<void>; createKeyframeBatch(sourceId: string): void; setCanvas(nodes: CanvasNode[], edges: WorkflowEdge[], agentMemory?: AgentProjectMemory | null): void;
   runNode(id: string): Promise<void>; pollNode(id: string): Promise<void>; runWorkflow(): Promise<void>; generateAgentPlan(userPrompt: string): Promise<{ plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }>; applyAgentPatch(patch: CanvasPatch): void; generateAgentEdit(userInstruction: string): Promise<{ editPlan: AgentCanvasEditPlan; patch: CanvasEditPatch; summary: string }>; applyAgentEditPatch(patch: CanvasEditPatch): void; generateAgentOrganize(userInstruction: string): Promise<{ organizePlan: AgentCanvasOrganizePlan; patch: CanvasEditPatch; summary: string }>; runAgentWorkflow(brief: string): Promise<void>; runAgentSkill(skillId: AgentWorkflowSkillId, brief: string): Promise<void>; saveCanvas(): void; loadCanvas(): void; clearCanvas(): void; exportCanvasJson(): string; importCanvasJson(raw: string): void; applyTemplate(template: Template): void; };
 const initialNodes: CanvasNode[] = [];
 const isSnapshot = (value: unknown): value is CanvasSnapshot => Boolean(value && typeof value === "object" && Array.isArray((value as CanvasSnapshot).nodes) && Array.isArray((value as CanvasSnapshot).edges));
@@ -64,10 +67,12 @@ const withVideoTargetHandles = (nodes: CanvasNode[], edges: WorkflowEdge[]): Wor
   });
 };
 export const useCanvasStore = create<CanvasState>((set, get) => ({
-  projectName: "Untitled creative flow", nodes: initialNodes, edges: [], selectedNodeId: null, lastError: null, agentStatus: "idle", agentMessage: null, ghostType: null, ghostData: null, ghostMediaUrl: null, pendingAgentPatch: null,
+  projectName: "Untitled creative flow", nodes: initialNodes, edges: [], agentMemory: null, selectedNodeId: null, lastError: null, agentStatus: "idle", agentMessage: null, ghostType: null, ghostData: null, ghostMediaUrl: null, pendingAgentPatch: null,
   setGhostType: (ghostType, ghostData) => set({ ghostType, ghostData: ghostType ? ghostData ?? null : null }),
   placeGhostNode: (position) => { const { ghostType, ghostData } = get(); if (!ghostType) return; const base = makeNode(ghostType, position); const node = ghostData ? { ...base, data: { ...base.data, ...ghostData } } : base; set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id, ghostType: null, ghostData: null })); },
   setGhostMedia: (dataUrl) => set({ ghostMediaUrl: dataUrl }),
+  updateAgentMemory: (patch) => set((state) => ({ agentMemory: mergeAgentProjectMemory(state.agentMemory, patch) })),
+  clearAgentMemory: () => set({ agentMemory: null }),
   placeGhostMedia: (position) => { const { ghostMediaUrl } = get(); if (!ghostMediaUrl) return; const node: CanvasNode = { id: `reference-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: "reference", title: "图片素材", status: "idle", imageUrl: ghostMediaUrl, notes: "" } }; set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id, ghostMediaUrl: null })); },
   setPendingAgentPatch: (pendingAgentPatch) => set({ pendingAgentPatch, ghostType: null, ghostData: null, ghostMediaUrl: null, agentMessage: pendingAgentPatch ? "请在画布上点击工作流起点。" : null }),
   placeAgentPatch: (position) => { const { pendingAgentPatch } = get(); if (!pendingAgentPatch) return; const placed = offsetPatchTo(pendingAgentPatch, position); set((state) => { const clean = dedupePatch(placed, state.nodes, state.edges); return { nodes: [...state.nodes, ...clean.nodes], edges: [...state.edges, ...clean.edges], selectedNodeId: clean.nodes[0]?.id || state.selectedNodeId, pendingAgentPatch: null, agentStatus: "completed", agentMessage: "工作流已放置到画布。请检查节点参数后手动运行。", lastError: null }; }); },
@@ -185,7 +190,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       for (const id of targetIds) await get().runNode(id);
     })();
   },
-  setCanvas: (nodes, edges) => set({ nodes: restoreStatuses(nodes), edges: withVideoTargetHandles(nodes, edges), selectedNodeId: null, lastError: null }),
+  setCanvas: (nodes, edges, agentMemory) => set({ nodes: restoreStatuses(nodes), edges: withVideoTargetHandles(nodes, edges), agentMemory: agentMemory || null, selectedNodeId: null, lastError: null }),
   generateAgentPlan: async (userPrompt) => {
     const prompt = userPrompt.trim();
     if (!prompt) throw new Error("Agent brief is empty.");
@@ -430,10 +435,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       agentMessage: `${skill.title} skill is ready. Click the canvas to choose where to place it.`,
     });
   },
-  saveCanvas: () => { const { projectName, nodes, edges } = get(); canvasStorage.save({ version: 1, projectName, nodes, edges }); },
-  loadCanvas: () => { try { const snapshot = canvasStorage.load(); if (!snapshot || !isSnapshot(snapshot)) throw new Error("No valid saved canvas found."); set({ projectName: snapshot.projectName || "Untitled creative flow", nodes: restoreStatuses(snapshot.nodes), edges: withVideoTargetHandles(snapshot.nodes, snapshot.edges), selectedNodeId: null, lastError: null }); } catch (error) { set({ lastError: error instanceof Error ? error.message : "Could not load canvas" }); } },
-  clearCanvas: () => set({ nodes: [], edges: [], selectedNodeId: null, lastError: null }),
-  exportCanvasJson: () => { const { projectName, nodes, edges } = get(); return JSON.stringify({ version: 1, projectName, nodes, edges }, null, 2); },
-  importCanvasJson: (raw) => { try { const value = JSON.parse(raw) as unknown; if (!isSnapshot(value)) throw new Error("Invalid canvas JSON. Expected nodes and edges arrays."); set({ projectName: value.projectName || "Imported creative flow", nodes: restoreStatuses(value.nodes), edges: withVideoTargetHandles(value.nodes, value.edges), selectedNodeId: null, lastError: null }); } catch (error) { set({ lastError: error instanceof Error ? error.message : "Could not import JSON" }); } },
+  saveCanvas: () => { const { projectName, nodes, edges, agentMemory } = get(); canvasStorage.save({ version: 1, projectName, nodes, edges, agentMemory: agentMemory || undefined }); },
+  loadCanvas: () => { try { const snapshot = canvasStorage.load(); if (!snapshot || !isSnapshot(snapshot)) throw new Error("No valid saved canvas found."); set({ projectName: snapshot.projectName || "Untitled creative flow", nodes: restoreStatuses(snapshot.nodes), edges: withVideoTargetHandles(snapshot.nodes, snapshot.edges), agentMemory: snapshot.agentMemory || null, selectedNodeId: null, lastError: null }); } catch (error) { set({ lastError: error instanceof Error ? error.message : "Could not load canvas" }); } },
+  clearCanvas: () => set({ nodes: [], edges: [], agentMemory: null, selectedNodeId: null, lastError: null }),
+  exportCanvasJson: () => { const { projectName, nodes, edges, agentMemory } = get(); return JSON.stringify({ version: 1, projectName, nodes, edges, agentMemory: agentMemory || undefined }, null, 2); },
+  importCanvasJson: (raw) => { try { const value = JSON.parse(raw) as unknown; if (!isSnapshot(value)) throw new Error("Invalid canvas JSON. Expected nodes and edges arrays."); set({ projectName: value.projectName || "Imported creative flow", nodes: restoreStatuses(value.nodes), edges: withVideoTargetHandles(value.nodes, value.edges), agentMemory: value.agentMemory || null, selectedNodeId: null, lastError: null }); } catch (error) { set({ lastError: error instanceof Error ? error.message : "Could not import JSON" }); } },
   applyTemplate: (template) => { const flow = buildTemplate(template); set({ nodes: flow.nodes, edges: withVideoTargetHandles(flow.nodes, flow.edges), projectName: template.name, selectedNodeId: null, lastError: null }); },
 }));
