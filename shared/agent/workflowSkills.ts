@@ -267,6 +267,103 @@ const shotPrompt = (
   return templates[index] || `${time} 补充镜头：从上一镜头结束状态接续，保持人物位置、视线方向、背景结构和空间关系连续。`;
 };
 
+type ActionProfile = {
+  style: string;
+  focus: string;
+  beats: string[];
+  camera: string;
+};
+
+const hasAny = (value: string, patterns: RegExp[]) => patterns.some((pattern) => pattern.test(value));
+
+const explicitStyleFrom = (idea: string) =>
+  fieldFrom(idea, ["style", "visual_style", "风格", "视觉风格"]);
+
+const explicitShotPlanFrom = (idea: string) => {
+  const raw = fieldFrom(idea, ["shot_plan", "镜头计划", "关键镜头", "key_shots", "shots"]);
+  if (!raw) return [];
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)]|镜头\s*\d+[:：]?)\s*/i, "").trim())
+    .filter(Boolean)
+    .slice(0, 8);
+};
+
+const actionProfileFrom = (idea: string): ActionProfile => {
+  const explicitShots = explicitShotPlanFrom(idea);
+  if (explicitShots.length) {
+    return {
+      style: explicitStyleFrom(idea) || "电影感固定场景短片，节奏自然，动作清楚",
+      focus: materialBriefsFrom(idea).videoActionPlan,
+      beats: explicitShots,
+      camera: "严格按照镜头计划推进，每个镜头都要延续上一镜头的动作、位置和视线方向；不要只把人物放在静态背景前。",
+    };
+  }
+
+  if (hasAny(idea, [/篮球|投篮|三分|体育馆|球场|basketball|three[-\s]?pointer|gym/i])) {
+    return {
+      style: "电影感运动训练短片，节奏清楚，动作连贯，专注感逐步增强",
+      focus: "主角在同一个室内体育馆里练习三分球，所有镜头都围绕拿球、调整脚步、起跳出手、篮球飞行、命中或擦框后的反应展开。",
+      beats: [
+        "建立训练空间：参考SCENE中篮球架、三分线、木地板和灯光位置，MAIN站在三分线外持球准备，镜头低位轻推，明确室内体育馆和投篮目标。",
+        "动作准备：接上一镜头位置，MAIN连续运球一到两次，调整脚步和肩膀朝向篮筐，侧向跟拍，球、手腕、球鞋和地板反光细节清晰。",
+        "起跳出手：MAIN屈膝、起跳、手腕拨球完成三分投篮，镜头从中近景跟随上摇到篮球离手，动作必须完整连续。",
+        "球路跟随：镜头沿篮球飞行方向快速轻推或上摇，保持同一个篮筐和同一片体育馆背景，篮球接近篮筐，空间关系不要跳变。",
+        "结果收束：篮球入网或擦框弹起，MAIN落地后看向篮筐，短暂呼吸、握拳或继续准备下一球，镜头推近到表情和手部，停在训练感的瞬间。",
+      ],
+      camera: "使用低位建立镜头、侧向跟拍、中近景起跳、球路跟随和反应特写；不要让人物只是站在背景前，必须呈现真实投篮动作链。",
+    };
+  }
+
+  if (hasAny(idea, [/骑士|公主|城堡|房间|信|桌子|knight|princess|castle|letter/i])) {
+    return {
+      style: "悲情电影感短片，黄昏光线，节奏克制，情绪从期待转为失落",
+      focus: "主角进入同一个古典城堡房间寻找公主，最终只在桌上发现公主留下的信，动作围绕寻找、发现、阅读和沉默反应展开。",
+      beats: [
+        "建立房间：参考SCENE的门、窗、桌子、烛台和黄昏光线，MAIN推门进入同一个城堡房间，镜头缓慢前推，表现期待和紧张。",
+        "寻找公主：接上一镜头位置，MAIN在房间内扫视并向桌子靠近，披风和脚步动作连续，镜头侧向跟拍，空间布局保持一致。",
+        "发现信件：MAIN在桌边停下，注意到桌上的信，手慢慢伸向信纸，镜头切中近景，桌面道具、烛光和窗光来自同一场景。",
+        "阅读反应：MAIN拿起信读完，表情从期待变成震动和悲伤，镜头缓慢推近脸部和手中信纸，不要出现可读文字内容。",
+        "沉默收束：MAIN握紧信纸或拳头，低头沉默，窗帘和烛光轻动，镜头后撤一点保留空房间的孤独感，停在诀别情绪上。",
+      ],
+      camera: "使用推门建立、室内跟拍、桌边中近景、阅读特写和后撤收束；不要跳到房间外或生成新的城堡区域。",
+    };
+  }
+
+  return {
+    style: "电影感固定场景短片，节奏自然，动作清楚，情绪或目标逐步推进",
+    focus: `围绕用户指定动作展开：${materialBriefsFrom(idea).videoActionPlan}`,
+    beats: [
+      "建立空间和目标：参考SCENE的主要活动区域，MAIN已经处在同一固定场景内，镜头明确人物、目标物和行动方向。",
+      "动作开始：接上一镜头位置，MAIN开始执行用户指定动作，镜头跟随身体移动，手部、脚步和道具关系清楚。",
+      "动作推进：MAIN继续完成动作的关键步骤，镜头切到中近景或侧向跟拍，空间背景仍来自SCENE同一位置。",
+      "动作高点：MAIN完成最重要的动作瞬间，镜头跟随动作方向移动，避免突然跳场景或变成静态摆拍。",
+      "结果反应：动作产生结果，MAIN给出自然反应，镜头收束在表情、手部或关键道具上，保持同一空间连续性。",
+    ],
+    camera: "根据动作选择建立镜头、跟拍、近景、动作高点和反应特写；不要只把人物放在静态背景前。",
+  };
+};
+
+const actionStyleFrom = (idea: string) => actionProfileFrom(idea).style;
+
+const actionShotPrompts = (
+  idea: string,
+  shotCount: number,
+  duration: number,
+  mainToken: string,
+  secondaryToken: string | null,
+  sceneToken: string,
+) => {
+  const profile = actionProfileFrom(idea);
+  return Array.from({ length: shotCount }, (_, index) => {
+    const rawBeat = profile.beats[index] || profile.beats[profile.beats.length - 1];
+    return `${timeRange(index, shotCount, duration)} ${rawBeat}`
+      .replaceAll("MAIN", mainToken)
+      .replaceAll("SECONDARY", secondaryToken || "空间中的关键道具")
+      .replaceAll("SCENE", sceneToken);
+  });
+};
+
 const buildVideoPrompt = (
   idea: string,
   duration: number,
@@ -275,6 +372,7 @@ const buildVideoPrompt = (
   references: FixedSceneReferenceSpec[],
 ) => {
   const materialBriefs = materialBriefsFrom(idea);
+  const actionProfile = actionProfileFrom(idea);
   const main = references.find((reference) => reference.key === "mainCharacter")?.token || "@1";
   const secondary = references.find((reference) => reference.key === "secondaryCharacter")?.token || null;
   const scene = references.find((reference) => reference.key === "sceneGrid")?.token || "@2";
@@ -283,13 +381,14 @@ const buildVideoPrompt = (
     : `${main}=主角四面设定图，${scene}=无人场景九宫图。`;
 
   const shots = Array.from({ length: shotCount }, (_, index) =>
-    shotPrompt(index, shotCount, duration, main, secondary, scene),
+    actionShotPrompts(idea, shotCount, duration, main, secondary, scene)[index] || shotPrompt(index, shotCount, duration, main, secondary, scene),
   );
 
   return [
     `故事目标：${materialBriefs.storyGoal}`,
     `动作计划：${materialBriefs.videoActionPlan}`,
     `风格：${style}`,
+    `动作重点：${actionProfile.focus}`,
     `生成${duration}秒、${shotCount}个镜头的连续电影短片。`,
     `素材：${materialLine}`,
     "空间规则：全片只能发生在同一个固定场景。只参考场景九宫图来统一墙面、地面、入口、道具、光线和空间尺度；不要引入九宫图之外的新房间、新建筑或新地点。",
@@ -297,12 +396,13 @@ const buildVideoPrompt = (
     "画面规则：不要把四面设定图或九宫图作为画面布局直接显示；不要出现路线、箭头或文字标注；不要左右分屏、镜像复制或在画面左右两侧生成重复场景。",
     materialBriefs.continuityRules ? `额外连续性：${materialBriefs.continuityRules}` : "",
     ...shots,
-    "摄影：景别丰富但空间方向统一，使用建立镜头、跟拍、近景、半环绕和前推；不要换脸、换装、跳场景、分屏、字幕或水印。",
+    `摄影：${actionProfile.camera} 景别丰富但空间方向统一；不要换脸、换装、跳场景、分屏、字幕或水印。`,
   ].filter(Boolean).join("\n");
 };
 
 const titleFrom = (idea: string) => {
-  const compact = idea.replace(/[。！？.!?].*$/, "").slice(0, 18).trim();
+  const source = materialBriefsFrom(idea).storyGoal || idea;
+  const compact = source.replace(/[。！？.!?].*$/, "").slice(0, 18).trim();
   return compact ? `${compact}短片` : "固定场景短片";
 };
 
@@ -311,7 +411,7 @@ export const buildFixedSceneVideoSkill = (brief: string): FixedSceneVideoSkill =
   const duration = durationFrom(idea);
   const shotCount = shotCountFrom(idea, duration);
   const aspectRatio = aspectRatioFrom(idea);
-  const style = styleFrom(idea);
+  const style = actionStyleFrom(idea);
   const references = buildReferenceSpecs(idea, needsSecondaryCharacter(idea)).map((reference) => ({
     ...reference,
     prompt: limitText(reference.prompt, MAX_SKILL_NODE_PROMPT_LENGTH),

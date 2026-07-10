@@ -19,6 +19,7 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
   const projectName = useCanvasStore((state) => state.projectName);
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
+  const agentMemory = useCanvasStore((state) => state.agentMemory);
   const setProjectName = useCanvasStore((state) => state.setProjectName);
   const setCanvas = useCanvasStore((state) => state.setCanvas);
   const normalizeVideoConnections = useCanvasStore((state) => state.normalizeVideoConnections);
@@ -41,7 +42,7 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
         const payload = await getWorkflowSnapshot(workflowId, accessCode);
         if (!payload.output) throw new Error("Workflow not found.");
         setProjectName(payload.output.projectName || payload.output.name || "Untitled workflow");
-        setCanvas(Array.isArray(payload.output.nodes) ? payload.output.nodes as never : [], Array.isArray(payload.output.edges) ? payload.output.edges as never : []);
+        setCanvas(Array.isArray(payload.output.nodes) ? payload.output.nodes as never : [], Array.isArray(payload.output.edges) ? payload.output.edges as never : [], payload.output.agentMemory || null);
         loadedRemoteWorkflow.current = true;
       } catch {
         window.location.href = "/workspace";
@@ -57,7 +58,7 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
     if (!workflowId || !loadedRemoteWorkflow.current || typeof window === "undefined") return;
     const accessCode = window.localStorage.getItem(ACCESS_KEY) || "";
     if (!accessCode) return;
-    const snapshot: CanvasSnapshot = { version: 1, projectName, nodes, edges };
+    const snapshot: CanvasSnapshot = { version: 1, projectName, nodes, edges, agentMemory: agentMemory || undefined };
     const payload = { accessCode, name: projectName, snapshot };
     const payloadJson = JSON.stringify(payload);
     if (payloadJson === lastSavedJsonRef.current) return;
@@ -92,7 +93,7 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
         saveTimerRef.current = null;
       }
     };
-  }, [edges, nodes, projectName, workflowId]);
+  }, [agentMemory, edges, nodes, projectName, workflowId]);
 
   return (
     <ReactFlowProvider>

@@ -140,7 +140,7 @@ export async function renameWorkflow(accessCodeValue: unknown, workflowId: strin
   const existing = await getWorkflow(accessCode, workflowId);
   if (!existing) throw new Error("Workflow not found.");
   const name = typeof nameValue === "string" && nameValue.trim() ? nameValue.trim() : existing.name;
-  return saveWorkflow(accessCode, workflowId, { version: 1, projectName: name, nodes: existing.nodes, edges: existing.edges }, name);
+  return saveWorkflow(accessCode, workflowId, { version: 1, projectName: name, nodes: existing.nodes, edges: existing.edges, agentMemory: existing.agentMemory }, name);
 }
 
 export async function deleteWorkflow(accessCodeValue: unknown, workflowId: string) {

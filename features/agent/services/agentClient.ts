@@ -8,7 +8,12 @@ import type {
   AgentOrganizeResponse,
   AgentPlanRequest,
   AgentPlanResponse,
+  AgentRouterRequest,
+  AgentRouterResponse,
 } from "@/shared/api/aiContracts";
+
+export const requestAgentRouter = (request: AgentRouterRequest) =>
+  postJson<AgentRouterResponse>("/api/ai/agent-router", request, "Agent request failed.");
 
 export const requestAgentPlan = (request: AgentPlanRequest) =>
   postJson<AgentPlanResponse>("/api/ai/agent-plan", request, "Agent 计划生成失败。");
