@@ -4,7 +4,7 @@ import { compileCanvasOrganizePlanToPatch } from "@/server/agent/compileCanvasOr
 import { compileWorkflowPlanToCanvas } from "@/server/agent/compileWorkflowPlan";
 import { summarizeCanvasForAgent } from "@/server/agent/summarizeCanvas";
 import { normalizeAIError } from "@/server/ai/errors";
-import { runAgentDialogueLLM, runAgentEditLLM, runAgentOrganizeLLM, runAgentPlannerLLM, runFixedSceneSkillLLM } from "@/server/ai/302aiLLMProvider";
+import { runAgentDialogueLLM, runAgentEditLLM, runAgentOrganizeLLM, runAgentPlannerLLM, runAgentRouterLLM, runFixedSceneSkillLLM } from "@/server/ai/302aiLLMProvider";
 import { agentMemorySummary, type AgentProjectMemory } from "@/shared/agent/projectMemory";
 import type { AgentDialogueMessage } from "@/shared/agent/agentSchema";
 import type { AgentRouterIntent } from "@/shared/api/aiContracts";
@@ -80,46 +80,65 @@ const cn = {
   direction: "\u65b9\u5411",
   option: "\u65b9\u6848",
   suggest: "\u5efa\u8bae",
+  story: "\u6545\u4e8b",
+  plot: "\u5267\u60c5",
+  protagonist: "\u4e3b\u89d2",
+  setting: "\u573a\u666f",
+  tone: "\u98ce\u683c",
+  ending: "\u7ed3\u5c3e",
+  improve: "\u5b8c\u5584",
+  brainstorm: "\u6784\u601d",
+  talk: "\u804a",
   current: "\u5f53\u524d",
   selected: "\u9009\u4e2d",
 };
 
 const isFixedSceneSkillRequest = (value: string, memory?: AgentProjectMemory) => {
   const input = value.toLowerCase();
-  const mentionsCharacterSheet =
-    (includesAnyText(input, [cn.person, cn.character]) && includesAnyText(input, [cn.fourViewA, cn.fourViewB, cn.fourSide, cn.designSheet])) ||
-    includesAnyPattern(input, [/character\s*(?:turnaround|sheet)/i]);
-  const mentionsSceneGrid =
-    (includesAnyText(input, [cn.scene]) && includesAnyText(input, [cn.nineGridA, cn.nineGridB, cn.nineGridC])) ||
-    includesAnyPattern(input, [/scene\s*(?:nine|9)[-\s]?grid/i]);
-  const explicitFixedScene =
-    includesAnyText(input, [cn.fixedScene]) ||
-    includesAnyPattern(input, [/fixed[-\s]?scene/i]);
+  const explicitActivation = includesAnyText(input, [cn.fixedScene, cn.fourViewA, cn.fourViewB, cn.fourSide, cn.designSheet, cn.nineGridA, cn.nineGridB, cn.nineGridC]) ||
+    includesAnyPattern(input, [/character\s*(?:turnaround|sheet)|scene\s*(?:nine|9)[-\s]?grid|fixed[-\s]?scene/i]);
+  const explicitWorkflowAsk = includesAnyText(input, [cn.workflow, cn.generate, cn.create, cn.build]) || includesAnyPattern(input, [/workflow|create|generate|build/]);
   const asksToReusePreferredSkill =
     memory?.preferredWorkflowSkill === "fixed-scene-action-video" &&
-    includesAnyText(input, [cn.generate, cn.create, cn.build, cn.workflow, cn.video, cn.continue]) &&
+    (explicitWorkflowAsk || includesAnyText(input, [cn.video, cn.continue])) &&
     !includesAnyText(input, [cn.storyboard]);
 
-  return explicitFixedScene || mentionsCharacterSheet || mentionsSceneGrid || asksToReusePreferredSkill;
+  return (explicitActivation && explicitWorkflowAsk) || asksToReusePreferredSkill;
 };
 
 const inferIntent = (message: string, snapshot: RouterSnapshot, selectedCount: number): AgentRouterIntent => {
   const input = message.toLowerCase();
-  if (isFixedSceneSkillRequest(input, snapshot.agentMemory)) return "skill";
-  if (includesAnyText(input, [cn.organize, cn.arrange, cn.group]) || includesAnyPattern(input, [/organize|arrange|layout|group/])) return "organize";
-  if (
-    includesAnyText(input, [cn.edit, cn.changeTo, cn.replace, cn.connect, cn.delete, cn.add, cn.cut, cn.trim, cn.merge, cn.subtitle]) ||
-    includesAnyPattern(input, [/edit|change|update|connect|delete|trim|cut|concat|merge|subtitle/])
-  ) {
+  const fixedSceneRequest = isFixedSceneSkillRequest(input, snapshot.agentMemory);
+  const organizeRequest = includesAnyText(input, [cn.organize, cn.arrange, cn.group]) || includesAnyPattern(input, [/organize|arrange|layout|group/]);
+  const notEditRequest = includesAnyPattern(input, [/不是\s*(?:修改|编辑)|不(?:要)?(?:修改|编辑|改)(?:画布|节点)?|只(?:要)?构思|仅(?:构思|讨论)|不要动(?:画布|节点)|not\s+(?:edit|modify|change)/i]);
+  const editRequest =
+    !notEditRequest &&
+    (includesAnyText(input, [cn.edit, cn.changeTo, cn.replace, cn.connect, cn.delete, cn.add, cn.cut, cn.trim, cn.merge, cn.subtitle]) ||
+      includesAnyPattern(input, [/edit|change|update|connect|delete|trim|cut|concat|merge|subtitle/]));
+  const createRequest =
+    includesAnyText(input, [cn.workflow, cn.generate, cn.create, cn.build]) ||
+    includesAnyPattern(input, [/workflow|node|create|generate|build/]);
+  const dialogueRequest =
+    includesAnyText(input, [cn.idea, cn.direction, cn.option, cn.suggest, cn.story, cn.plot, cn.protagonist, cn.setting, cn.tone, cn.ending, cn.improve, cn.brainstorm, cn.talk]) ||
+    includesAnyPattern(input, [/idea|brainstorm|option|suggest|story|plot|character|protagonist|setting|tone|ending|develop/]);
+  const strongDialogueRequest = dialogueRequest || notEditRequest;
+  const continueIdeation =
+    snapshot.agentMemory?.lastIntent === "dialogue" &&
+    !fixedSceneRequest &&
+    !organizeRequest &&
+    !editRequest &&
+    !createRequest;
+
+  if (fixedSceneRequest) return "skill";
+  if (organizeRequest) return "organize";
+  if (strongDialogueRequest && !createRequest) return "dialogue";
+  if (editRequest) {
     return snapshot.nodes.length ? "edit" : "create";
   }
-  if (
-    includesAnyText(input, [cn.workflow, cn.generate, cn.create, cn.build]) ||
-    includesAnyPattern(input, [/workflow|node|create|generate|build/])
-  ) return "create";
+  if (createRequest) return "create";
+  if (continueIdeation) return "dialogue";
   if (selectedCount && snapshot.nodes.length) return "edit";
   if (snapshot.nodes.length && (includesAnyText(input, [cn.current, cn.selected]) || includesAnyPattern(input, [/these|this|selected|current/]))) return "edit";
-  if (includesAnyText(input, [cn.idea, cn.direction, cn.option, cn.suggest]) || includesAnyPattern(input, [/idea|brainstorm|option|suggest/])) return "dialogue";
   return snapshot.nodes.length ? "edit" : "create";
 };
 
@@ -133,6 +152,13 @@ const plannerSummary = (snapshot: RouterSnapshot) =>
 
 const canvasSummaryWithMemory = (snapshot: RouterSnapshot, selectedNodeIds: string[]) =>
   `${summarizeCanvasForAgent({ nodes: snapshot.nodes, edges: snapshot.edges, selectedNodeIds })}${memoryContext(snapshot.agentMemory)}`;
+
+const routingCanvasSummary = (snapshot: RouterSnapshot, selectedNodeIds: string[]) =>
+  [
+    `Canvas: ${snapshot.nodes.length} nodes, ${snapshot.edges.length} edges.`,
+    selectedNodeIds.length ? `Selected nodes: ${selectedNodeIds.join(", ")}` : "Selected nodes: none",
+    snapshot.nodes.length ? summarizeCanvasForAgent({ nodes: snapshot.nodes, edges: snapshot.edges, selectedNodeIds }).slice(0, 1600) : "",
+  ].filter(Boolean).join("\n");
 
 const skillBriefFrom = (userMessage: string, memory: AgentProjectMemory | undefined) => {
   const rememberedBrief = memory?.storyBrief?.trim();
@@ -163,14 +189,32 @@ export async function POST(request: Request) {
     const snapshot = snapshotFrom(body.canvasSnapshot);
     const selectedNodeIds = stringArray(body.selectedNodeIds);
     const forced = validIntents.includes(body.forceIntent as AgentRouterIntent) ? body.forceIntent as AgentRouterIntent : undefined;
-    const intent = forced || inferIntent(userMessage, snapshot, selectedNodeIds.length);
+    let routedSkillId: "fixed-scene-action-video" | undefined;
+    let intent: AgentRouterIntent;
+    if (forced) {
+      intent = forced;
+    } else {
+      try {
+        const routed = await runAgentRouterLLM({
+          userMessage,
+          canvasSummary: routingCanvasSummary(snapshot, selectedNodeIds),
+          memorySummary: agentMemorySummary(snapshot.agentMemory),
+          conversation: messagesFrom(body.conversation),
+        });
+        intent = routed.intent;
+        routedSkillId = routed.skillId;
+      } catch (routerError) {
+        console.warn("Agent router LLM failed; using heuristic fallback", routerError instanceof Error ? routerError.message : routerError);
+        intent = inferIntent(userMessage, snapshot, selectedNodeIds.length);
+      }
+    }
 
     if (intent === "skill") {
       const skillBrief = await runFixedSceneSkillLLM({ userBrief: skillBriefFrom(userMessage, snapshot.agentMemory) });
       return NextResponse.json({
         ok: true,
         intent,
-        skillId: "fixed-scene-action-video",
+        skillId: routedSkillId || "fixed-scene-action-video",
         skillBrief,
         summary: "Use the fixed-scene video skill: character turnaround images + scene nine-grid image + video node.",
       });

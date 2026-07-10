@@ -17,8 +17,8 @@ const string = (value: unknown) => typeof value === "string" && value.trim() ? v
 const compact = (value: RecordValue) => Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined && item !== ""));
 const normalizeModel = (model?: string) => {
   const value = model?.trim().toLowerCase();
-  if (value === TOKENSTAR_GPT_IMAGE_MODEL.toLowerCase() || value === "gpt-image-2-tokenstar") return "gpt";
-  if (value === TOKENSTAR_NANO_BANANA_MODEL.toLowerCase() || value === "nano-banana-tokenstar") return "nano";
+  if (value === TOKENSTAR_GPT_IMAGE_MODEL.toLowerCase() || value === "gpt-image-2-tokenstar" || value === "gpt image 2" || value === "gpt-image-2") return "gpt";
+  if (value === TOKENSTAR_NANO_BANANA_MODEL.toLowerCase() || value === "nano-banana-tokenstar" || value === "nano banana 2" || value === "nano banana pro" || value === "gemini-3.1-flash-image-preview") return "nano";
   return undefined;
 };
 export const isTokenStarImageModel = (model?: string) => Boolean(normalizeModel(model));

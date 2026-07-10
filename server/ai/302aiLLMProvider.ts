@@ -1,7 +1,10 @@
 import "server-only";
 import { validateAgentCanvasEditPlan, validateAgentCanvasOrganizePlan, validateAgentDialogueResponse, validateAgentPlan, type AgentCanvasEditPlan, type AgentCanvasOrganizePlan, type AgentDialogueMessage, type AgentDialogueResponse, type AgentWorkflowPlan } from "@/shared/agent/agentSchema";
-import { buildAgentDialogueMessages, buildAgentEditMessages, buildAgentOrganizeMessages, buildAgentPlannerMessages, buildFixedSceneSkillMessages } from "@/server/agent/agentPrompt";
+import { buildAgentDialogueMessages, buildAgentEditMessages, buildAgentOrganizeMessages, buildAgentPlannerMessages, buildAgentRouterMessages, buildFixedSceneSkillMessages } from "@/server/agent/agentPrompt";
 import { agentModel, agentProvider, requestChatCompletion } from "@/server/ai/textLLMClient";
+import type { AgentProjectMemory } from "@/shared/agent/projectMemory";
+import type { AgentRouterIntent } from "@/shared/api/aiContracts";
+import type { AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 
 type ChatResponse = {
   choices?: Array<{ message?: { content?: string }; delta?: { content?: string } }>;
@@ -11,6 +14,8 @@ const cleanJson = (value: string) => value.trim().replace(/^```(?:json)?\s*/i, "
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const textArray = (value: unknown) => Array.isArray(value) ? value.map(text).filter(Boolean) : [];
+const routerIntents: AgentRouterIntent[] = ["dialogue", "create", "edit", "organize", "skill"];
+const workflowSkillIds: AgentWorkflowSkillId[] = ["fixed-scene-action-video"];
 
 const compiledFixedSceneBriefFrom = (value: unknown, fallback: string) => {
   const raw = object(value);
@@ -107,6 +112,35 @@ export async function runAgentOrganizeLLM({
   const content = raw.choices?.[0]?.message?.content || raw.choices?.[0]?.delta?.content;
   if (!content) throw new Error("Agent organizer did not return JSON content.");
   return validateAgentCanvasOrganizePlan(JSON.parse(cleanJson(content)));
+}
+
+export async function runAgentRouterLLM({
+  userMessage,
+  canvasSummary,
+  memorySummary,
+  conversation,
+}: {
+  userMessage: string;
+  canvasSummary: string;
+  memorySummary?: string;
+  conversation: AgentDialogueMessage[];
+  agentMemory?: AgentProjectMemory;
+}): Promise<{ intent: AgentRouterIntent; skillId?: AgentWorkflowSkillId; reason?: string }> {
+  const raw = await requestChatCompletion<ChatResponse>({
+    provider: agentProvider(),
+    body: {
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      messages: buildAgentRouterMessages({ userMessage, canvasSummary, memorySummary, conversation }),
+      temperature: 0,
+      response_format: { type: "json_object" },
+    },
+  });
+  const content = raw.choices?.[0]?.message?.content || raw.choices?.[0]?.delta?.content;
+  if (!content) throw new Error("Agent router did not return JSON content.");
+  const parsed = object(JSON.parse(cleanJson(content)));
+  const intent = routerIntents.includes(parsed.intent as AgentRouterIntent) ? parsed.intent as AgentRouterIntent : "dialogue";
+  const skillId = workflowSkillIds.includes(parsed.skillId as AgentWorkflowSkillId) ? parsed.skillId as AgentWorkflowSkillId : undefined;
+  return { intent, skillId: intent === "skill" ? skillId || "fixed-scene-action-video" : undefined, reason: text(parsed.reason) || undefined };
 }
 
 export async function runFixedSceneSkillLLM({ userBrief }: { userBrief: string }): Promise<string> {

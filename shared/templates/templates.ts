@@ -5,7 +5,7 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   prompt: { prompt: "Describe an atmospheric creative direction", negativePrompt: "", style: "Cinematic", aspectRatio: "16:9" },
   text: { instruction: "Turn this brief into an engaging creative draft", model: "", temperature: 0.7 },
   script: { storyBrief: "A fictional creative story", scriptTone: "Cinematic, warm, fictional", numberOfScenes: 3, model: "" },
-  image: { prompt: "A cinematic editorial image", model: "gpt-image-2", size: "1024x1024", referenceImageUrl: "" },
+  image: { prompt: "A cinematic editorial image", model: "gpt-image-2(tokenstar)", size: "2048x2048", referenceImageUrl: "" },
   video: { prompt: "A gentle cinematic movement", aspectRatio: "16:9", referenceImageUrl: "", fps: "", ...videoModelPatch("seedance-2.0"), referenceImageAssetUrl: "", referenceVideoAssetUrl: "", referenceAudioAssetUrl: "" },
   videoEdit: { prompt: "", editPlan: "", preserveAudio: true, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" },
   audio: { prompt: "A warm, modern ambient bed", voiceStyle: "Atmospheric", duration: 12, model: "", voice: "", emotion: "", volume: 1 },
@@ -16,7 +16,7 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
 };
 export function makeNode(type: NodeType, position = { x: 140, y: 120 }): CanvasNode {
   const prefix = type === "videoEdit" ? "Video" : `${type[0].toUpperCase()}${type.slice(1)}`;
-  const title = type === "image" ? "Image* gpt-image-2" : `${prefix}* New ${prefix}`;
+  const title = type === "image" ? "Image* GPT Image 2 (TokenStar)" : `${prefix}* New ${prefix}`;
   return { id: `${type}-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: type, title, status: "idle", ...defaults[type] } };
 }
 export type Template = { id: string; name: string; description: string; types: NodeType[] };

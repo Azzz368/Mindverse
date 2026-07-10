@@ -38,6 +38,12 @@ const nodeImageUrl = (node: CanvasNode) => {
   return text(value.imageUrl || value.revisedImageUrl || node.data.imageUrl || "");
 };
 const materialLabel = (node: CanvasNode) => node.data.title || (node.data.nodeType === "reference" ? "Reference" : "Image");
+const imageModelValue = (model?: string) => {
+  const value = (model || "").trim().toLowerCase();
+  if (!value || value === "gpt image 2" || value === "gpt-image-2") return "gpt-image-2(tokenstar)";
+  if (value === "nano banana 2" || value === "nano banana pro" || value === "gemini-3.1-flash-image-preview") return "nano banana(tokenstar)";
+  return model || "gpt-image-2(tokenstar)";
+};
 
 function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; nodeId: string; onClose(): void }) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
@@ -527,8 +533,11 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
         <div className="flex items-center justify-between px-6 pb-6">
           <div className="flex gap-2">
             <PillDropdown
-              value={data.model || "Nano Banana Pro"}
-              options={["GPT image 2", "Nano Banana 2", "Nano Banana Pro"].map((o) => ({ value: o, label: o }))}
+              value={imageModelValue(data.model)}
+              options={[
+                { value: "gpt-image-2(tokenstar)", label: "GPT Image 2 (TokenStar)" },
+                { value: "nano banana(tokenstar)", label: "Nano Banana (TokenStar)" },
+              ]}
               onChange={(v) => updateNodeData(id, { model: String(v) })}
             />
             <PillDropdown
