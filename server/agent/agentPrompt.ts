@@ -1,4 +1,6 @@
-import { readAgentSkill } from "./skillLoader";
+import { listAgentSkills, readAgentSkill } from "./skillLoader";
+import { agentWorkflowSkills } from "@/shared/agent/workflowSkills";
+import type { AgentProjectMemory } from "@/shared/agent/projectMemory";
 
 const languageInstructionFor = (text: string) =>
   /[\u3400-\u9fff]/.test(text)
@@ -105,6 +107,69 @@ export function buildAgentOrganizeMessages({
         `User organization instruction:\n${userInstruction}`,
         canvasSummary,
         "Create a safe canvas organization plan.",
+      ].join("\n\n"),
+    },
+  ] as Array<{ role: "system" | "user"; content: string }>;
+}
+
+const excerpt = (value: string, max = 1800) => value.trim().slice(0, max);
+
+export function buildAgentRouterMessages({
+  userMessage,
+  canvasSummary,
+  memorySummary,
+  conversation,
+}: {
+  userMessage: string;
+  canvasSummary: string;
+  memorySummary?: string;
+  conversation: Array<{ role: "user" | "assistant"; content: string }>;
+  agentMemory?: AgentProjectMemory;
+}) {
+  const coreSkills = listAgentSkills()
+    .map((skill) => `## ${skill.name}\n${excerpt(skill.content)}`)
+    .join("\n\n");
+  const workflowSkills = Object.values(agentWorkflowSkills)
+    .map((skill) => [
+      `## workflow-skill:${skill.id}`,
+      `Label: ${skill.label}`,
+      `Description: ${skill.description}`,
+      "Use this only when the user explicitly asks to generate/build/place this workflow, not during open-ended ideation.",
+    ].join("\n"))
+    .join("\n\n");
+
+  return [
+    {
+      role: "system",
+      content: [
+        "You are Mindverse Agent Router. Choose exactly one route for the latest user message.",
+        languageInstructionFor(userMessage),
+        "Read the available skill descriptions. Route by intent and context, not by shallow keyword matching.",
+        "Routes:",
+        "- dialogue: brainstorm, ideate, clarify, develop a story, or continue an unfinished ideation conversation.",
+        "- create: create a general editable workflow from a sufficiently clear request.",
+        "- edit: modify existing canvas nodes/edges. Do not choose edit if the user says not to modify or only wants ideation.",
+        "- organize: arrange/group/clean up the current canvas.",
+        "- skill: call a specialized workflow skill. Use only when the user explicitly asks to generate/build/place that specialized workflow.",
+        "Important: If the user says '构思', '不是修改', '只构思', or is adding story details while the last memory intent is dialogue, choose dialogue unless they explicitly request workflow generation.",
+        "Return JSON only: {\"intent\":\"dialogue|create|edit|organize|skill\",\"skillId\":\"fixed-scene-action-video optional\",\"reason\":\"short reason\"}.",
+        "",
+        "Available core skills:",
+        coreSkills,
+        "",
+        "Available workflow skills:",
+        workflowSkills,
+      ].join("\n\n"),
+    },
+    {
+      role: "user",
+      content: [
+        "Conversation so far:",
+        JSON.stringify(conversation.slice(-10), null, 2),
+        memorySummary ? `Agent memory:\n${memorySummary}` : "Agent memory: empty",
+        canvasSummary,
+        "Latest user message:",
+        userMessage,
       ].join("\n\n"),
     },
   ] as Array<{ role: "system" | "user"; content: string }>;

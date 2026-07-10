@@ -8,7 +8,6 @@ import { useLang } from "@/components/providers/LangProvider";
 const TEXT_TYPES = new Set(["prompt", "text", "script"]);
 
 const IMAGE_MODELS = [
-  { id: "gpt-image-2", label: "gpt-image-2", desc: "OpenAI \u6700\u65b0\u56fe\u50cf\u751f\u6210" },
   { id: "gpt-image-2(tokenstar)", label: "gpt-image-2 (TokenStar)", desc: "TokenStar GPT Image 2" },
   { id: "nano banana(tokenstar)", label: "Nano Banana (TokenStar)", desc: "TokenStar Gemini image" },
 ];

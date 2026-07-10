@@ -4,6 +4,11 @@ import { join } from "node:path";
 
 export type AgentSkillName = "workflow-planner" | "canvas-edit" | "canvas-organize" | "ideation-dialogue";
 
+export const listAgentSkills = () => (["ideation-dialogue", "workflow-planner", "canvas-edit", "canvas-organize"] as const).map((name) => ({
+  name,
+  content: readAgentSkill(name),
+}));
+
 const cache = new Map<AgentSkillName, string>();
 
 export function readAgentSkill(name: AgentSkillName) {
