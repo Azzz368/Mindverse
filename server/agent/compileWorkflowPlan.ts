@@ -63,6 +63,10 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
     prompt: step.purpose || "",
     editPlan: text(params.editPlan) || step.prompt || plan.userPrompt,
     preserveAudio: bool(params.preserveAudio) ?? true,
+    originalVolume: number(params.originalVolume) ?? 1,
+    backgroundVolume: number(params.backgroundVolume) ?? 0.2,
+    fadeIn: number(params.fadeIn) ?? 0,
+    fadeOut: number(params.fadeOut) ?? 0,
     transition: text(params.transition) === "fade" ? "fade" : "none",
     resolution: text(params.resolution) || "720p",
     fps: text(params.fps) || "30",
@@ -115,7 +119,11 @@ export function compileWorkflowPlanToCanvas(plan: AgentWorkflowPlan): CanvasPatc
       const target = stepIdToNodeId.get(step.id);
       const sourceNode = source ? nodes.find((node) => node.id === source) : undefined;
       const targetNode = target ? nodes.find((node) => node.id === target) : undefined;
-      const targetHandle = sourceNode && targetNode?.data.nodeType === "video" ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data) : undefined;
+      const targetHandle = sourceNode && targetNode?.data.nodeType === "video"
+        ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data)
+        : sourceNode && targetNode?.data.nodeType === "videoEdit" && (sourceNode.data.nodeType === "video" || sourceNode.data.nodeType === "videoEdit" || sourceNode.data.nodeType === "audio")
+          ? sourceNode.data.nodeType === "audio" ? "audio" : "video"
+          : undefined;
       if (source && target) edges.push({ id: `edge-${source}-${target}`, source, target, ...(targetHandle ? { targetHandle } : {}) });
     });
   });
@@ -168,18 +176,18 @@ function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
     }
 
     if (step.kind === "videoEdit") {
-      const explicitVideoDependencies = explicit.filter((id) => {
+      const explicitEditDependencies = explicit.filter((id) => {
         const kind = byId.get(id)?.kind;
-        return kind === "video" || kind === "videoEdit";
+        return kind === "video" || kind === "videoEdit" || kind === "audio";
       });
-      if (explicitVideoDependencies.length) {
-        map.set(step.id, explicitVideoDependencies);
+      if (explicitEditDependencies.length) {
+        map.set(step.id, explicitEditDependencies);
         return;
       }
 
-      const previousVideos = steps.slice(0, index).filter((item) => item.kind === "video" || item.kind === "videoEdit");
-      if (previousVideos.length) {
-        map.set(step.id, previousVideos.map((item) => item.id));
+      const previousEditMedia = steps.slice(0, index).filter((item) => item.kind === "video" || item.kind === "videoEdit" || item.kind === "audio");
+      if (previousEditMedia.length) {
+        map.set(step.id, previousEditMedia.map((item) => item.id));
         return;
       }
     }

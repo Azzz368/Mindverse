@@ -153,6 +153,23 @@ const plannerSummary = (snapshot: RouterSnapshot) =>
 const canvasSummaryWithMemory = (snapshot: RouterSnapshot, selectedNodeIds: string[]) =>
   `${summarizeCanvasForAgent({ nodes: snapshot.nodes, edges: snapshot.edges, selectedNodeIds })}${memoryContext(snapshot.agentMemory)}`;
 
+const patchHasChanges = (patch: ReturnType<typeof compileCanvasEditPlanToPatch>) =>
+  patch.createNodes.length > 0 ||
+  patch.updateNodes.length > 0 ||
+  patch.deleteNodeIds.length > 0 ||
+  patch.createEdges.length > 0 ||
+  patch.deleteEdgeIds.length > 0;
+
+const patchNeedsRepair = (patch: ReturnType<typeof compileCanvasEditPlanToPatch>, selectedNodeIds: string[]) => {
+  if (!patchHasChanges(patch) || (patch.warnings || []).length > 0) return true;
+  const createdVideoEditIds = new Set(patch.createNodes.filter((node) => node.data.nodeType === "videoEdit").map((node) => node.id));
+  if (!createdVideoEditIds.size || !selectedNodeIds.length) return false;
+  return !patch.createEdges.some((edge) => createdVideoEditIds.has(edge.target));
+};
+
+const editSummary = (title: string, patch: ReturnType<typeof compileCanvasEditPlanToPatch>) =>
+  `${title}: ${patch.createNodes.length} nodes to create, ${patch.updateNodes.length} nodes to update, ${patch.deleteNodeIds.length} nodes to delete, ${patch.createEdges.length} connections to create, ${patch.deleteEdgeIds.length} connections to delete.`;
+
 const routingCanvasSummary = (snapshot: RouterSnapshot, selectedNodeIds: string[]) =>
   [
     `Canvas: ${snapshot.nodes.length} nodes, ${snapshot.edges.length} edges.`,
@@ -239,14 +256,32 @@ export async function POST(request: Request) {
     }
 
     if (intent === "edit" && snapshot.nodes.length) {
-      const editPlan = await runAgentEditLLM({ userInstruction: userMessage, canvasSummary: canvasSummaryWithMemory(snapshot, selectedNodeIds) });
-      const patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds });
+      const editCanvasSummary = canvasSummaryWithMemory(snapshot, selectedNodeIds);
+      let editPlan = await runAgentEditLLM({ userInstruction: userMessage, canvasSummary: editCanvasSummary });
+      let patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds });
+      if (patchNeedsRepair(patch, selectedNodeIds)) {
+        editPlan = await runAgentEditLLM({
+          userInstruction: userMessage,
+          canvasSummary: editCanvasSummary,
+          repairFeedback: [
+            "The previous edit plan compiled to an empty or incomplete canvas patch, so the user would see no usable graph change.",
+            "Re-read the selected nodes and the user instruction.",
+            "Return executable graph operations with exact node ids: create/update nodes and connect/disconnect edges as needed.",
+            "If the user asks to edit selected media, make the graph runnable by creating or updating the appropriate node and connecting selected source nodes.",
+            "If you create a videoEdit node from selected videos/audio, it must have incoming edges from those selected source nodes.",
+            "Schema reminder: createNode requires nodeType. Later operations must reference new nodes by the createNode operation id, not placeholder node ids.",
+            `Compiler warnings: ${JSON.stringify(patch.warnings || [])}`,
+            `Previous operations: ${JSON.stringify(editPlan.operations)}`,
+          ].join("\n"),
+        });
+        patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds });
+      }
       return NextResponse.json({
         ok: true,
         intent,
         editPlan,
         patch,
-        summary: `${editPlan.title}: ${patch.createNodes.length} nodes to create, ${patch.updateNodes.length} nodes to update, ${patch.deleteNodeIds.length} nodes to delete.`,
+        summary: editSummary(editPlan.title, patch),
       });
     }
 

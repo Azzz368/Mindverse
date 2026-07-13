@@ -38,6 +38,10 @@ const sanitizeDataPatch = (value: unknown): Partial<CanvasNodeData> => {
   Object.entries(raw).forEach(([key, patchValue]) => {
     if (forbiddenPatchKeys.has(key)) return;
     if (key === "nodeType" || key === "status") return;
+    if (key === "editPlan" && patchValue && typeof patchValue === "object") {
+      clean[key] = JSON.stringify(patchValue, null, 2);
+      return;
+    }
     if (key === "tokenstarMode" && typeof patchValue === "string") {
       clean[key] = normalizeTokenstarMode(patchValue.trim());
       return;
@@ -56,8 +60,9 @@ const patchFromParams = (operation: AgentEditOperation): Partial<CanvasNodeData>
   ["prompt", "editPlan", "negativePrompt", "style", "aspectRatio", "instruction", "inputText", "model", "size", "scriptTone", "format", "resolution", "fps", "voiceStyle", "voice", "emotion", "videoProvider", "tokenstarMode", "klingMode", "videoInputMode", "transition"].forEach((key) => {
     const value = params[key];
     if (typeof value === "string" && value.trim()) dataPatch[key] = value.trim();
+    if (key === "editPlan" && value && typeof value === "object") dataPatch[key] = JSON.stringify(value, null, 2);
   });
-  ["duration", "temperature", "numberOfScenes", "targetShotCount", "volume", "shotNumber"].forEach((key) => {
+  ["duration", "temperature", "numberOfScenes", "targetShotCount", "volume", "shotNumber", "originalVolume", "backgroundVolume", "fadeIn", "fadeOut"].forEach((key) => {
     const value = number(params[key]);
     if (value !== undefined) dataPatch[key] = value;
   });
@@ -130,7 +135,11 @@ const addEdgeIfNew = (edges: WorkflowEdge[], source: string, target: string, exi
   existingEdgeIds.add(id);
   const sourceNode = nodeById?.get(source);
   const targetNode = nodeById?.get(target);
-  const targetHandle = sourceNode && targetNode?.data.nodeType === "video" ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data) : undefined;
+  const targetHandle = sourceNode && targetNode?.data.nodeType === "video"
+    ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data)
+    : sourceNode && targetNode?.data.nodeType === "videoEdit" && (sourceNode.data.nodeType === "video" || sourceNode.data.nodeType === "videoEdit" || sourceNode.data.nodeType === "audio")
+      ? sourceNode.data.nodeType === "audio" ? "audio" : "video"
+      : undefined;
   edges.push({ id, source, target, ...(targetHandle ? { targetHandle } : {}) });
 };
 
@@ -226,7 +235,7 @@ export function compileCanvasEditPlanToPatch({
         return;
       }
       const source = resolveNodeId(operation.sourceNodeId, nodeById, createdByOperation);
-      const target = resolveNodeId(operation.targetNodeIdForConnection, nodeById, createdByOperation);
+      const target = resolveNodeId(operation.targetNodeIdForConnection || operation.targetNodeId, nodeById, createdByOperation);
       currentEdges.forEach((edge) => {
         if ((!source || edge.source === source) && (!target || edge.target === target)) deleteEdgeIds.add(edge.id);
       });
@@ -235,9 +244,10 @@ export function compileCanvasEditPlanToPatch({
 
     if (operation.type === "connectNodes") {
       const source = resolveNodeId(operation.sourceNodeId, nodeById, createdByOperation);
-      const target = resolveNodeId(operation.targetNodeIdForConnection, nodeById, createdByOperation);
+      const targetRef = operation.targetNodeIdForConnection || operation.targetNodeId;
+      const target = resolveNodeId(targetRef, nodeById, createdByOperation);
       if (!source || !target) {
-        warnings.push(`Skipped connectNodes: source or target was not found.`);
+        warnings.push(`Skipped connectNodes ${operation.id}: source ${operation.sourceNodeId || "(missing)"} ${source ? "resolved" : "not found"}, target ${targetRef || "(missing)"} ${target ? "resolved" : "not found"}. Use an existing node id or a prior createNode operation id.`);
         return;
       }
       addEdgeIfNew(createEdges, source, target, edgeIds, warnings, nodeById);
@@ -246,7 +256,7 @@ export function compileCanvasEditPlanToPatch({
 
     if (operation.type === "createNode") {
       if (!isNodeType(operation.nodeType)) {
-        warnings.push(`Skipped createNode: unsupported node type ${text(operation.nodeType)}.`);
+        warnings.push(`Skipped createNode ${operation.id}: missing or unsupported nodeType ${text(operation.nodeType) || "(missing)"}. createNode requires nodeType such as videoEdit, video, audio, image, or output.`);
         return;
       }
       const base = placementBase(operation, [...currentNodes, ...createNodes], nodeById, createdByOperation);
@@ -310,6 +320,7 @@ export function compileCanvasEditPlanToPatch({
     deleteNodeIds: [...deleteNodeIds],
     createEdges: createEdges.filter((edge) => !deleteNodeIds.has(edge.source) && !deleteNodeIds.has(edge.target)),
     deleteEdgeIds: [...deleteEdgeIds],
+    selectedNodeIds: [...selected],
     warnings,
   };
 }

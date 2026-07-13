@@ -23,7 +23,14 @@ const fail = (message: string, status = 400, code?: string): RunNodeResult => ({
 
 const text = (value: unknown) => typeof value === "string" ? value : "";
 const optionalText = (value: unknown) => typeof value === "string" ? value : undefined;
-const optionalNumber = (value: unknown) => typeof value === "number" ? value : undefined;
+const optionalNumber = (value: unknown) => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+};
 const urls = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : undefined;
 
 const normalizeTokenstarMode = (value: unknown, fallback: unknown = "text-to-video") => {
@@ -98,17 +105,26 @@ async function runScript(input: Record<string, unknown>) {
 
 export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Record<string, unknown>): Promise<RunNodeResult> {
   if (nodeType === "videoEdit") {
-    const output = await createFfmpegVideoEdit({
-      prompt: optionalText(rawInput.prompt),
-      editPlan: optionalText(rawInput.editPlan),
-      referenceVideoUrls: urls(rawInput.referenceVideoUrls),
-      preserveAudio: typeof rawInput.preserveAudio === "boolean" ? rawInput.preserveAudio : true,
-      transition: rawInput.transition === "fade" ? "fade" : "none",
-      resolution: optionalText(rawInput.resolution),
-      aspectRatio: optionalText(rawInput.aspectRatio),
-      fps: optionalText(rawInput.fps) || optionalNumber(rawInput.fps),
-    });
-    return { ok: true, provider: "ffmpeg", output, polling: { intervalMs: 0 } };
+    try {
+      const output = await createFfmpegVideoEdit({
+        prompt: optionalText(rawInput.prompt),
+        editPlan: optionalText(rawInput.editPlan),
+        referenceVideoUrls: urls(rawInput.referenceVideoUrls),
+        referenceAudioUrls: urls(rawInput.referenceAudioUrls),
+        preserveAudio: typeof rawInput.preserveAudio === "boolean" ? rawInput.preserveAudio : true,
+        originalVolume: optionalNumber(rawInput.originalVolume),
+        backgroundVolume: optionalNumber(rawInput.backgroundVolume),
+        fadeIn: optionalNumber(rawInput.fadeIn),
+        fadeOut: optionalNumber(rawInput.fadeOut),
+        transition: rawInput.transition === "fade" ? "fade" : "none",
+        resolution: optionalText(rawInput.resolution),
+        aspectRatio: optionalText(rawInput.aspectRatio),
+        fps: optionalText(rawInput.fps) || optionalNumber(rawInput.fps),
+      });
+      return { ok: true, provider: "ffmpeg", output, polling: { intervalMs: 0 } };
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : "Video edit failed.", 500, "VIDEO_EDIT_ERROR");
+    }
   }
 
   if (nodeType === "video" && rawInput.videoProvider === "302-sora2") return runSora2Video(rawInput);

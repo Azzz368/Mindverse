@@ -57,6 +57,7 @@ const extensionFor = (mimeType: string | undefined, mediaType: MediaType) => {
   if (normalized === "audio/wav") return "wav";
   if (normalized === "audio/aac") return "aac";
   if (normalized === "audio/flac") return "flac";
+  if (normalized === "audio/mp4") return "m4a";
   return mediaType === "image" ? "png" : mediaType === "video" ? "mp4" : "mp3";
 };
 

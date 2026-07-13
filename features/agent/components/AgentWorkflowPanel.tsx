@@ -15,6 +15,7 @@ import type {
   CanvasPatch,
 } from "@/shared/agent/agentSchema";
 import type { AgentRouterIntent } from "@/shared/api/aiContracts";
+import type { CanvasNode } from "@/shared/canvas";
 
 type AgentPreview =
   | { intent: "create"; plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }
@@ -54,6 +55,23 @@ const fixedSceneConstraints = [
   "Avoid storyboard-only workflow for fixed-scene video requests.",
 ];
 
+const valueRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+
+const hasOutputUrl = (node: CanvasNode, keys: string[]) => {
+  const value = valueRecord(node.data.output?.value);
+  return keys.some((key) => typeof value[key] === "string" && Boolean((value[key] as string).trim()));
+};
+
+const selectedNodeMeta = (node: CanvasNode) => {
+  const media = [
+    hasOutputUrl(node, ["imageUrl", "revisedImageUrl"]) ? "image" : "",
+    hasOutputUrl(node, ["videoUrl", "resultUrl", "finalVideoUrl"]) ? "video" : "",
+    hasOutputUrl(node, ["audioUrl", "resultUrl"]) ? "audio" : "",
+  ].filter(Boolean);
+  return [node.data.nodeType, node.data.status, ...media].join(" · ");
+};
+
 export function AgentWorkflowPanel() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -67,6 +85,9 @@ export function AgentWorkflowPanel() {
   const edges = useCanvasStore((state) => state.edges);
   const projectName = useCanvasStore((state) => state.projectName);
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
+  const selectionMode = useCanvasStore((state) => state.selectionMode);
+  const setSelectionMode = useCanvasStore((state) => state.setSelectionMode);
+  const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const agentStatus = useCanvasStore((state) => state.agentStatus);
   const agentMessage = useCanvasStore((state) => state.agentMessage);
   const agentMemory = useCanvasStore((state) => state.agentMemory);
@@ -85,6 +106,10 @@ export function AgentWorkflowPanel() {
   const selectedNodeIds = useMemo(
     () => [...new Set([...nodes.filter((node) => node.selected).map((node) => node.id), ...(selectedNodeId ? [selectedNodeId] : [])])],
     [nodes, selectedNodeId],
+  );
+  const selectedNodes = useMemo(
+    () => selectedNodeIds.map((id) => nodes.find((node) => node.id === id)).filter((node): node is CanvasNode => Boolean(node)),
+    [nodes, selectedNodeIds],
   );
   const memoryText = useMemo(() => agentMemorySummary(agentMemory), [agentMemory]);
   const canSubmit = input.trim().length > 0 && !busy;
@@ -181,7 +206,7 @@ export function AgentWorkflowPanel() {
     if (!preview) return;
     if (preview.intent === "create") applyAgentPatch(preview.patch);
     else if (preview.intent === "skill") void runAgentSkill(preview.skillId, preview.brief);
-    else applyAgentEditPatch(preview.patch);
+    else applyAgentEditPatch({ ...preview.patch, selectedNodeIds: preview.patch.selectedNodeIds?.length ? preview.patch.selectedNodeIds : selectedNodeIds });
     setLocalError(null);
   };
 
@@ -231,6 +256,48 @@ export function AgentWorkflowPanel() {
         <div>
           <h2 className="text-[24px] font-semibold leading-tight tracking-normal text-[#111827]">直接描述你想做什么</h2>
           <p className="mt-1 text-[12px] leading-5 text-[#6b7280]">Agent 会结合当前画布和项目记忆，自动判断是构思、生成工作流、修改画布、整理画布还是调用专用 skill。</p>
+        </div>
+
+        <div className="rounded-[16px] border border-[#dce2ea] bg-white px-3 py-3 text-[12px] leading-5 text-[#5f6b7a] shadow-sm">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <span className="font-semibold text-[#111827]">Selected context</span>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-[#f2f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#5f6b7a]">{selectedNodes.length} nodes</span>
+              {selectedNodes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedNode(null)}
+                  className="rounded-full px-2 py-1 text-[11px] font-semibold text-[#6b7280] hover:bg-[#f2f5f9] hover:text-[#111827]"
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setSelectionMode(!selectionMode)}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${selectionMode ? "bg-[#111827] text-white hover:bg-[#2f3746]" : "bg-[#f2f5f9] text-[#111827] hover:bg-[#e7edf5]"}`}
+              >
+                {selectionMode ? "Done" : "Select"}
+              </button>
+            </div>
+          </div>
+          {selectedNodes.length ? (
+            <div className="space-y-2">
+              <p>{selectionMode ? "Selection mode is on. Click canvas nodes to add or remove them." : "Agent will prioritize these nodes when you say selected, these, current, this, or ask for edits."}</p>
+              <div className="max-h-28 space-y-1 overflow-y-auto pr-1">
+                {selectedNodes.slice(0, 8).map((node) => (
+                  <div key={node.id} className="rounded-lg border border-[#edf1f6] bg-[#f7f9fc] px-2 py-1.5">
+                    <div className="truncate font-semibold text-[#111827]">{node.data.title || node.id}</div>
+                    <div className="mt-0.5 truncate font-mono text-[10px] text-[#7b8794]">{node.id}</div>
+                    <div className="mt-0.5 text-[10px] text-[#7b8794]">{selectedNodeMeta(node)}</div>
+                  </div>
+                ))}
+                {selectedNodes.length > 8 && <div className="text-[11px] text-[#7b8794]">+ {selectedNodes.length - 8} more selected nodes</div>}
+              </div>
+            </div>
+          ) : (
+            <p>{selectionMode ? "Selection mode is on. Click canvas nodes to add them here." : "Click Select, then click one or more canvas nodes if you want Agent to edit specific videos, images, audio, or workflow nodes."}</p>
+          )}
         </div>
 
         {memoryText && (
@@ -427,6 +494,15 @@ export function AgentWorkflowPanel() {
               <div className="rounded-lg bg-[#f7f9fc] px-2 py-2">更新: {preview.patch.updateNodes.length}</div>
               <div className="rounded-lg bg-[#f7f9fc] px-2 py-2">删除: {preview.patch.deleteNodeIds.length}</div>
             </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-[#5f6b7a]">
+              <div className="rounded-lg bg-[#f7f9fc] px-2 py-2">Connect: {preview.patch.createEdges.length}</div>
+              <div className="rounded-lg bg-[#f7f9fc] px-2 py-2">Disconnect: {preview.patch.deleteEdgeIds.length}</div>
+            </div>
+            {preview.patch.warnings?.length ? (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">
+                {preview.patch.warnings.slice(0, 3).map((warning) => <div key={warning}>{warning}</div>)}
+              </div>
+            ) : null}
             <div className="mt-3 max-h-52 overflow-y-auto rounded-xl border border-[#edf1f6]">
               {preview.editPlan.operations.map((operation) => (
                 <div key={operation.id} className="flex items-start gap-2 border-b border-[#edf1f6] px-3 py-2 last:border-b-0">
@@ -438,7 +514,20 @@ export function AgentWorkflowPanel() {
                 </div>
               ))}
             </div>
-            <Button type="button" onClick={applyPreview} className="mt-4 w-full rounded-full border-[#111827] bg-[#111827] text-white hover:border-[#263244] hover:bg-[#263244]">应用修改</Button>
+            <Button
+              type="button"
+              disabled={
+                !preview.patch.createNodes.length &&
+                !preview.patch.updateNodes.length &&
+                !preview.patch.deleteNodeIds.length &&
+                !preview.patch.createEdges.length &&
+                !preview.patch.deleteEdgeIds.length
+              }
+              onClick={applyPreview}
+              className="mt-4 w-full rounded-full border-[#111827] bg-[#111827] text-white hover:border-[#263244] hover:bg-[#263244]"
+            >
+              应用修改
+            </Button>
           </div>
         )}
 

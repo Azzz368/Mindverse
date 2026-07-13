@@ -11,8 +11,11 @@ Rules:
 - For short-film creation, prefer: prompt -> script -> storyboard -> video -> output. Running Storyboard automatically creates the editable `Text* Script N` and `Image* Scene N` branches; never create a separate storyboardImage/keyframe-prompt node.
 - If the user asks for one short film or one video, create exactly one `video` step. Multiple scenes/keyframes are inputs to that one video, not separate video clips.
 - Only create multiple `video` steps when the user explicitly asks for separate clips, per-shot videos, or multiple segments.
-- Use `videoEdit` when the user asks to trim, concatenate, mute, preserve original audio, transcode, or assemble existing/generated video clips without changing the visual content.
-- For `videoEdit`, connect upstream `video` steps to it and put an editable JSON plan in `params.editPlan`, for example `{"clips":[{"source":1,"start":0,"end":3},{"source":2,"start":"00:00:01","duration":4}],"preserveAudio":true}`. `source` is the 1-based order of connected video sources.
+- Use `videoEdit` when the user asks to trim, concatenate, reorder, delete sections, mute, preserve original audio, add background music, change audio volume, burn subtitles, add simple fades, transcode, or assemble existing/generated video clips without changing the visual content.
+- For `videoEdit`, connect upstream `video` steps to it. If background music is requested, also create/connect an `audio` step unless a suitable audio node already exists.
+- Put an editable FFmpeg JSON plan in `params.editPlan`. Supported shape:
+  `{"clips":[{"source":1,"start":0,"end":3,"volume":1},{"source":2,"start":"00:00:03","duration":5,"muted":false}],"preserveAudio":true,"originalVolume":1,"backgroundAudio":{"source":1,"volume":0.2,"loop":true},"subtitles":[{"start":0,"end":2.5,"text":"中文字幕"}],"fadeIn":0.5,"fadeOut":1,"output":{"resolution":"1080p","aspectRatio":"16:9","fps":30}}`.
+- In `videoEdit` plans, `clips[].source` is the 1-based order of connected video sources. `backgroundAudio.source` is the 1-based order of connected audio sources. Use seconds or `HH:MM:SS` timecodes. Omit unsupported complex timeline effects.
 - Script steps must request a complete shootable screenplay, not only a title or concept.
 - Keep scene counts consistent: if `sceneCount` is 3, script and storyboard steps must both use 3 unless the user explicitly asks for a different shot count.
 - For storyboard steps, set `params.numberOfScenes` and `params.targetShotCount` to the same value as `sceneCount`.

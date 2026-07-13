@@ -104,6 +104,7 @@ export type CanvasEditPatch = {
   deleteNodeIds: string[];
   createEdges: WorkflowEdge[];
   deleteEdgeIds: string[];
+  selectedNodeIds?: string[];
   warnings?: string[];
 };
 
@@ -240,8 +241,11 @@ export function validateAgentCanvasEditPlan(value: unknown): AgentCanvasEditPlan
   const operations: AgentEditOperation[] = [];
   if (Array.isArray(raw.operations)) raw.operations.forEach((item, index) => {
     const op = object(item);
+    const opParams = params(op.params);
+    const opDataPatch = params(op.dataPatch);
     const type = editOperationTypes.includes(op.type as AgentEditOperationType) ? op.type as AgentEditOperationType : "noop";
-    const nodeType = kinds.includes(op.nodeType as AgentStepKind) ? op.nodeType as AgentStepKind : undefined;
+    const rawNodeType = op.nodeType || opParams?.nodeType || opDataPatch?.nodeType;
+    const nodeType = kinds.includes(rawNodeType as AgentStepKind) ? rawNodeType as AgentStepKind : undefined;
     operations.push({
       id: safeId(text(op.id), `op-${index + 1}`),
       type,
@@ -250,16 +254,16 @@ export function validateAgentCanvasEditPlan(value: unknown): AgentCanvasEditPlan
       targetEdgeId: text(op.targetEdgeId) || undefined,
       nodeType,
       label: text(op.label) || undefined,
-      dataPatch: params(op.dataPatch),
+      dataPatch: opDataPatch,
       sourceNodeId: text(op.sourceNodeId) || undefined,
-      targetNodeIdForConnection: text(op.targetNodeIdForConnection) || undefined,
+      targetNodeIdForConnection: text(op.targetNodeIdForConnection) || text(op.targetNodeId) || undefined,
       dependsOn: stringArray(op.dependsOn),
       positionHint: op.positionHint && typeof op.positionHint === "object" ? {
         afterNodeId: text(object(op.positionHint).afterNodeId) || undefined,
         column: Number.isFinite(Number(object(op.positionHint).column)) ? Number(object(op.positionHint).column) : undefined,
         row: Number.isFinite(Number(object(op.positionHint).row)) ? Number(object(op.positionHint).row) : undefined,
       } : undefined,
-      params: params(op.params),
+      params: opParams,
     });
   });
   if (!userInstruction) throw new Error("Agent edit plan is missing userInstruction.");

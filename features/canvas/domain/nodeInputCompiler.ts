@@ -33,13 +33,15 @@ export const videoUrlFrom = (node: CanvasNode) => {
   const value = asRecord(node.data.output?.value);
   const raw = asRecord(value.raw);
   const content = asRecord(raw.content);
-  return asText(value.videoUrl) || asText(value.resultUrl) || asText(value.finalVideoUrl) || asText(content.video_url);
+  const data = asRecord(node.data);
+  return asText(value.videoUrl) || asText(value.resultUrl) || asText(value.finalVideoUrl) || asText(content.video_url) || asText(data.resultUrl);
 };
 
 export const audioUrlFrom = (node: CanvasNode) => {
   const value = asRecord(node.data.output?.value);
   const raw = asRecord(value.raw);
-  return asText(value.audioUrl) || asText(value.resultUrl) || asText(raw.audio_url) || asText(raw.audioUrl) || asText(raw.url);
+  const data = asRecord(node.data);
+  return asText(value.audioUrl) || asText(value.resultUrl) || asText(raw.audio_url) || asText(raw.audioUrl) || asText(raw.url) || asText(data.audioUrl) || asText(data.resultUrl);
 };
 
 const ownPromptFrom = (data: CanvasNodeData) =>
@@ -255,11 +257,20 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoEdit")
       .map(videoUrlFrom)
       .filter(Boolean);
+    const upstreamAudioUrls = upstream
+      .filter((source) => source.data.nodeType === "audio")
+      .map(audioUrlFrom)
+      .filter(Boolean);
     return {
       prompt: limitProviderPrompt(ownPromptFrom(d) || prompt),
       editPlan: limitProviderPrompt(d.editPlan || ""),
       referenceVideoUrls: upstreamVideoUrls,
+      referenceAudioUrls: upstreamAudioUrls,
       preserveAudio: d.preserveAudio !== false,
+      originalVolume: d.originalVolume,
+      backgroundVolume: d.backgroundVolume,
+      fadeIn: d.fadeIn,
+      fadeOut: d.fadeOut,
       transition: d.transition || "none",
       resolution: d.resolution || "720p",
       aspectRatio: d.aspectRatio || "16:9",

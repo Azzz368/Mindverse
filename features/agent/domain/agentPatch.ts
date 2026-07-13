@@ -26,28 +26,83 @@ export const offsetPatchTo = (patch: CanvasPatch, position: { x: number; y: numb
     edges: patch.edges,
   };
 };
+
+const edgeIdFor = (source: string, target: string) => `edge-${source}-${target}`;
+
 export const applyEditPatchToState = (state: { nodes: CanvasNode[]; edges: WorkflowEdge[]; selectedNodeId: string | null }, patch: CanvasEditPatch) => {
   const deletedNodes = new Set(patch.deleteNodeIds);
   const deletedEdges = new Set(patch.deleteEdgeIds);
   const updates = new Map(patch.updateNodes.map((item) => [item.id, item]));
+  const selectedIds = new Set(
+    patch.selectedNodeIds?.length
+      ? patch.selectedNodeIds
+      : state.nodes.filter((node) => node.selected || node.id === state.selectedNodeId).map((node) => node.id),
+  );
+  const selectedSourceNodes = state.nodes.filter((node) =>
+    selectedIds.has(node.id) &&
+    (node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "audio") &&
+    !deletedNodes.has(node.id),
+  );
   const baseNodes = state.nodes
     .filter((node) => !deletedNodes.has(node.id))
     .map((node) => {
       const update = updates.get(node.id);
-      if (!update) return node;
+      if (!update) return { ...node, selected: false };
       return {
         ...node,
+        selected: false,
         position: update.position || node.position,
         type: update.type || node.type,
         data: update.dataPatch ? { ...node.data, ...update.dataPatch } : node.data,
       };
     });
   const baseEdges = state.edges.filter((edge) => !deletedEdges.has(edge.id) && !deletedNodes.has(edge.source) && !deletedNodes.has(edge.target));
-  const clean = dedupePatch({ nodes: patch.createNodes, edges: patch.createEdges }, baseNodes, baseEdges);
+  const nodeIds = new Set(baseNodes.map((node) => node.id));
+  const edgeIds = new Set(baseEdges.map((edge) => edge.id));
+  const remap = new Map<string, string>();
+  const createNodes = patch.createNodes.map((node) => {
+    const nextId = nodeIds.has(node.id) ? `${node.id}-${crypto.randomUUID()}` : node.id;
+    nodeIds.add(nextId);
+    remap.set(node.id, nextId);
+    return cleanAgentNode({ ...node, id: nextId });
+  });
+  const createEdges = patch.createEdges
+    .map((edge) => {
+      const source = remap.get(edge.source) || edge.source;
+      const target = remap.get(edge.target) || edge.target;
+      let id = `edge-${source}-${target}`;
+      if (edgeIds.has(id)) id = `${id}-${crypto.randomUUID()}`;
+      edgeIds.add(id);
+      return { ...edge, id, source, target, animated: edge.animated ?? true };
+    })
+    .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+  const createdVideoEditNodes = createNodes.filter((node) => node.data.nodeType === "videoEdit");
+  createdVideoEditNodes.forEach((videoEditNode) => {
+    selectedSourceNodes.forEach((sourceNode) => {
+      const source = sourceNode.id;
+      const target = videoEditNode.id;
+      const alreadyExists = [...baseEdges, ...createEdges].some((edge) => edge.source === source && edge.target === target);
+      if (alreadyExists) return;
+      let id = edgeIdFor(source, target);
+      if (edgeIds.has(id)) id = `${id}-${crypto.randomUUID()}`;
+      edgeIds.add(id);
+      createEdges.push({
+        id,
+        source,
+        target,
+        targetHandle: sourceNode.data.nodeType === "audio" ? "audio" : "video",
+        animated: true,
+      });
+    });
+  });
+  const selectedNodeId = createNodes[0]?.id || null;
   return {
-    nodes: [...baseNodes, ...clean.nodes],
-    edges: [...baseEdges, ...clean.edges],
-    selectedNodeId: clean.nodes[0]?.id || (state.selectedNodeId && !deletedNodes.has(state.selectedNodeId) ? state.selectedNodeId : null),
+    nodes: [
+      ...baseNodes,
+      ...createNodes.map((node, index) => ({ ...node, selected: index === 0 })),
+    ],
+    edges: [...baseEdges, ...createEdges],
+    selectedNodeId,
     agentStatus: "completed" as const,
     agentMessage: patch.warnings?.length ? `已应用修改，但有 ${patch.warnings.length} 条提示。节点仍需手动运行。` : "已应用修改，节点仍需手动运行。",
     lastError: null,

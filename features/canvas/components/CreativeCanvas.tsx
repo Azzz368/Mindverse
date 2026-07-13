@@ -175,7 +175,7 @@ const fallbackSizeFor = (type: string) => ({
 }[type] || { w: 280, h: 250 });
 
 export function CreativeCanvas() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, ghostType, setGhostType, placeGhostNode, addMediaNode, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia, pendingAgentPatch, setPendingAgentPatch, placeAgentPatch } = useCanvasStore();
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, toggleSelectedNode, selectionMode, ghostType, setGhostType, placeGhostNode, addMediaNode, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia, pendingAgentPatch, setPendingAgentPatch, placeAgentPatch } = useCanvasStore();
   const { theme } = useTheme();
   const { getNodes, screenToFlowPosition } = useReactFlow();
   const { x: viewX, y: viewY, zoom } = useViewport();
@@ -295,9 +295,9 @@ export function CreativeCanvas() {
       const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       placeGhostMedia(flowPos);
     } else {
-      setSelectedNode(null);
+      return;
     }
-  }, [ghostType, ghostMediaUrl, pendingAgentPatch, screenToFlowPosition, placeGhostNode, placeGhostMedia, placeAgentPatch, setSelectedNode]);
+  }, [ghostType, ghostMediaUrl, pendingAgentPatch, screenToFlowPosition, placeGhostNode, placeGhostMedia, placeAgentPatch, selectionMode, setSelectedNode]);
 
   /* Right-click on selected nodes → context menu */
   const handleSelectionContextMenu = useCallback((e: React.MouseEvent) => {
@@ -333,7 +333,7 @@ export function CreativeCanvas() {
   }, [screenToFlowPosition, addMediaNode]);
 
   return (
-    <div className={`relative h-full flex-1 ${isGhosting ? "cursor-crosshair" : ""}`}
+    <div className={`relative h-full flex-1 ${isGhosting ? "cursor-crosshair" : selectionMode ? "cursor-cell" : ""}`}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       onClick={() => ctxMenu && setCtxMenu(null)}
@@ -346,7 +346,11 @@ export function CreativeCanvas() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
-        onNodeClick={(_, node) => { if (!isGhosting) setSelectedNode(node.id); }}
+        onNodeClick={(event, node) => {
+          if (isGhosting) return;
+          if (selectionMode || event.ctrlKey || event.metaKey || event.shiftKey) toggleSelectedNode(node.id);
+          else setSelectedNode(node.id);
+        }}
         onPaneClick={handlePaneClick}
         onPaneContextMenu={handlePaneContextMenu}
         onSelectionContextMenu={handleSelectionContextMenu}
@@ -369,13 +373,19 @@ export function CreativeCanvas() {
         {groupBackdrops.map((group) => (
           <div
             key={group.id}
-            className="react-flow__group-backdrop"
+            className="react-flow__group-backdrop pointer-events-none"
             style={{ left: group.left, top: group.top, width: group.width, height: group.height, borderColor: rgba(group.color, 0.45), backgroundColor: rgba(group.color, 0.28) }}
           />
         ))}
         <Controls showInteractive={false} />
         <MiniMap nodeColor={nodeColor} maskColor={maskColor} />
       </ReactFlow>
+
+      {selectionMode && !isGhosting && (
+        <div className="pointer-events-none fixed left-1/2 top-4 z-[9998] -translate-x-1/2 rounded-full border border-[#dce2ea] bg-white/95 px-4 py-2 text-xs font-semibold text-[#111827] shadow-lg backdrop-blur">
+          Selection mode: click nodes to add or remove them
+        </div>
+      )}
 
       {/* Alignment guide lines */}
       {alignGuides.length > 0 && (
