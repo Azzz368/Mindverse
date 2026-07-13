@@ -61,9 +61,11 @@ export function buildAgentDialogueMessages({
 export function buildAgentEditMessages({
   userInstruction,
   canvasSummary,
+  repairFeedback,
 }: {
   userInstruction: string;
   canvasSummary: string;
+  repairFeedback?: string;
 }) {
   return [
     {
@@ -79,8 +81,9 @@ export function buildAgentEditMessages({
       content: [
         `User edit instruction:\n${userInstruction}`,
         canvasSummary,
-        "Create a safe canvas edit plan.",
-      ].join("\n\n"),
+        repairFeedback ? `Previous plan feedback:\n${repairFeedback}` : "",
+        "Create a safe canvas edit plan. Return noop only when the request is impossible or unsafe; otherwise produce operations that visibly change the canvas graph.",
+      ].filter(Boolean).join("\n\n"),
     },
   ] as Array<{ role: "system" | "user"; content: string }>;
 }
@@ -145,10 +148,11 @@ export function buildAgentRouterMessages({
         "You are Mindverse Agent Router. Choose exactly one route for the latest user message.",
         languageInstructionFor(userMessage),
         "Read the available skill descriptions. Route by intent and context, not by shallow keyword matching.",
+        "The canvas summary may include a Selected Nodes section. Treat those nodes as the user's explicit operation targets.",
         "Routes:",
         "- dialogue: brainstorm, ideate, clarify, develop a story, or continue an unfinished ideation conversation.",
         "- create: create a general editable workflow from a sufficiently clear request.",
-        "- edit: modify existing canvas nodes/edges. Do not choose edit if the user says not to modify or only wants ideation.",
+        "- edit: modify existing canvas nodes/edges. Choose edit when selected nodes exist and the user asks to operate on selected/current/these nodes. Do not choose edit if the user says not to modify or only wants ideation.",
         "- organize: arrange/group/clean up the current canvas.",
         "- skill: call a specialized workflow skill. Use only when the user explicitly asks to generate/build/place that specialized workflow.",
         "Important: If the user says '构思', '不是修改', '只构思', or is adding story details while the last memory intent is dialogue, choose dialogue unless they explicitly request workflow generation.",

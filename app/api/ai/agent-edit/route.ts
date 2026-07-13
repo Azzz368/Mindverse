@@ -17,6 +17,23 @@ const snapshotFrom = (value: unknown): { nodes: CanvasNode[]; edges: WorkflowEdg
   };
 };
 
+const patchHasChanges = (patch: ReturnType<typeof compileCanvasEditPlanToPatch>) =>
+  patch.createNodes.length > 0 ||
+  patch.updateNodes.length > 0 ||
+  patch.deleteNodeIds.length > 0 ||
+  patch.createEdges.length > 0 ||
+  patch.deleteEdgeIds.length > 0;
+
+const patchNeedsRepair = (patch: ReturnType<typeof compileCanvasEditPlanToPatch>, selectedNodeIds: string[]) => {
+  if (!patchHasChanges(patch) || (patch.warnings || []).length > 0) return true;
+  const createdVideoEditIds = new Set(patch.createNodes.filter((node) => node.data.nodeType === "videoEdit").map((node) => node.id));
+  if (!createdVideoEditIds.size || !selectedNodeIds.length) return false;
+  return !patch.createEdges.some((edge) => createdVideoEditIds.has(edge.target));
+};
+
+const editSummary = (title: string, patch: ReturnType<typeof compileCanvasEditPlanToPatch>) =>
+  `${title}: ${patch.createNodes.length} nodes to create, ${patch.updateNodes.length} nodes to update, ${patch.deleteNodeIds.length} nodes to delete, ${patch.createEdges.length} connections to create, ${patch.deleteEdgeIds.length} connections to delete.`;
+
 export async function POST(request: Request) {
   try {
     const body = await request.json() as {
@@ -30,13 +47,30 @@ export async function POST(request: Request) {
     if (!nodes.length) return NextResponse.json({ ok: false, error: { message: "Canvas must include at least one node before editing." } }, { status: 400 });
     const selectedNodeIds = stringArray(body.selectedNodeIds);
     const canvasSummary = summarizeCanvasForAgent({ nodes, edges, selectedNodeIds });
-    const editPlan = await runAgentEditLLM({ userInstruction, canvasSummary });
-    const patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: nodes, currentEdges: edges, selectedNodeIds });
+    let editPlan = await runAgentEditLLM({ userInstruction, canvasSummary });
+    let patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: nodes, currentEdges: edges, selectedNodeIds });
+    if (patchNeedsRepair(patch, selectedNodeIds)) {
+      editPlan = await runAgentEditLLM({
+        userInstruction,
+        canvasSummary,
+        repairFeedback: [
+          "The previous edit plan compiled to an empty or incomplete canvas patch, so the user would see no usable graph change.",
+          "Re-read the selected nodes and the user instruction.",
+          "Return executable graph operations with exact node ids: create/update nodes and connect/disconnect edges as needed.",
+          "If the user asks to edit selected media, make the graph runnable by creating or updating the appropriate node and connecting selected source nodes.",
+          "If you create a videoEdit node from selected videos/audio, it must have incoming edges from those selected source nodes.",
+          "Schema reminder: createNode requires nodeType. Later operations must reference new nodes by the createNode operation id, not placeholder node ids.",
+          `Compiler warnings: ${JSON.stringify(patch.warnings || [])}`,
+          `Previous operations: ${JSON.stringify(editPlan.operations)}`,
+        ].join("\n"),
+      });
+      patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: nodes, currentEdges: edges, selectedNodeIds });
+    }
     return NextResponse.json({
       ok: true,
       editPlan,
       patch,
-      summary: `${editPlan.title}: ${patch.createNodes.length} nodes to create, ${patch.updateNodes.length} nodes to update, ${patch.deleteNodeIds.length} nodes to delete.`,
+      summary: editSummary(editPlan.title, patch),
     });
   } catch (error) {
     const normalized = normalizeAIError(error);

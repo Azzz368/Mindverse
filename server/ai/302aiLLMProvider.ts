@@ -75,15 +75,17 @@ export async function runAgentDialogueLLM({
 export async function runAgentEditLLM({
   userInstruction,
   canvasSummary,
+  repairFeedback,
 }: {
   userInstruction: string;
   canvasSummary: string;
+  repairFeedback?: string;
 }): Promise<AgentCanvasEditPlan> {
   const raw = await requestChatCompletion<ChatResponse>({
     provider: agentProvider(),
     body: {
       model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
-      messages: buildAgentEditMessages({ userInstruction, canvasSummary }),
+      messages: buildAgentEditMessages({ userInstruction, canvasSummary, repairFeedback }),
       temperature: 0.15,
       response_format: { type: "json_object" },
     },

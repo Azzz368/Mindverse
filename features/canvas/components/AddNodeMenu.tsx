@@ -1,6 +1,6 @@
 ﻿import { useState, useRef, useMemo } from "react";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
-import { archiveImageFile } from "@/features/canvas/services/mediaArchiveClient";
+import { archiveAudioFile, archiveImageFile } from "@/features/canvas/services/mediaArchiveClient";
 import { useLang } from "@/components/providers/LangProvider";
 import { imagePromptPresets } from "@/shared/workflow/imagePromptPresets";
 import { videoModelPatch } from "@/shared/workflow/videoModelPresets";
@@ -8,7 +8,7 @@ import type { CanvasNodeData, NodeType } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
 export function getIcon(type: string) {
-  const map: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", videoEdit: "\u2702", audio: "\u266B", storyboard: "\u25A6", reference: "\u2141", output: "\u2197", upload_image: "+" };
+  const map: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", videoEdit: "\u2702", audio: "\u266B", storyboard: "\u25A6", reference: "\u2141", output: "\u2197", upload_image: "+", upload_audio: "+" };
   return map[type] || "T";
 }
 
@@ -19,7 +19,7 @@ const getTools = (t: Strings) => [
   { id: "seedance-2.0", type: "video", cat: "Video", title: "Seedance 2.0", desc: t.toolDescSeedance, iconSrc: "/icons/1.png", data: { title: "Seedance 2.0", ...videoModelPatch("seedance-2.0") } },
   { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: t.toolDescGen45, iconSrc: "/icons/1.png", data: { title: "Gen-4.5", ...videoModelPatch("gen-4.5") } },
   { id: "kling-v3-omni", type: "video", cat: "Video", title: "Kling v3 Omni", desc: "TokenStar multi-reference image/element/video generation", iconSrc: "/icons/1.png", data: { title: "Kling v3 Omni", ...videoModelPatch("kling-v3-omni-tokenstar") } },
-  { id: "video-edit", type: "videoEdit", cat: "Video", title: "Video Edit", desc: "FFmpeg trim, concat, mute and transcode", iconSrc: "/icons/1.png", data: { title: "Video Edit", editPlan: "", preserveAudio: true, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" } },
+{ id: "video-edit", type: "videoEdit", cat: "Video", title: "Video Edit", desc: "FFmpeg trim, concat, audio, subtitles and transcode", iconSrc: "/icons/1.png", data: { title: "Video Edit", editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" } },
   { id: "gpt-image-2-tokenstar", type: "image", cat: "Image", title: "GPT Image 2 (TokenStar)", desc: "TokenStar GPT Image 2 text/image generation", iconSrc: "/icons/2.png", data: { title: "GPT Image 2 (TokenStar)", model: "gpt-image-2(tokenstar)", size: "2048x2048" } },
   ...Object.entries(imagePromptPresets).map(([id, preset]) => ({
     id: `gpt-image-2-tokenstar-${id}`,
@@ -32,6 +32,7 @@ const getTools = (t: Strings) => [
   })),
   { id: "nano-banana-tokenstar", type: "image", cat: "Image", title: "Nano Banana (TokenStar)", desc: "TokenStar Nano Banana image generation/editing", iconSrc: "/icons/2.png", data: { title: "Nano Banana (TokenStar)", model: "nano banana(tokenstar)", size: "1024x1024" } },
   { id: "upload-image", type: "upload_image", cat: "Image", title: t.uploadImage, desc: t.toolDescUploadImage, iconSrc: "/icons/normal.png" },
+  { id: "upload-audio", type: "upload_audio", cat: "Audio", title: "Upload Audio", desc: "Use a local audio file as BGM or reference audio", iconSrc: "/icons/3.png" },
   { id: "audio-gen", type: "audio", cat: "Audio", title: t.nodeNames["audio"], desc: t.toolDescAudio, iconSrc: "/icons/3.png" },
   { id: "claude", type: "text", cat: "Text", title: "Claude", desc: t.toolDescText, iconSrc: "/icons/4.png" },
   { id: "prompt", type: "prompt", cat: "Text", title: t.nodeNames["prompt"], desc: t.toolDescPrompt, iconSrc: "/icons/4.png" },
@@ -50,6 +51,7 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
   const setGhostType = useCanvasStore(s => s.setGhostType);
   const setGhostMedia = useCanvasStore(s => s.setGhostMedia);
   const fileRef = useRef<HTMLInputElement>(null);
+  const audioFileRef = useRef<HTMLInputElement>(null);
 
   const allTools = useMemo(() => getTools(t), [t]);
 
@@ -64,6 +66,10 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
       fileRef.current?.click();
       return;
     }
+    if (tool.type === "upload_audio") {
+      audioFileRef.current?.click();
+      return;
+    }
     // Set ghost type based on tool.type
     // A future enhancement could inject provider defaults into the node
     setGhostType(tool.type as NodeType, "data" in tool ? tool.data as Partial<CanvasNodeData> : undefined);
@@ -71,6 +77,7 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
   };
 
   const archiveLocalImage = (file: File) => archiveImageFile(file);
+  const archiveLocalAudio = (file: File) => archiveAudioFile(file);
 
   const readAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -94,6 +101,32 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
         else setGhostMedia(url);
       })();
     });
+    e.target.value = "";
+    if (!keepOpen) onClose();
+  };
+
+  const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = Array.from(e.target.files ?? []).find(f => /^audio\//.test(f.type));
+    if (file) {
+      void (async () => {
+        try {
+          const url = await archiveLocalAudio(file);
+          setGhostType("audio", {
+            title: `Audio* ${file.name.replace(/\.[^.]+$/, "") || "Uploaded Audio"}`,
+            prompt: "",
+            status: "success",
+            output: {
+              kind: "audio",
+              summary: "Audio uploaded",
+              value: { audioUrl: url, originalFileName: file.name, sourceProvider: "local-upload" },
+              createdAt: new Date().toISOString(),
+            },
+          });
+        } catch (error) {
+          console.error("Local audio archive failed", error);
+        }
+      })();
+    }
     e.target.value = "";
     if (!keepOpen) onClose();
   };
@@ -177,6 +210,7 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
       </div>
 
       <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple className="hidden" onChange={handleFileUpload} />
+      <input ref={audioFileRef} type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/aac,audio/flac,audio/mp4,.mp3,.wav,.aac,.flac,.m4a" className="hidden" onChange={handleAudioUpload} />
     </div>
   );
 }
