@@ -7,6 +7,7 @@ import { ImageAnnotationEditor } from "./ImageAnnotationEditor";
 import { ImeInput, ImeTextarea } from "./ImeTextFields";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
+import { motionTemplateIds } from "@/shared/motion/templates";
 import { videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
@@ -14,6 +15,7 @@ import type { Strings } from "@/shared/i18n/strings";
 const GLOW_COLORS: Record<string, string> = {
   video: "#7322e3",
   videoEdit: "#7322e3",
+  motion: "#2563eb",
   image: "#3bf657",
   audio: "#f5510b",
   text: "#ebe46b",
@@ -24,7 +26,7 @@ const GLOW_COLORS: Record<string, string> = {
   reference: "#64748b",
   output: "#64748b",
 };
-const RUNNABLE_TYPES = new Set(["prompt", "text", "script", "image", "video", "videoEdit", "audio", "storyboard", "output"]);
+const RUNNABLE_TYPES = new Set(["prompt", "text", "script", "image", "video", "videoEdit", "motion", "audio", "storyboard", "output"]);
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value : "";
 const videoPortStyles: Record<VideoInputPortKind, { border: string; connected: string }> = {
@@ -98,6 +100,12 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
           <label className={wrap}><span className={lbl}>帧率</span>{textInput("fps", data.fps ?? "30")}</label>
           <label className={wrap}><span className={lbl}>画面比例</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}><option value="16:9">16:9 横屏</option><option value="9:16">9:16 竖屏</option><option value="1:1">1:1 方形</option></select></label>
         </>}
+        {data.nodeType === "motion" && <>
+          <label className={wrap}><span className={lbl}>Template</span><select className={sel} value={data.templateId ?? ""} onChange={e => set({ templateId: e.target.value || undefined })}><option value="">Composition JSON fallback</option>{motionTemplateIds.map(id => <option key={id} value={id}>{id}</option>)}</select></label>
+          <label className={wrap}><span className={lbl}>Motion variables JSON</span>{textArea("motionVariablesJson", data.motionVariablesJson, 6)}</label>
+          <label className={wrap}><span className={lbl}>Composition JSON fallback</span>{textArea("compositionJson", data.compositionJson, 8)}</label>
+          <label className={wrap}><span className={lbl}>Motion prompt</span>{textArea("prompt", data.prompt, 3)}</label>
+        </>}
         {data.nodeType === "audio" && <><label className={wrap}><span className={lbl}>音频提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>音色</span>{textInput("voice", data.voice)}</label><label className={wrap}><span className={lbl}>情绪</span>{textInput("emotion", data.emotion)}</label><label className={wrap}><span className={lbl}>时长（秒）</span><select className={sel} value={String(data.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}><option value="">默认</option>{[5,10,15,20,30,60].map(n=><option key={n} value={n}>{n}s</option>)}</select></label></>}
         {data.nodeType === "storyboard" && <><label className={wrap}><span className={lbl}>故事概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>目标镜头数</span><select className={sel} value={String(data.targetShotCount ?? data.numberOfScenes ?? 3)} onChange={e => set({ targetShotCount: Number(e.target.value) })}>{[1,2,3,4,5,6,8,10,12,16,20,24,30].map(n=><option key={n}>{n}</option>)}</select></label></>}
         {data.nodeType === "storyboardImage" && <><label className={wrap}><span className={lbl}>宽高比</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}>{["16:9","9:16","1:1"].map(o=><option key={o}>{o}</option>)}</select></label><label className={wrap}><span className={lbl}>排除</span>{textArea("negativePrompt", data.negativePrompt, 2)}</label></>}
@@ -111,7 +119,7 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
   );
 }
 
-function NodePreview({ node, t, onView, onAnnotate }: { node: CanvasNode; t: Strings; onView(url: string): void; onAnnotate(url: string): void }) {
+function NodePreview({ node, t, onView, onViewVideo, onAnnotate }: { node: CanvasNode; t: Strings; onView(url: string): void; onViewVideo(url: string): void; onAnnotate(url: string): void }) {
   const value = node.data.output?.value, details = record(value), raw = record(details.raw), rawContent = record(raw.content);
   const imageUrl = text(details.imageUrl) || (typeof value === "string" ? value : "");
   const audioUrl = text(details.audioUrl), videoUrl = text(details.videoUrl) || text(details.resultUrl) || text(details.finalVideoUrl) || text(rawContent.video_url), generatedText = text(details.generatedText);
@@ -127,7 +135,38 @@ function NodePreview({ node, t, onView, onAnnotate }: { node: CanvasNode; t: Str
     </div>
   );
   if (node.data.nodeType === "audio" && audioUrl) return <audio className="mt-2 w-full" controls src={audioUrl}/>;
-  if ((node.data.nodeType === "video" || node.data.nodeType === "videoEdit") && videoUrl) return <video className="mt-2 h-32 w-full rounded-md object-cover" controls src={videoUrl}/>;
+  if ((node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") && videoUrl) {
+    const composition = record(details.composition || details.motionComposition);
+    const canvas = record(composition.canvas);
+    const rawWidth = Number(details.width || canvas.width);
+    const rawHeight = Number(details.height || canvas.height);
+    const width = Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : 16;
+    const height = Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : 9;
+    const previewWidth = Math.max(120, Math.round(320 * width / height));
+    return (
+      <div
+        className="group relative mx-auto mt-2 max-w-full overflow-hidden rounded-md bg-black"
+        style={{ width: `min(100%, ${previewWidth}px)`, aspectRatio: `${width} / ${height}` }}
+      >
+        <video className="absolute inset-0 h-full w-full object-contain" controls playsInline preload="metadata" src={videoUrl}/>
+        <ExpandIcon onClick={() => onViewVideo(videoUrl)} className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100" />
+      </div>
+    );
+  }
+  if (node.data.nodeType === "motion") {
+    const composition = record(details.composition || details.motionComposition);
+    const canvas = record(composition.canvas);
+    const elements = Array.isArray(composition.elements) ? composition.elements.length : 0;
+    const assets = Array.isArray(composition.assets) ? composition.assets.length : 0;
+    return (
+      <div className="mt-2 rounded-md border border-blue-100 bg-blue-50 p-2 dark:border-blue-400/20 dark:bg-blue-400/10">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-700 dark:text-blue-200">HyperFrames DSL</p>
+        <p className="mt-1 text-[11px] leading-4 text-[#1a1a1a] dark:text-slate-200">{text(composition.title) || node.data.title}</p>
+        <p className="mt-1 text-[10px] text-[#676f7b] dark:text-slate-400">{String(canvas.width || 1280)}x{String(canvas.height || 720)} · {String(canvas.fps || 30)}fps · {String(canvas.duration || 10)}s</p>
+        <p className="mt-1 text-[10px] text-[#676f7b] dark:text-slate-400">{elements} elements · {assets} assets · render pending</p>
+      </div>
+    );
+  }
   if (node.data.nodeType === "script" && Array.isArray(details.scenes)) return (
     <div className="mt-2 max-h-56 space-y-2 overflow-y-auto pr-1">
       <p className="text-[11px] font-semibold text-[#030303] dark:text-cyan-200">{text(details.title) || node.data.output?.summary}</p>
@@ -808,7 +847,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
 export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode), duplicateNode = useCanvasStore((s) => s.duplicateNode), createImageRevision = useCanvasStore((s) => s.createImageRevision), runNode = useCanvasStore((s) => s.runNode);
   const { t } = useLang();
-  const [viewUrl, setViewUrl] = useState(""), [annotatingUrl, setAnnotatingUrl] = useState(""), [settingsOpen, setSettingsOpen] = useState(false);
+  const [viewUrl, setViewUrl] = useState(""), [viewVideoUrl, setViewVideoUrl] = useState(""), [annotatingUrl, setAnnotatingUrl] = useState(""), [settingsOpen, setSettingsOpen] = useState(false);
   const [cardSize, setCardSize] = useState({ w: 280, h: 0 });
   const node = { id, data } as CanvasNode;
   const isGenerating = data.status === "running" || data.status === "waiting";
@@ -865,7 +904,7 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
           {!isGenerating && <Badge status={data.status}/>}
         </div>
         <div className={`px-3 py-2 ${cardSize.h > 0 ? "flex-1 overflow-y-auto" : "min-h-20"}`}>
-          <NodePreview node={node} t={t} onView={setViewUrl} onAnnotate={setAnnotatingUrl}/>
+          <NodePreview node={node} t={t} onView={setViewUrl} onViewVideo={setViewVideoUrl} onAnnotate={setAnnotatingUrl}/>
           {isWaiting && !isGenerating && <p className="mt-2 text-[10px] text-sky-600 dark:text-sky-200">{t.waitingGeneration}</p>}
           {data.error && <p className="mt-2 text-[11px] text-rose-600 dark:text-rose-300">{data.error}</p>}
           {data.revisionOf && <p className="mt-2 text-[10px] text-violet-600 dark:text-violet-200">{t.revisionOf}</p>}
@@ -901,6 +940,13 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
           <div className="max-h-full max-w-5xl" onClick={e => e.stopPropagation()}>
             <img src={viewUrl} alt="Full generated result" className="max-h-[80vh] max-w-full rounded-lg object-contain"/>
             <button onClick={() => setViewUrl("")} className="mx-auto mt-3 block rounded bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">{t.close}</button>
+          </div>
+        </div>, document.body)}
+      {viewVideoUrl && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[9999] grid place-items-center bg-black/85 p-8" onClick={() => setViewVideoUrl("")}>
+          <div className="flex max-h-full max-w-5xl flex-col items-center" onClick={e => e.stopPropagation()}>
+            <video src={viewVideoUrl} controls autoPlay loop playsInline className="max-h-[80vh] max-w-full rounded-lg object-contain" />
+            <button onClick={() => setViewVideoUrl("")} className="mt-3 rounded bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">{t.close}</button>
           </div>
         </div>, document.body)}
       {annotatingUrl && <ImageAnnotationEditor imageUrl={annotatingUrl} initialAnnotations={data.annotations as ImageAnnotation[] | undefined} initialInstruction={data.revisionInstruction} onClose={() => setAnnotatingUrl("")} onGenerate={(a, i) => { void createImageRevision(id, a, i); setAnnotatingUrl(""); }} />}

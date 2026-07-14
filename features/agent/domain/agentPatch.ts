@@ -40,7 +40,7 @@ export const applyEditPatchToState = (state: { nodes: CanvasNode[]; edges: Workf
   );
   const selectedSourceNodes = state.nodes.filter((node) =>
     selectedIds.has(node.id) &&
-    (node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "audio") &&
+    (node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion" || node.data.nodeType === "audio") &&
     !deletedNodes.has(node.id),
   );
   const baseNodes = state.nodes

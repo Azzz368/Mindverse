@@ -6,7 +6,7 @@ import { summarizeCanvasForAgent } from "@/server/agent/summarizeCanvas";
 import { normalizeAIError } from "@/server/ai/errors";
 import { runAgentDialogueLLM, runAgentEditLLM, runAgentOrganizeLLM, runAgentPlannerLLM, runAgentRouterLLM, runFixedSceneSkillLLM } from "@/server/ai/302aiLLMProvider";
 import { agentMemorySummary, type AgentProjectMemory } from "@/shared/agent/projectMemory";
-import type { AgentDialogueMessage } from "@/shared/agent/agentSchema";
+import type { AgentCanvasEditPlan, AgentDialogueMessage } from "@/shared/agent/agentSchema";
 import type { AgentRouterIntent } from "@/shared/api/aiContracts";
 import type { CanvasNode, WorkflowEdge } from "@/shared/canvas";
 
@@ -20,6 +20,7 @@ type RouterSnapshot = {
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const stringArray = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : [];
 const validIntents: AgentRouterIntent[] = ["dialogue", "create", "edit", "organize", "skill"];
+const videoNodeTypes = new Set(["video", "videoEdit", "motion"]);
 
 const messagesFrom = (value: unknown): AgentDialogueMessage[] => Array.isArray(value)
   ? value.map((item) => {
@@ -191,6 +192,130 @@ const skillBriefFrom = (userMessage: string, memory: AgentProjectMemory | undefi
   return userMessage;
 };
 
+const hasVideoOutput = (node: CanvasNode) => {
+  const value = node.data.output && typeof node.data.output.value === "object" ? node.data.output.value as Record<string, unknown> : {};
+  return videoNodeTypes.has(node.data.nodeType) || Boolean(text(value.videoUrl) || text(value.resultUrl) || text(value.finalVideoUrl) || text(node.data.resultUrl));
+};
+
+const selectedVideoNodesFrom = (snapshot: RouterSnapshot, selectedNodeIds: string[]) => {
+  const selected = new Set(selectedNodeIds);
+  return snapshot.nodes.filter((node) => selected.has(node.id) && hasVideoOutput(node));
+};
+
+const sourceDurationFromNode = (node: CanvasNode | undefined) => {
+  if (!node) return undefined;
+  const value = node.data.output && typeof node.data.output.value === "object"
+    ? node.data.output.value as Record<string, unknown>
+    : {};
+  const motionDuration = node.data.motionComposition?.canvas.duration;
+  const candidates = [value.duration, value.durationSeconds, value.duration_seconds, motionDuration, node.data.duration];
+  for (const candidate of candidates) {
+    const parsed = Number(candidate);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return undefined;
+};
+
+const durationFromInstruction = (message: string, sourceNode?: CanvasNode) => {
+  const match = message.match(/(\d{1,3}(?:\.\d+)?)\s*(?:s|sec|second|seconds|\u79d2)/i);
+  const requested = match ? Number(match[1]) : undefined;
+  const value = requested ?? sourceDurationFromNode(sourceNode) ?? 15;
+  return Math.max(1, Math.min(60, Number.isFinite(value) ? value : 15));
+};
+
+const aspectRatioFromInstruction = (message: string) =>
+  /(?:9\s*:\s*16|\u7ad6\u5c4f|\u77ed\u89c6\u9891|\u6296\u97f3|\u5feb\u624b|tiktok|reels|shorts|vertical)/i.test(message)
+    ? "9:16"
+    : /(?:1\s*:\s*1|\u65b9\u5f62|square)/i.test(message)
+      ? "1:1"
+      : "16:9";
+
+const titleFromInstruction = (message: string, fallback: string) => {
+  const match = message.match(/(?:\u6807\u9898|title|\u7247\u540d|\u4e3b\u6807\u9898)\s*(?:\u4e3a|\u662f|\u53eb|:|\uff1a)?\s*[\u201c\u201d"']?([^\u201c\u201d"'\n\uff0c\u3002,.]{2,32})/i);
+  return match?.[1]?.trim() || fallback;
+};
+
+const isShortVideoHyperframesEditRequest = (message: string, snapshot: RouterSnapshot, selectedNodeIds: string[]) => {
+  if (!selectedVideoNodesFrom(snapshot, selectedNodeIds).length) return false;
+  return includesAnyPattern(message, [
+    /\u77ed\u89c6\u9891|\u6296\u97f3|\u5feb\u624b|\u5c0f\u7ea2\u4e66|\u7ad6\u5c4f|\u526a\u8f91|\u88c1\u526a|\u8282\u594f|\u9ad8\u5149|\u6807\u9898|\u7247\u5934|\u5f00\u573a|\u52a8\u6548|\u52a8\u6001|\u5b57\u5e55|\u5305\u88c5|\u8fdb\u5ea6\u6761|\u8f6c\u573a|hyperframes/i,
+    /shorts?|reels?|tiktok|vertical|edit|trim|cut|caption|title|motion|overlay|lower[-\s]?third|progress/i,
+  ]);
+};
+
+const canvasForAspectRatio = (aspectRatio: string) =>
+  aspectRatio === "9:16"
+    ? { width: 1080, height: 1920 }
+    : aspectRatio === "1:1"
+      ? { width: 1080, height: 1080 }
+      : { width: 1920, height: 1080 };
+
+const codexBaselineCompositionJson = (title: string, duration: number, aspectRatio: string, prompt: string) => {
+  const canvas = canvasForAspectRatio(aspectRatio);
+  return {
+    version: 1,
+    title,
+    provider: "hyperframes",
+    canvas: { ...canvas, fps: 30, duration, background: "#05070a" },
+    assets: [],
+    elements: [],
+    notes: prompt,
+  };
+};
+
+const buildShortVideoHyperframesEditPlan = (message: string, snapshot: RouterSnapshot, selectedNodeIds: string[]): AgentCanvasEditPlan => {
+  const selectedVideos = selectedVideoNodesFrom(snapshot, selectedNodeIds);
+  const duration = durationFromInstruction(message, selectedVideos[0]);
+  const aspectRatio = aspectRatioFromInstruction(message);
+  const title = titleFromInstruction(message, selectedVideos[0]?.data.title || "Highlight");
+  const baselineComposition = codexBaselineCompositionJson(title, duration, aspectRatio, message);
+  return {
+    title: "Codex HyperFrames video edit",
+    description: "Send selected video nodes directly to a Codex-authored HyperFrames motion composition.",
+    userInstruction: message,
+    intent: "add_nodes",
+    targetNodeIds: selectedVideos.map((node) => node.id),
+    operations: [
+      {
+        id: "make-motion-package",
+        type: "createNode",
+        nodeType: "motion",
+        label: "Motion* Codex HyperFrames edit",
+        dependsOn: selectedVideos.map((node) => node.id),
+        params: {
+          motionMode: "codex-hyperframes",
+          compositionJson: baselineComposition,
+          codexInstruction: [
+            `User request: ${message}`,
+            `Requested title: ${title}`,
+            `Output aspect ratio: ${aspectRatio}`,
+            `Output duration: ${duration}s`,
+            "Use the connected source video directly as the base media.",
+            "Author the HyperFrames index.html: trim/reframe in the composition, add visible title animation, kinetic captions or overlay beats, subtle vignette, progress motion, and short-video transitions.",
+            "Keep the footage full-bleed and inspectable; do not bury the subject behind a large card.",
+            "Do not rely on a preselected template or motion variables. Rewrite the composition HTML/CSS/JS as needed.",
+          ].join("\n"),
+          prompt: message,
+        },
+        dataPatch: {
+          templateId: "",
+          motionVariablesJson: "",
+        },
+      },
+      {
+        id: "make-output",
+        type: "createNode",
+        nodeType: "output",
+        label: "Output* Codex HyperFrames render",
+        dependsOn: ["make-motion-package"],
+        params: { format: "Creative package" },
+      },
+    ],
+    warnings: [],
+    requiresConfirmation: true,
+  };
+};
+
 export async function POST(request: Request) {
   try {
     const body = await request.json() as {
@@ -206,6 +331,17 @@ export async function POST(request: Request) {
     const snapshot = snapshotFrom(body.canvasSnapshot);
     const selectedNodeIds = stringArray(body.selectedNodeIds);
     const forced = validIntents.includes(body.forceIntent as AgentRouterIntent) ? body.forceIntent as AgentRouterIntent : undefined;
+    if ((!forced || forced === "edit") && isShortVideoHyperframesEditRequest(userMessage, snapshot, selectedNodeIds)) {
+      const editPlan = buildShortVideoHyperframesEditPlan(userMessage, snapshot, selectedNodeIds);
+      const patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds });
+      return NextResponse.json({
+        ok: true,
+        intent: "edit",
+        editPlan,
+        patch,
+        summary: "已为选中的视频创建 Codex + HyperFrames 直接剪辑包装工作流。",
+      });
+    }
     let routedSkillId: "fixed-scene-action-video" | undefined;
     let intent: AgentRouterIntent;
     if (forced) {

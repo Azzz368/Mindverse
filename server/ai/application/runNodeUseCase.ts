@@ -6,18 +6,19 @@ import { generateTokenStarImage, generateTokenStarImageRevision, isTokenStarImag
 import { createKlingImageVideo as tsKlingImage, createKlingTextVideo, createKlingOmniVideo, createSeedanceAssetVideo, createSeedanceVideo } from "@/server/ai/tokenstar/tokenstarVideoProvider";
 import { createSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
 import { createFfmpegVideoEdit } from "@/server/video/ffmpegEditRunner";
+import { createMotionComposition } from "@/server/motion/motionCompositionRunner";
 import { parseScript, scriptInstruction } from "@/shared/workflow/storyPipeline";
 import { archiveResultMedia } from "@/server/storage/mediaArchive";
 import type { GenerateAudioInput, GenerateImageInput, GenerateImageRevisionInput, GenerateStoryboardInput, GenerateTextInput, GenerateVideoInput } from "@/server/ai/types";
 
-export type RunnableNodeType = "text" | "script" | "image" | "image-revision" | "video" | "videoEdit" | "audio" | "storyboard";
+export type RunnableNodeType = "text" | "script" | "image" | "image-revision" | "video" | "videoEdit" | "motion" | "audio" | "storyboard";
 
 export type RunNodeResult =
   | { ok: true; provider: string; output: unknown; polling: { intervalMs: number; maxAttempts?: number } }
   | { ok: false; error: { message: string; code?: string; status: number } };
 
 export const isRunnableNodeType = (value: unknown): value is RunnableNodeType =>
-  ["text", "script", "image", "image-revision", "video", "videoEdit", "audio", "storyboard"].includes(String(value));
+  ["text", "script", "image", "image-revision", "video", "videoEdit", "motion", "audio", "storyboard"].includes(String(value));
 
 const fail = (message: string, status = 400, code?: string): RunNodeResult => ({ ok: false, error: { message, status, ...(code ? { code } : {}) } });
 
@@ -124,6 +125,25 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
       return { ok: true, provider: "ffmpeg", output, polling: { intervalMs: 0 } };
     } catch (error) {
       return fail(error instanceof Error ? error.message : "Video edit failed.", 500, "VIDEO_EDIT_ERROR");
+    }
+  }
+
+  if (nodeType === "motion") {
+    try {
+      const output = await createMotionComposition({
+        prompt: optionalText(rawInput.prompt),
+        compositionJson: optionalText(rawInput.compositionJson),
+        templateId: optionalText(rawInput.templateId),
+        motionVariablesJson: optionalText(rawInput.motionVariablesJson),
+        motionMode: optionalText(rawInput.motionMode),
+        codexInstruction: optionalText(rawInput.codexInstruction),
+        referenceVideoUrls: urls(rawInput.referenceVideoUrls),
+        referenceImageUrls: urls(rawInput.referenceImageUrls),
+        referenceAudioUrls: urls(rawInput.referenceAudioUrls),
+      });
+      return { ok: true, provider: "hyperframes", output, polling: { intervalMs: 0 } };
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : "Motion render failed.", 500, "MOTION_RENDER_ERROR");
     }
   }
 

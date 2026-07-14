@@ -1,6 +1,7 @@
 ﻿import "server-only";
 import { TokenStarError } from "../errors";
 import { createAssetFromUrl, createAssetGroup, waitForAsset, waitForAssetGroup, type TokenStarAssetType } from "./tokenstarAsset";
+import { archiveMedia } from "@/server/storage/mediaArchive";
 
 const uniqueUrls = (urls: readonly string[] = []) => [...new Set(urls.map((url) => url.trim()).filter(Boolean))];
 const isFetchableSource = (url: string) => /^(https:|data:)/i.test(url);
@@ -9,6 +10,11 @@ const allowedMimeTypes: Record<TokenStarAssetType, readonly string[]> = {
   Image: ["image/jpeg", "image/png", "image/webp"],
   Video: ["video/mp4"],
   Audio: ["audio/mpeg", "audio/mp3"],
+};
+const archiveMediaTypeFor: Record<TokenStarAssetType, "image" | "video" | "audio"> = {
+  Image: "image",
+  Video: "video",
+  Audio: "audio",
 };
 
 const mediaType = (response: Response, blob: Blob) => (blob.type || response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
@@ -26,7 +32,9 @@ const preparedReferenceUrl = async (url: string, type: TokenStarAssetType, index
     const typeName = dataUriMimeType(url);
     if (typeName === "image/svg+xml") throw new TokenStarError("TokenStar asset-video requires a raster image reference (PNG, JPEG, or WebP). Mock ImageNodes produce SVG previews and cannot be uploaded.", 422);
     if (!allowedMimeTypes[type].includes(typeName)) throw new TokenStarError(`TokenStar ${labelFor(type)} assets must be ${allowedMimeTypes[type].join(", ")}. Connected reference ${index + 1} returned ${typeName || "an unknown content type"}.`, 422);
-    return url;
+    const archived = await archiveMedia(url, archiveMediaTypeFor[type], { sourceProvider: "tokenstar-reference" });
+    if (!archived?.cdnUrl) throw new TokenStarError(`Could not archive connected ${labelFor(type)} reference ${index + 1} before TokenStar upload. Please use a hosted HTTPS URL or reconnect a generated/uploaded node that has been saved to Bunny.`, 502);
+    return archived.cdnUrl;
   }
   let response: Response;
   try {

@@ -2,11 +2,17 @@ import "server-only";
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Buffer } from "node:buffer";
 import { uploadToBunny } from "@/server/storage/bunnyClient";
+
+const require = createRequire(import.meta.url);
+const ffmpegStaticPath = require("ffmpeg-static") as string | null;
+const ffprobeStatic = require("ffprobe-static") as { path?: string };
 
 type ClipSpec = {
   sourceIndex: number;
@@ -60,14 +66,34 @@ export type FfmpegVideoEditInput = {
   fps?: string | number;
 };
 
-const ffmpegExecutable = () => process.env.FFMPEG_PATH?.trim() || "ffmpeg";
+const firstExistingPath = (values: Array<string | null | undefined>) =>
+  values.map((value) => value?.trim()).find((value): value is string => Boolean(value && existsSync(value)));
+
+const bundledFfmpegPath = () =>
+  process.platform === "win32"
+    ? path.join(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg.exe")
+    : path.join(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg");
+
+const bundledFfprobePath = () =>
+  process.platform === "win32"
+    ? path.join(process.cwd(), "node_modules", "ffprobe-static", "bin", "win32", "x64", "ffprobe.exe")
+    : path.join(process.cwd(), "node_modules", "ffprobe-static", "bin", process.platform, process.arch, "ffprobe");
+
+const ffmpegExecutable = () =>
+  firstExistingPath([process.env.FFMPEG_PATH, ffmpegStaticPath, bundledFfmpegPath()]) ||
+  process.env.FFMPEG_PATH?.trim() ||
+  ffmpegStaticPath ||
+  "ffmpeg";
+
 const ffprobeExecutable = () => {
   const explicit = process.env.FFPROBE_PATH?.trim();
-  if (explicit) return explicit;
-  const ffmpeg = process.env.FFMPEG_PATH?.trim();
-  if (!ffmpeg) return "ffprobe";
+  const ffmpeg = ffmpegExecutable();
   const parsed = path.parse(ffmpeg);
-  return path.join(parsed.dir, `${parsed.name.replace(/ffmpeg$/i, "ffprobe")}${parsed.ext}`);
+  const sibling = path.join(parsed.dir, `${parsed.name.replace(/ffmpeg$/i, "ffprobe")}${parsed.ext}`);
+  return firstExistingPath([explicit, ffprobeStatic.path, bundledFfprobePath(), sibling]) ||
+    explicit ||
+    ffprobeStatic.path ||
+    "ffprobe";
 };
 
 const parseTime = (value: unknown): number | undefined => {

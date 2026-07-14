@@ -1,12 +1,19 @@
 import { makeNode } from "@/shared/templates/templates";
 import type { AgentWorkflowPlan, CanvasPatch } from "@/shared/agent/agentSchema";
 import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/shared/canvas";
+import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
+import { defaultMotionTemplateVariablesJson, getMotionTemplate } from "@/shared/motion/templates";
 import { videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : undefined;
 const bool = (value: unknown) => typeof value === "boolean" ? value : undefined;
+const jsonText = (value: unknown) => {
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object") return JSON.stringify(value, null, 2);
+  return "";
+};
 const safeId = (value: string) => value.trim().replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "step";
 const hasChinese = (value: string) => /[\u3400-\u9fff]/.test(value);
 const tokenstarMode = (value: string) => value === "kling-reference" || value === "kling-image-to-video" ? "kling-image" : value === "kling-text-to-video" ? "kling-text" : value;
@@ -72,6 +79,15 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
     fps: text(params.fps) || "30",
     aspectRatio,
   };
+  if (step.kind === "motion") return {
+    title: step.label,
+    prompt: step.prompt || step.purpose || plan.userPrompt,
+    compositionJson: jsonText(params.compositionJson) || motionCompositionToJson(defaultMotionComposition(step.label)),
+    templateId: text(params.templateId) || "basic-title",
+    motionVariablesJson: jsonText(params.motionVariablesJson) || jsonText(params.motionVariables) || defaultMotionTemplateVariablesJson(getMotionTemplate(text(params.templateId))?.id || "basic-title"),
+    motionMode: text(params.motionMode) === "codex-hyperframes" ? "codex-hyperframes" : "template",
+    codexInstruction: text(params.codexInstruction),
+  };
   if (step.kind === "audio") return { title: step.label, prompt, duration: number(params.duration) || 12, voiceStyle: text(params.voiceStyle) || (zh ? "氛围感" : "Atmospheric"), model: text(params.model), voice: text(params.voice), emotion: text(params.emotion), volume: number(params.volume) || 1 };
   if (step.kind === "reference") return { title: step.label, imageUrl: "", notes: step.purpose || prompt };
   return { title: step.label, format: text(params.format) || (zh ? "创作包" : "Creative package") };
@@ -121,7 +137,7 @@ export function compileWorkflowPlanToCanvas(plan: AgentWorkflowPlan): CanvasPatc
       const targetNode = target ? nodes.find((node) => node.id === target) : undefined;
       const targetHandle = sourceNode && targetNode?.data.nodeType === "video"
         ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data)
-        : sourceNode && targetNode?.data.nodeType === "videoEdit" && (sourceNode.data.nodeType === "video" || sourceNode.data.nodeType === "videoEdit" || sourceNode.data.nodeType === "audio")
+        : sourceNode && targetNode?.data.nodeType === "videoEdit" && (sourceNode.data.nodeType === "video" || sourceNode.data.nodeType === "videoEdit" || sourceNode.data.nodeType === "motion" || sourceNode.data.nodeType === "audio")
           ? sourceNode.data.nodeType === "audio" ? "audio" : "video"
           : undefined;
       if (source && target) edges.push({ id: `edge-${source}-${target}`, source, target, ...(targetHandle ? { targetHandle } : {}) });
@@ -192,6 +208,23 @@ function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
       }
     }
 
+    if (step.kind === "motion") {
+      const explicitMotionDependencies = explicit.filter((id) => {
+        const kind = byId.get(id)?.kind;
+        return kind === "video" || kind === "videoEdit" || kind === "image" || kind === "reference" || kind === "audio";
+      });
+      if (explicitMotionDependencies.length) {
+        map.set(step.id, explicitMotionDependencies);
+        return;
+      }
+
+      const previousMotionMedia = steps.slice(0, index).filter((item) => item.kind === "video" || item.kind === "videoEdit" || item.kind === "image" || item.kind === "reference" || item.kind === "audio");
+      if (previousMotionMedia.length) {
+        map.set(step.id, previousMotionMedia.map((item) => item.id));
+        return;
+      }
+    }
+
     map.set(step.id, fallback);
   });
   return map;
@@ -228,6 +261,7 @@ function positionFor(kind: NodeType, level: number, row: number) {
   if (kind === "image") return { x, y: 180 + row * 190 };
   if (kind === "video") return { x, y: 90 + row * 190 };
   if (kind === "videoEdit") return { x, y: 90 + row * 190 };
+  if (kind === "motion") return { x, y: 110 + row * 190 };
   return { x, y: row * 170 };
 }
 

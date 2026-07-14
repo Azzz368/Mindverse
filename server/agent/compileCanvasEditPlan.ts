@@ -1,6 +1,7 @@
 import { makeNode } from "@/shared/templates/templates";
 import type { AgentCanvasEditPlan, AgentEditOperation, CanvasEditPatch } from "@/shared/agent/agentSchema";
 import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/shared/canvas";
+import { defaultMotionTemplateVariablesJson, getMotionTemplate } from "@/shared/motion/templates";
 import { videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
 
 const forbiddenPatchKeys = new Set([
@@ -19,7 +20,7 @@ const forbiddenPatchKeys = new Set([
   "error",
 ]);
 
-const safeNodeTypes: NodeType[] = ["prompt", "text", "script", "storyboard", "image", "video", "videoEdit", "audio", "reference", "output"];
+const safeNodeTypes: NodeType[] = ["prompt", "text", "script", "storyboard", "image", "video", "videoEdit", "motion", "audio", "reference", "output"];
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : undefined;
@@ -38,7 +39,11 @@ const sanitizeDataPatch = (value: unknown): Partial<CanvasNodeData> => {
   Object.entries(raw).forEach(([key, patchValue]) => {
     if (forbiddenPatchKeys.has(key)) return;
     if (key === "nodeType" || key === "status") return;
-    if (key === "editPlan" && patchValue && typeof patchValue === "object") {
+    if (key === "motionVariables" && patchValue && typeof patchValue === "object") {
+      clean.motionVariablesJson = JSON.stringify(patchValue, null, 2);
+      return;
+    }
+    if ((key === "editPlan" || key === "compositionJson" || key === "motionVariablesJson") && patchValue && typeof patchValue === "object") {
       clean[key] = JSON.stringify(patchValue, null, 2);
       return;
     }
@@ -57,18 +62,27 @@ const patchFromParams = (operation: AgentEditOperation): Partial<CanvasNodeData>
   const params = object(operation.params);
   const dataPatch: Record<string, unknown> = {};
   if (operation.label) dataPatch.title = operation.label;
-  ["prompt", "editPlan", "negativePrompt", "style", "aspectRatio", "instruction", "inputText", "model", "size", "scriptTone", "format", "resolution", "fps", "voiceStyle", "voice", "emotion", "videoProvider", "tokenstarMode", "klingMode", "videoInputMode", "transition"].forEach((key) => {
+  ["prompt", "editPlan", "compositionJson", "motionVariablesJson", "templateId", "motionMode", "codexInstruction", "negativePrompt", "style", "aspectRatio", "instruction", "inputText", "model", "size", "scriptTone", "format", "resolution", "fps", "voiceStyle", "voice", "emotion", "videoProvider", "tokenstarMode", "klingMode", "videoInputMode", "transition"].forEach((key) => {
     const value = params[key];
     if (typeof value === "string" && value.trim()) dataPatch[key] = value.trim();
-    if (key === "editPlan" && value && typeof value === "object") dataPatch[key] = JSON.stringify(value, null, 2);
+    if ((key === "editPlan" || key === "compositionJson" || key === "motionVariablesJson") && value && typeof value === "object") dataPatch[key] = JSON.stringify(value, null, 2);
   });
+  if (params.motionVariables && typeof params.motionVariables === "object") dataPatch.motionVariablesJson = JSON.stringify(params.motionVariables, null, 2);
   ["duration", "temperature", "numberOfScenes", "targetShotCount", "volume", "shotNumber", "originalVolume", "backgroundVolume", "fadeIn", "fadeOut"].forEach((key) => {
     const value = number(params[key]);
     if (value !== undefined) dataPatch[key] = value;
   });
   if (typeof params.generateAudio === "boolean") dataPatch.generateAudio = params.generateAudio;
   if (typeof params.preserveAudio === "boolean") dataPatch.preserveAudio = params.preserveAudio;
-  return sanitizeDataPatch({ ...dataPatch, ...operation.dataPatch });
+  const merged = sanitizeDataPatch({ ...dataPatch, ...operation.dataPatch });
+  if (merged.motionMode === "codex-hyperframes") {
+    merged.templateId = "";
+    merged.motionVariablesJson = "";
+  }
+  if (merged.templateId && !merged.motionVariablesJson) {
+    merged.motionVariablesJson = defaultMotionTemplateVariablesJson(getMotionTemplate(merged.templateId)?.id || "basic-title");
+  }
+  return merged;
 };
 
 const centerY = (nodes: CanvasNode[]) => {
@@ -137,7 +151,7 @@ const addEdgeIfNew = (edges: WorkflowEdge[], source: string, target: string, exi
   const targetNode = nodeById?.get(target);
   const targetHandle = sourceNode && targetNode?.data.nodeType === "video"
     ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data)
-    : sourceNode && targetNode?.data.nodeType === "videoEdit" && (sourceNode.data.nodeType === "video" || sourceNode.data.nodeType === "videoEdit" || sourceNode.data.nodeType === "audio")
+    : sourceNode && targetNode?.data.nodeType === "videoEdit" && (sourceNode.data.nodeType === "video" || sourceNode.data.nodeType === "videoEdit" || sourceNode.data.nodeType === "motion" || sourceNode.data.nodeType === "audio")
       ? sourceNode.data.nodeType === "audio" ? "audio" : "video"
       : undefined;
   edges.push({ id, source, target, ...(targetHandle ? { targetHandle } : {}) });

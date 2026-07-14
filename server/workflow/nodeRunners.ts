@@ -1,5 +1,6 @@
 import "server-only";
 import { getAIProvider, getImageAIProvider, getTextAIProvider } from "@/server/ai/provider";
+import { createMotionComposition } from "@/server/motion/motionCompositionRunner";
 import { parseScript, promptsFromStoryboard, scriptInstruction } from "@/shared/workflow/storyPipeline";
 import type { CanvasNode, NodeOutput } from "@/shared/canvas";
 
@@ -15,6 +16,7 @@ export async function runCanvasNode(node: CanvasNode, inputs: unknown[] = []): P
     case "image": { const value = await imageProvider.generateImage({ prompt, negativePrompt: d.negativePrompt, model: d.model, size: d.size, aspectRatio: d.aspectRatio, referenceImageUrl: d.referenceImageUrl, referenceImageUrls: d.referenceImageUrl ? [d.referenceImageUrl] : undefined }); return output("image", value.imageUrl ? "Image generated" : value.taskId ? `Image task ${value.taskId} pending` : "Image generation did not return a result", value); }
     case "video": { const value = await aiProvider.generateVideo({ prompt, negativePrompt: d.negativePrompt, model: d.model, image: d.referenceImageUrl, duration: d.duration, resolution: d.resolution, aspectRatio: d.aspectRatio, fps: d.fps }); return output("video", value.videoUrl ? "Video generated" : value.taskId ? `Video task ${value.taskId} pending` : "Video request submitted", value); }
     case "videoEdit": return output("videoEdit", "Video edit plan prepared", { editPlan: d.editPlan, preserveAudio: d.preserveAudio !== false, originalVolume: d.originalVolume, backgroundVolume: d.backgroundVolume, fadeIn: d.fadeIn, fadeOut: d.fadeOut, resolution: d.resolution, fps: d.fps, aspectRatio: d.aspectRatio });
+    case "motion": return output("motion", "Motion video rendered", await createMotionComposition({ prompt, compositionJson: d.compositionJson, templateId: d.templateId, motionVariablesJson: d.motionVariablesJson, motionMode: d.motionMode, codexInstruction: d.codexInstruction }));
     case "audio": { const value = await aiProvider.generateAudio({ text: prompt, model: d.model, voice: d.voice, emotion: d.emotion, volume: d.volume, responseFormat: "mp3" }); return output("audio", value.audioUrl ? "Audio generated" : "Audio task complete", value); }
     case "storyboard": { const value = await textProvider.generateStoryboard({ storyBrief: prompt, numberOfScenes: d.targetShotCount ?? d.numberOfScenes ?? 6, model: d.model }); return output("storyboard", `${value.scenes.length} scenes created`, value.scenes); }
     case "storyboardImage": { const prompts = promptsFromStoryboard(inputs[0], d.aspectRatio, d.negativePrompt); return output("storyboardImage", `${prompts.length} image prompts prepared`, { prompts }); }
