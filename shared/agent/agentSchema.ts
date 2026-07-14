@@ -152,7 +152,7 @@ export type AgentDialogueResponse = {
 };
 
 const goals: AgentWorkflowGoal[] = ["story_to_video", "image_to_video", "storyboard_only", "ad_package", "custom"];
-const kinds: AgentStepKind[] = ["prompt", "text", "script", "storyboard", "image", "video", "videoEdit", "audio", "reference", "output"];
+const kinds: AgentStepKind[] = ["prompt", "text", "script", "storyboard", "image", "video", "videoEdit", "motion", "audio", "reference", "output"];
 const aspectRatios = ["16:9", "9:16", "1:1"] as const;
 const videoProviders = ["tokenstar", "kling", "302ai", "302-sora2"] as const;
 const editOperationTypes: AgentEditOperationType[] = ["createNode", "updateNodeData", "deleteNode", "connectNodes", "disconnectNodes", "replaceNodeType", "moveNode", "duplicateNode", "createBranch", "updateEdge", "noop"];

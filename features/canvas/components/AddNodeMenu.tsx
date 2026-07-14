@@ -1,14 +1,16 @@
 ﻿import { useState, useRef, useMemo } from "react";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
-import { archiveAudioFile, archiveImageFile } from "@/features/canvas/services/mediaArchiveClient";
+import { archiveAudioFile, archiveImageFile, archiveVideoFile } from "@/features/canvas/services/mediaArchiveClient";
 import { useLang } from "@/components/providers/LangProvider";
 import { imagePromptPresets } from "@/shared/workflow/imagePromptPresets";
+import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
+import { defaultMotionTemplateVariablesJson } from "@/shared/motion/templates";
 import { videoModelPatch } from "@/shared/workflow/videoModelPresets";
 import type { CanvasNodeData, NodeType } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
 export function getIcon(type: string) {
-  const map: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", videoEdit: "\u2702", audio: "\u266B", storyboard: "\u25A6", reference: "\u2141", output: "\u2197", upload_image: "+", upload_audio: "+" };
+  const map: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", videoEdit: "\u2702", motion: "\u25A3", audio: "\u266B", storyboard: "\u25A6", reference: "\u2141", output: "\u2197", upload_image: "+", upload_video: "+", upload_audio: "+" };
   return map[type] || "T";
 }
 
@@ -16,10 +18,12 @@ export function getIcon(type: string) {
 const ALL_CATEGORIES = ["New nodes", "Recently used", "Video", "Image", "Audio", "Text", "Storyboard"];
 
 const getTools = (t: Strings) => [
+  { id: "upload-video", type: "upload_video", cat: "Video", title: "Upload Video", desc: "Use a local video file as editable canvas footage", iconSrc: "/icons/1.png" },
   { id: "seedance-2.0", type: "video", cat: "Video", title: "Seedance 2.0", desc: t.toolDescSeedance, iconSrc: "/icons/1.png", data: { title: "Seedance 2.0", ...videoModelPatch("seedance-2.0") } },
   { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: t.toolDescGen45, iconSrc: "/icons/1.png", data: { title: "Gen-4.5", ...videoModelPatch("gen-4.5") } },
   { id: "kling-v3-omni", type: "video", cat: "Video", title: "Kling v3 Omni", desc: "TokenStar multi-reference image/element/video generation", iconSrc: "/icons/1.png", data: { title: "Kling v3 Omni", ...videoModelPatch("kling-v3-omni-tokenstar") } },
 { id: "video-edit", type: "videoEdit", cat: "Video", title: "Video Edit", desc: "FFmpeg trim, concat, audio, subtitles and transcode", iconSrc: "/icons/1.png", data: { title: "Video Edit", editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" } },
+  { id: "motion-compose", type: "motion", cat: "Video", title: "HyperFrames Motion", desc: "Structured motion composition for titles, captions, logos and overlays", iconSrc: "/icons/1.png", data: { title: "Motion* HyperFrames Composition", prompt: "Create a clean motion graphics package", templateId: "basic-title", motionVariablesJson: defaultMotionTemplateVariablesJson("basic-title"), compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")) } },
   { id: "gpt-image-2-tokenstar", type: "image", cat: "Image", title: "GPT Image 2 (TokenStar)", desc: "TokenStar GPT Image 2 text/image generation", iconSrc: "/icons/2.png", data: { title: "GPT Image 2 (TokenStar)", model: "gpt-image-2(tokenstar)", size: "2048x2048" } },
   ...Object.entries(imagePromptPresets).map(([id, preset]) => ({
     id: `gpt-image-2-tokenstar-${id}`,
@@ -51,6 +55,7 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
   const setGhostType = useCanvasStore(s => s.setGhostType);
   const setGhostMedia = useCanvasStore(s => s.setGhostMedia);
   const fileRef = useRef<HTMLInputElement>(null);
+  const videoFileRef = useRef<HTMLInputElement>(null);
   const audioFileRef = useRef<HTMLInputElement>(null);
 
   const allTools = useMemo(() => getTools(t), [t]);
@@ -66,6 +71,10 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
       fileRef.current?.click();
       return;
     }
+    if (tool.type === "upload_video") {
+      videoFileRef.current?.click();
+      return;
+    }
     if (tool.type === "upload_audio") {
       audioFileRef.current?.click();
       return;
@@ -77,6 +86,7 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
   };
 
   const archiveLocalImage = (file: File) => archiveImageFile(file);
+  const archiveLocalVideo = (file: File) => archiveVideoFile(file);
   const archiveLocalAudio = (file: File) => archiveAudioFile(file);
 
   const readAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
@@ -124,6 +134,39 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
           });
         } catch (error) {
           console.error("Local audio archive failed", error);
+        }
+      })();
+    }
+    e.target.value = "";
+    if (!keepOpen) onClose();
+  };
+
+  const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = Array.from(e.target.files ?? []).find((item) =>
+      /^video\//.test(item.type) || /\.(mp4|webm|mov|m4v)$/i.test(item.name),
+    );
+    if (file) {
+      void (async () => {
+        try {
+          const url = await archiveLocalVideo(file);
+          setGhostType("video", {
+            title: `Video* ${file.name.replace(/\.[^.]+$/, "") || "Uploaded Video"}`,
+            prompt: "",
+            status: "success",
+            output: {
+              kind: "video",
+              summary: "Video uploaded",
+              value: {
+                videoUrl: url,
+                resultUrl: url,
+                originalFileName: file.name,
+                sourceProvider: "local-upload",
+              },
+              createdAt: new Date().toISOString(),
+            },
+          });
+        } catch (error) {
+          console.error("Local video archive failed", error);
         }
       })();
     }
@@ -210,6 +253,7 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
       </div>
 
       <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple className="hidden" onChange={handleFileUpload} />
+      <input ref={videoFileRef} type="file" accept="video/mp4,video/webm,video/quicktime,video/x-m4v,.mp4,.webm,.mov,.m4v" className="hidden" onChange={handleVideoUpload} />
       <input ref={audioFileRef} type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/aac,audio/flac,audio/mp4,.mp3,.wav,.aac,.flac,.m4a" className="hidden" onChange={handleAudioUpload} />
     </div>
   );

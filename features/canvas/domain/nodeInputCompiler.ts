@@ -27,21 +27,30 @@ export const scenesFrom = (value: unknown) =>
         .join("\n")
     : "";
 
-export const imageUrlFrom = (node: CanvasNode) => asText(asRecord(node.data.output?.value).imageUrl) || node.data.imageUrl || "";
+const archivedMediaUrlFrom = (node: CanvasNode, mediaType: "image" | "video" | "audio") => {
+  const archivedMedia = asRecord(node.data.output?.value).archivedMedia;
+  if (!Array.isArray(archivedMedia)) return "";
+  const archived = archivedMedia
+    .map(asRecord)
+    .find((item) => asText(item.mediaType) === mediaType && asText(item.cdnUrl));
+  return asText(archived?.cdnUrl);
+};
+
+export const imageUrlFrom = (node: CanvasNode) => archivedMediaUrlFrom(node, "image") || asText(asRecord(node.data.output?.value).imageUrl) || node.data.imageUrl || "";
 
 export const videoUrlFrom = (node: CanvasNode) => {
   const value = asRecord(node.data.output?.value);
   const raw = asRecord(value.raw);
   const content = asRecord(raw.content);
   const data = asRecord(node.data);
-  return asText(value.videoUrl) || asText(value.resultUrl) || asText(value.finalVideoUrl) || asText(content.video_url) || asText(data.resultUrl);
+  return archivedMediaUrlFrom(node, "video") || asText(value.videoUrl) || asText(value.resultUrl) || asText(value.finalVideoUrl) || asText(content.video_url) || asText(data.resultUrl);
 };
 
 export const audioUrlFrom = (node: CanvasNode) => {
   const value = asRecord(node.data.output?.value);
   const raw = asRecord(value.raw);
   const data = asRecord(node.data);
-  return asText(value.audioUrl) || asText(value.resultUrl) || asText(raw.audio_url) || asText(raw.audioUrl) || asText(raw.url) || asText(data.audioUrl) || asText(data.resultUrl);
+  return archivedMediaUrlFrom(node, "audio") || asText(value.audioUrl) || asText(value.resultUrl) || asText(raw.audio_url) || asText(raw.audioUrl) || asText(raw.url) || asText(data.audioUrl) || asText(data.resultUrl);
 };
 
 const ownPromptFrom = (data: CanvasNodeData) =>
@@ -113,7 +122,7 @@ const legacyVideoHandleKind = (handleId: string | undefined | null): VideoInputP
 
 const nodeKind = (source: CanvasNode): VideoInputPortKind | undefined => {
   if (source.data.nodeType === "image" || source.data.nodeType === "reference") return "image";
-  if (source.data.nodeType === "video" || source.data.nodeType === "videoEdit") return "video";
+  if (source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion") return "video";
   if (source.data.nodeType === "audio") return "audio";
   if (["text", "prompt", "script", "storyboard"].includes(source.data.nodeType)) return "text";
   return undefined;
@@ -254,7 +263,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
 
   if (d.nodeType === "videoEdit") {
     const upstreamVideoUrls = upstream
-      .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoEdit")
+      .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion")
       .map(videoUrlFrom)
       .filter(Boolean);
     const upstreamAudioUrls = upstream
@@ -275,6 +284,32 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       resolution: d.resolution || "720p",
       aspectRatio: d.aspectRatio || "16:9",
       fps: d.fps || "30",
+    };
+  }
+
+  if (d.nodeType === "motion") {
+    const referenceVideoUrls = upstream
+      .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoEdit")
+      .map(videoUrlFrom)
+      .filter(Boolean);
+    const referenceImageUrls = upstream
+      .filter((source) => source.data.nodeType === "image" || source.data.nodeType === "reference")
+      .map(imageUrlFrom)
+      .filter(Boolean);
+    const referenceAudioUrls = upstream
+      .filter((source) => source.data.nodeType === "audio")
+      .map(audioUrlFrom)
+      .filter(Boolean);
+    return {
+      prompt: limitProviderPrompt(ownPromptFrom(d) || prompt),
+      compositionJson: d.compositionJson,
+      templateId: d.templateId,
+      motionVariablesJson: d.motionVariablesJson,
+      motionMode: d.motionMode,
+      codexInstruction: d.codexInstruction,
+      referenceVideoUrls,
+      referenceImageUrls,
+      referenceAudioUrls,
     };
   }
 
