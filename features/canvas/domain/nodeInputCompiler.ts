@@ -1,4 +1,5 @@
 import { asRecord, asText } from "./values";
+import { DEFAULT_QWEN_VOICE_MODEL, qwenTtsLanguageTypes } from "@/shared/api/qwenContracts";
 import { imagePromptWithPreset } from "@/shared/workflow/imagePromptPresets";
 import { videoInputPortsForPreset, videoModelPresetIdFromData, type VideoInputPortKind } from "@/shared/workflow/videoModelPresets";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation, WorkflowEdge } from "@/shared/canvas";
@@ -50,7 +51,7 @@ export const audioUrlFrom = (node: CanvasNode) => {
   const value = asRecord(node.data.output?.value);
   const raw = asRecord(value.raw);
   const data = asRecord(node.data);
-  return archivedMediaUrlFrom(node, "audio") || asText(value.audioUrl) || asText(value.resultUrl) || asText(raw.audio_url) || asText(raw.audioUrl) || asText(raw.url) || asText(data.audioUrl) || asText(data.resultUrl);
+  return archivedMediaUrlFrom(node, "audio") || asText(value.audioUrl) || asText(value.url) || asText(value.resultUrl) || asText(raw.audio_url) || asText(raw.audioUrl) || asText(raw.url) || asText(data.audioUrl) || asText(data.resultUrl);
 };
 
 const ownPromptFrom = (data: CanvasNodeData) =>
@@ -123,7 +124,7 @@ const legacyVideoHandleKind = (handleId: string | undefined | null): VideoInputP
 const nodeKind = (source: CanvasNode): VideoInputPortKind | undefined => {
   if (source.data.nodeType === "image" || source.data.nodeType === "reference") return "image";
   if (source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion") return "video";
-  if (source.data.nodeType === "audio") return "audio";
+  if (source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS") return "audio";
   if (["text", "prompt", "script", "storyboard"].includes(source.data.nodeType)) return "text";
   return undefined;
 };
@@ -144,6 +145,36 @@ const videoSourcesForKind = (connections: UpstreamConnection[], kind: VideoInput
       return supportedKinds.has(kind) && nodeKind(node) === kind;
     })
     .map(({ node }) => node);
+
+const generatedTextFrom = (node: CanvasNode) => {
+  const value = asRecord(node.data.output?.value);
+  if (node.data.nodeType === "script") {
+    const scenes = Array.isArray(value.scenes) ? value.scenes : [];
+    return [
+      asText(value.title),
+      asText(value.logline),
+      ...scenes.map((scene, index) => {
+        const item = asRecord(scene);
+        return [`Scene ${asText(item.sceneNumber) || index + 1}`, asText(item.action), asText(item.visualDirection), asText(item.description)].filter(Boolean).join("\n");
+      }),
+    ].filter(Boolean).join("\n\n");
+  }
+  if (node.data.nodeType === "storyboard") return scenesFrom(node.data.output?.value);
+  if (node.data.nodeType === "prompt") return asText(value.prompt) || node.data.prompt || "";
+  return node.data.textContent || node.data.inputText || asText(value.generatedText) || asText(value.text) || "";
+};
+
+const voiceFrom = (node: CanvasNode) => {
+  const value = asRecord(node.data.output?.value);
+  return {
+    voice: asText(value.voice) || node.data.voice || "",
+    targetModel: asText(value.targetModel) || node.data.targetModel || DEFAULT_QWEN_VOICE_MODEL,
+    voiceProvider: asText(value.voiceProvider) || node.data.voiceProvider,
+    language: asText(value.language) || node.data.language,
+    fallbackMode: typeof value.fallbackMode === "boolean" ? value.fallbackMode : node.data.fallbackMode,
+    fallbackReason: asText(value.fallbackReason) || node.data.fallbackReason,
+  };
+};
 
 export const percentage = (value: number) => `${Math.round(value * 100)}%`;
 
@@ -267,7 +298,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       .map(videoUrlFrom)
       .filter(Boolean);
     const upstreamAudioUrls = upstream
-      .filter((source) => source.data.nodeType === "audio")
+      .filter((source) => source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS")
       .map(audioUrlFrom)
       .filter(Boolean);
     return {
@@ -297,7 +328,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       .map(imageUrlFrom)
       .filter(Boolean);
     const referenceAudioUrls = upstream
-      .filter((source) => source.data.nodeType === "audio")
+      .filter((source) => source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS")
       .map(audioUrlFrom)
       .filter(Boolean);
     return {
@@ -310,6 +341,34 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       referenceVideoUrls,
       referenceImageUrls,
       referenceAudioUrls,
+    };
+  }
+
+  if (d.nodeType === "voiceClone") {
+    return {
+      voice: d.voice,
+      targetModel: d.targetModel || DEFAULT_QWEN_VOICE_MODEL,
+      language: d.language,
+      fallbackMode: d.fallbackMode,
+      fallbackReason: d.fallbackReason,
+    };
+  }
+
+  if (d.nodeType === "voiceTTS") {
+    const connections = upstreamConnectionsFrom(upstream, incomingEdges);
+    const manualText = (d.ttsText || d.inputText || "").trim();
+    const textSource = connections.find((connection) => connection.targetHandle === "text")?.node
+      || connections.find((connection) => ["text", "prompt", "script", "storyboard"].includes(connection.node.data.nodeType))?.node;
+    const voiceSource = connections.find((connection) => connection.targetHandle === "voice")?.node
+      || connections.find((connection) => connection.node.data.nodeType === "voiceClone")?.node;
+    const clonedVoice = voiceSource ? voiceFrom(voiceSource) : undefined;
+    const languageType = qwenTtsLanguageTypes.includes(d.languageType || "Auto") ? d.languageType || "Auto" : "Auto";
+    return {
+      text: manualText || (textSource ? generatedTextFrom(textSource) : limitProviderPrompt(prompt)),
+      voice: clonedVoice?.voice || d.voice,
+      targetModel: clonedVoice?.targetModel || d.targetModel || DEFAULT_QWEN_VOICE_MODEL,
+      voiceProvider: clonedVoice?.voiceProvider || d.voiceProvider,
+      languageType,
     };
   }
 

@@ -48,6 +48,14 @@ export const outputFromProvider = (nodeType: CanvasNode["data"]["nodeType"], val
     const url = asText(data.videoUrl || data.resultUrl);
     return makeOutput("motion", url ? `Motion video rendered (${elements} elements)` : `Motion composition prepared (${elements} elements)`, value);
   }
+  if (nodeType === "voiceClone") {
+    const voice = asText(data.voice);
+    return makeOutput("clonedVoice", voice ? `Cloned voice ready: ${voice}` : "Cloned voice is not ready", value);
+  }
+  if (nodeType === "voiceTTS") {
+    const audioUrl = asText(data.audioUrl || data.url || data.resultUrl);
+    return makeOutput("audio", audioUrl ? "Cloned voice audio generated" : "Cloned voice TTS request submitted", { ...data, audioUrl, url: asText(data.url) || audioUrl });
+  }
   const url = asText(data.imageUrl || data.videoUrl || data.audioUrl || data.resultUrl || data.finalVideoUrl);
   const status = asText(data.status);
   const polling = ["pending", "running"].includes(status);
@@ -56,4 +64,4 @@ export const outputFromProvider = (nodeType: CanvasNode["data"]["nodeType"], val
 };
 
 export const canRunRemotely = (type: CanvasNode["data"]["nodeType"]) =>
-  ["text", "script", "image", "video", "videoEdit", "motion", "audio", "storyboard"].includes(type);
+  ["text", "script", "image", "video", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "storyboard"].includes(type);

@@ -18,9 +18,15 @@ export async function runCanvasNode(node: CanvasNode, inputs: unknown[] = []): P
     case "videoEdit": return output("videoEdit", "Video edit plan prepared", { editPlan: d.editPlan, preserveAudio: d.preserveAudio !== false, originalVolume: d.originalVolume, backgroundVolume: d.backgroundVolume, fadeIn: d.fadeIn, fadeOut: d.fadeOut, resolution: d.resolution, fps: d.fps, aspectRatio: d.aspectRatio });
     case "motion": return output("motion", "Motion video rendered", await createMotionComposition({ prompt, compositionJson: d.compositionJson, templateId: d.templateId, motionVariablesJson: d.motionVariablesJson, motionMode: d.motionMode, codexInstruction: d.codexInstruction }));
     case "audio": { const value = await aiProvider.generateAudio({ text: prompt, model: d.model, voice: d.voice, emotion: d.emotion, volume: d.volume, responseFormat: "mp3" }); return output("audio", value.audioUrl ? "Audio generated" : "Audio task complete", value); }
+    case "voiceClone": {
+      if (!d.voice) throw new Error("Create or select a cloned voice before running this node.");
+      return output("clonedVoice", `Cloned voice ready: ${d.voice}`, { kind: "clonedVoice", voice: d.voice, targetModel: d.targetModel, voiceProvider: d.voiceProvider || "qwen_tts", language: d.language, fallbackMode: d.fallbackMode, fallbackReason: d.fallbackReason });
+    }
+    case "voiceTTS": return output("audio", "Cloned voice TTS node prepared", { kind: "audio", provider: "qwencloud", text: d.ttsText, voice: d.voice, model: d.targetModel, voiceProvider: d.voiceProvider || "qwen_tts" });
     case "storyboard": { const value = await textProvider.generateStoryboard({ storyBrief: prompt, numberOfScenes: d.targetShotCount ?? d.numberOfScenes ?? 6, model: d.model }); return output("storyboard", `${value.scenes.length} scenes created`, value.scenes); }
     case "storyboardImage": { const prompts = promptsFromStoryboard(inputs[0], d.aspectRatio, d.negativePrompt); return output("storyboardImage", `${prompts.length} image prompts prepared`, { prompts }); }
     case "reference": return output("reference", "Reference material available", { imageUrl: d.imageUrl, notes: d.notes });
     case "output": return output("output", `${inputs.length} upstream result${inputs.length === 1 ? "" : "s"} collected`, inputs);
+    default: return output("output", "Unsupported node type", { nodeType: d.nodeType, inputs });
   }
 }

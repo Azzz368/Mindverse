@@ -60,8 +60,14 @@ const pollProviderFor = (node: CanvasNode, value: Record<string, unknown>) =>
 const videoProviderFrom = (value: string | undefined): CanvasNodeData["videoProvider"] | undefined =>
   value === "mock" || value === "302ai" || value === "302-sora2" || value === "tokenstar" || value === "kling" ? value : undefined;
 const restoreStatuses = (nodes: CanvasNode[]): CanvasNode[] => nodes.map((node) => { if (node.data.status !== "running") return node; const polling = ["pending", "running"].includes(asText(asRecord(node.data.output?.value).status)); const status: CanvasNodeData["status"] = polling ? "waiting" : "idle"; return { ...node, data: { ...node.data, status } }; });
+const voiceTtsTargetHandleForNodeType = (sourceType: NodeType) => sourceType === "voiceClone" ? "voice" : ["prompt", "text", "script", "storyboard"].includes(sourceType) ? "text" : undefined;
+const targetHandleForConnection = (source: CanvasNode, target: CanvasNode) =>
+  target.data.nodeType === "video" ? videoTargetHandleForNodeType(source.data.nodeType, target.data)
+    : target.data.nodeType === "videoEdit" && (source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion" || source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS") ? source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS" ? "audio" : "video"
+    : target.data.nodeType === "voiceTTS" ? voiceTtsTargetHandleForNodeType(source.data.nodeType)
+    : undefined;
 const edgeFor = (source: CanvasNode, target: CanvasNode): WorkflowEdge => {
-  const targetHandle = target.data.nodeType === "video" ? videoTargetHandleForNodeType(source.data.nodeType, target.data) : undefined;
+  const targetHandle = targetHandleForConnection(source, target);
   return { id: `edge-${source.id}-${target.id}`, source: source.id, target: target.id, ...(targetHandle ? { targetHandle } : {}) };
 };
 const withVideoTargetHandles = (nodes: CanvasNode[], edges: WorkflowEdge[]): WorkflowEdge[] => {
@@ -69,8 +75,8 @@ const withVideoTargetHandles = (nodes: CanvasNode[], edges: WorkflowEdge[]): Wor
   return edges.flatMap((edge) => {
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
-    if (target?.data.nodeType !== "video") return [edge];
-    const targetHandle = source ? videoTargetHandleForNodeType(source.data.nodeType, target.data) : undefined;
+    if (!source || !target || (target.data.nodeType !== "video" && target.data.nodeType !== "videoEdit" && target.data.nodeType !== "voiceTTS")) return [edge];
+    const targetHandle = targetHandleForConnection(source, target);
     return targetHandle ? [{ ...edge, targetHandle }] : [];
   });
 };
@@ -210,7 +216,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const nextChanges = changes.filter((change) => change.type !== "select");
     return nextChanges.length ? { nodes: applyNodeChanges(nextChanges, state.nodes) as CanvasNode[] } : {};
   }), onEdgesChange: (changes) => set((state) => ({ edges: applyEdgeChanges(changes, state.edges) })),
-  onConnect: (connection) => set((state) => ({ edges: addEdge({ ...connection, id: `edge-${crypto.randomUUID()}` }, state.edges) })),
+  onConnect: (connection) => set((state) => { const source = state.nodes.find((node) => node.id === connection.source); const target = state.nodes.find((node) => node.id === connection.target); const targetHandle = connection.targetHandle || (source && target ? targetHandleForConnection(source, target) : undefined); return { edges: addEdge({ ...connection, targetHandle, id: `edge-${crypto.randomUUID()}` }, state.edges) }; }),
   addNode: (type) => { const node = makeNode(type, { x: 160 + (get().nodes.length % 4) * 55, y: 120 + (get().nodes.length % 5) * 60 }); set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id })); },
   updateNodeData: (id, patch) => set((state) => {
     const nodes = state.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, ...patch } } : node);

@@ -2,6 +2,7 @@ import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/share
 import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
 import { defaultMotionTemplateVariablesJson } from "@/shared/motion/templates";
 import { videoModelPatch, videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
+import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER } from "@/shared/api/qwenContracts";
 
 const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "status">> = {
   prompt: { prompt: "Describe an atmospheric creative direction", negativePrompt: "", style: "Cinematic", aspectRatio: "16:9" },
@@ -12,6 +13,8 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   videoEdit: { prompt: "", editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" },
   motion: { prompt: "Create a clean HyperFrames-style title package", compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")), templateId: "basic-title", motionVariablesJson: defaultMotionTemplateVariablesJson("basic-title") },
   audio: { prompt: "A warm, modern ambient bed", voiceStyle: "Atmospheric", duration: 12, model: "", voice: "", emotion: "", volume: 1 },
+  voiceClone: { preferredName: "voice_1", targetModel: DEFAULT_QWEN_VOICE_MODEL, voiceProvider: DEFAULT_QWEN_VOICE_PROVIDER, language: "zh", transcript: "", consentConfirmed: false },
+  voiceTTS: { ttsText: "", voice: "", targetModel: DEFAULT_QWEN_VOICE_MODEL, voiceProvider: DEFAULT_QWEN_VOICE_PROVIDER, languageType: "Auto" },
   storyboard: { storyBrief: "A small transformation told in light and motion", numberOfScenes: 3, model: "" },
   storyboardImage: { aspectRatio: "16:9", negativePrompt: "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay" },
   reference: { imageUrl: "", notes: "Visual reference and art direction." },
@@ -19,7 +22,7 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
 };
 export function makeNode(type: NodeType, position = { x: 140, y: 120 }): CanvasNode {
   const prefix = type === "videoEdit" ? "Video" : type === "motion" ? "Motion" : `${type[0].toUpperCase()}${type.slice(1)}`;
-  const title = type === "image" ? "Image* GPT Image 2 (TokenStar)" : `${prefix}* New ${prefix}`;
+  const title = type === "image" ? "Image* GPT Image 2 (TokenStar)" : type === "voiceClone" ? "Voice* Clone" : type === "voiceTTS" ? "Voice* Cloned TTS" : `${prefix}* New ${prefix}`;
   return { id: `${type}-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: type, title, status: "idle", ...defaults[type] } };
 }
 export type Template = { id: string; name: string; description: string; types: NodeType[] };
@@ -36,12 +39,16 @@ export function buildTemplate(template: Template): { nodes: CanvasNode[]; edges:
   const nodes = template.types.map((type, index) => { const node = makeNode(type, { x: 90 + index * 340, y: 170 + (index % 2) * 80 }); const prefix = type === "videoEdit" ? "Video" : type === "motion" ? "Motion" : `${type[0].toUpperCase()}${type.slice(1)}`; node.data.title = `${prefix}* ${template.name}`; return node; });
   nodes.forEach((node, index) => {
     if (node.data.nodeType !== "video") return;
-    const hasUpstreamMedia = nodes.slice(0, index).some((source) => ["image", "reference", "video", "audio"].includes(source.data.nodeType));
+    const hasUpstreamMedia = nodes.slice(0, index).some((source) => ["image", "reference", "video", "audio", "voiceTTS"].includes(source.data.nodeType));
     if (hasUpstreamMedia) node.data = { ...node.data, ...videoModelPatch("seedance-2.0-assets") };
   });
   return { nodes, edges: nodes.slice(1).map((node, index) => {
     const source = nodes[index];
-    const targetHandle = node.data.nodeType === "video" ? videoTargetHandleForNodeType(source.data.nodeType, node.data) : undefined;
+    const targetHandle = node.data.nodeType === "video" ? videoTargetHandleForNodeType(source.data.nodeType, node.data)
+      : node.data.nodeType === "voiceTTS" ? source.data.nodeType === "voiceClone" ? "voice" : ["prompt", "text", "script", "storyboard"].includes(source.data.nodeType) ? "text" : undefined
+      : node.data.nodeType === "videoEdit" && (source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS") ? "audio"
+      : node.data.nodeType === "videoEdit" && (source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion") ? "video"
+      : undefined;
     return { id: `edge-${source.id}-${node.id}`, source: source.id, target: node.id, ...(targetHandle ? { targetHandle } : {}) };
   }) };
 }

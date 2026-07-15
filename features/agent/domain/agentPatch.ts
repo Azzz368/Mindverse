@@ -40,7 +40,7 @@ export const applyEditPatchToState = (state: { nodes: CanvasNode[]; edges: Workf
   );
   const selectedSourceNodes = state.nodes.filter((node) =>
     selectedIds.has(node.id) &&
-    (node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion" || node.data.nodeType === "audio") &&
+    (node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion" || node.data.nodeType === "audio" || node.data.nodeType === "voiceTTS") &&
     !deletedNodes.has(node.id),
   );
   const baseNodes = state.nodes
@@ -90,7 +90,7 @@ export const applyEditPatchToState = (state: { nodes: CanvasNode[]; edges: Workf
         id,
         source,
         target,
-        targetHandle: sourceNode.data.nodeType === "audio" ? "audio" : "video",
+        targetHandle: sourceNode.data.nodeType === "audio" || sourceNode.data.nodeType === "voiceTTS" ? "audio" : "video",
         animated: true,
       });
     });

@@ -117,7 +117,7 @@ export const videoInputPortsForPreset = (id: VideoModelPresetId) => videoModelPr
 export const videoInputKindForNodeType = (nodeType: string): VideoInputPortKind | undefined => {
   if (nodeType === "image" || nodeType === "reference") return "image";
   if (nodeType === "video" || nodeType === "videoEdit") return "video";
-  if (nodeType === "audio") return "audio";
+  if (nodeType === "audio" || nodeType === "voiceTTS") return "audio";
   if (nodeType === "text" || nodeType === "prompt" || nodeType === "script" || nodeType === "storyboard") return "text";
   return undefined;
 };
