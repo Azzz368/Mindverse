@@ -299,16 +299,18 @@ function HandleDot({ label, handleId, borderColorClass, bgClass, connectedBgClas
   );
 }
 
-function AutoGrowTextarea({ value, onChange, placeholder, minHeight = 80, className }: { value: string; onChange: (v: string) => void; placeholder?: string; minHeight?: number; className?: string }) {
+function AutoGrowTextarea({ value, onChange, placeholder, minHeight = 80, maxHeight, className }: { value: string; onChange: (v: string) => void; placeholder?: string; minHeight?: number; maxHeight?: number; className?: string }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const resize = (el: HTMLTextAreaElement | null) => {
     if (!el) return;
+    const nextHeight = Math.max(minHeight, el.scrollHeight);
     el.style.height = "auto";
-    el.style.height = `${Math.max(minHeight, el.scrollHeight)}px`;
+    el.style.height = `${maxHeight ? Math.min(maxHeight, nextHeight) : nextHeight}px`;
+    el.style.overflowY = maxHeight && nextHeight > maxHeight ? "auto" : "hidden";
   };
   useEffect(() => {
     resize(ref.current);
-  }, [value, minHeight]);
+  }, [value, minHeight, maxHeight]);
   return (
     <ImeTextarea
       ref={ref}
@@ -317,8 +319,8 @@ function AutoGrowTextarea({ value, onChange, placeholder, minHeight = 80, classN
       onInput={(event) => resize(event.currentTarget)}
       placeholder={placeholder}
       rows={1}
-      style={{ minHeight }}
-      className={`w-full resize-none overflow-hidden border-none bg-transparent text-[14px] font-medium leading-7 tracking-wide text-[#030303] outline-none placeholder:font-normal placeholder:text-[#939393] dark:text-slate-100 dark:placeholder:text-slate-500 ${className || ""}`}
+      style={{ minHeight, ...(maxHeight ? { maxHeight } : {}) }}
+      className={`w-full resize-none border-none bg-transparent text-[14px] font-medium leading-7 tracking-wide text-[#030303] outline-none placeholder:font-normal placeholder:text-[#939393] dark:text-slate-100 dark:placeholder:text-slate-500 ${className || ""}`}
     />
   );
 }
@@ -747,8 +749,8 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
         </div>
       </div>
 
-      <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[800px] -translate-x-1/2 overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
-         <div className="p-6 pb-4">
+      <div className={`nodrag nowheel absolute left-1/2 top-[calc(100%+8px)] z-50 flex max-h-[560px] w-[800px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
+         <div className="min-h-0 flex-1 overflow-y-auto p-6 pb-4">
             {supportsImageInput && <div className="mb-3 flex items-center gap-2">
               <button
                 type="button"
@@ -801,10 +803,11 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                  ? '剪辑计划 JSON，例如 {"clips":[{"source":1},{"source":2}],"backgroundAudio":{"source":1,"volume":0.2,"loop":true},"fadeIn":1,"fadeOut":1}'
                  : "描述你想要生成的画面内容，可用 @1、@2 引用上方素材..."}
                minHeight={isVideoEdit ? 140 : 96}
+               maxHeight={isVideoEdit ? 260 : 220}
             />
          </div>
-         <div className="flex items-center justify-between px-6 pb-6">
-            <div className="flex gap-2">
+         <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[#e7eaf0] px-6 py-4 dark:border-slate-800">
+            <div className="flex min-w-0 flex-wrap gap-2">
               {!isVideoEdit && <PillDropdown
                 value={activeVideoModel}
                 options={videoModelOptions.map(option => ({ value: option.id, label: option.label }))}

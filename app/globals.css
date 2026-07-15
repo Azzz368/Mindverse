@@ -80,7 +80,6 @@ button { cursor: pointer; }
   border-width: 1px;
   border-style: solid;
   border-radius: 18px;
-  transition: left 180ms ease, top 180ms ease, width 180ms ease, height 180ms ease, background-color 180ms ease, border-color 180ms ease;
 }
 
 .react-flow__nodes {
