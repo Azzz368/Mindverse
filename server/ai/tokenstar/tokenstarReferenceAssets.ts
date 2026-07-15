@@ -1,4 +1,4 @@
-﻿import "server-only";
+import "server-only";
 import { TokenStarError } from "../errors";
 import { createAssetFromUrl, createAssetGroup, waitForAsset, waitForAssetGroup, type TokenStarAssetType } from "./tokenstarAsset";
 import { archiveMedia } from "@/server/storage/mediaArchive";
@@ -26,15 +26,23 @@ const sourceSummary = (url: string) => {
   if (/^data:/i.test(url)) return `${dataUriMimeType(url) || "unknown"} data URI (${url.length} chars)`;
   return url;
 };
-const preparedReferenceUrl = async (url: string, type: TokenStarAssetType, index: number) => {
+type PreparedReference = { url: string };
+
+const archiveReference = async (url: string, type: TokenStarAssetType, index: number) => {
+  const archived = await archiveMedia(url, archiveMediaTypeFor[type], { sourceProvider: "tokenstar-reference" });
+  if (!archived?.cdnUrl) {
+    throw new TokenStarError(`Could not archive connected ${labelFor(type)} reference ${index + 1} into a public HTTPS URL before TokenStar upload. TokenStar CreateAsset requires URL to be a reachable image/video/audio URL; base64 and data URIs are not sent.`, 502);
+  }
+  return archived.cdnUrl;
+};
+
+const preparedReference = async (url: string, type: TokenStarAssetType, index: number): Promise<PreparedReference> => {
   if (!isFetchableSource(url)) throw new TokenStarError(`Connected ${labelFor(type)} reference ${index + 1} must be an HTTPS or data URL. Browser blob URLs cannot be uploaded by the server.`, 400);
   if (/^data:/i.test(url)) {
     const typeName = dataUriMimeType(url);
     if (typeName === "image/svg+xml") throw new TokenStarError("TokenStar asset-video requires a raster image reference (PNG, JPEG, or WebP). Mock ImageNodes produce SVG previews and cannot be uploaded.", 422);
     if (!allowedMimeTypes[type].includes(typeName)) throw new TokenStarError(`TokenStar ${labelFor(type)} assets must be ${allowedMimeTypes[type].join(", ")}. Connected reference ${index + 1} returned ${typeName || "an unknown content type"}.`, 422);
-    const archived = await archiveMedia(url, archiveMediaTypeFor[type], { sourceProvider: "tokenstar-reference" });
-    if (!archived?.cdnUrl) throw new TokenStarError(`Could not archive connected ${labelFor(type)} reference ${index + 1} before TokenStar upload. Please use a hosted HTTPS URL or reconnect a generated/uploaded node that has been saved to Bunny.`, 502);
-    return archived.cdnUrl;
+    return { url: await archiveReference(url, type, index) };
   }
   let response: Response;
   try {
@@ -48,7 +56,7 @@ const preparedReferenceUrl = async (url: string, type: TokenStarAssetType, index
   const typeName = mediaType(response, blob);
   if (typeName === "image/svg+xml") throw new TokenStarError("TokenStar asset-video requires a raster image reference (PNG, JPEG, or WebP). Mock ImageNodes produce SVG previews and cannot be uploaded.", 422);
   if (!allowedMimeTypes[type].includes(typeName)) throw new TokenStarError(`TokenStar ${labelFor(type)} assets must be ${allowedMimeTypes[type].join(", ")}. Connected reference ${index + 1} returned ${typeName || "an unknown content type"}.`, 422);
-  return url;
+  return { url: await archiveReference(url, type, index) };
 };
 
 type ReferenceSources = { imageUrls?: readonly string[]; videoUrls?: readonly string[]; audioUrls?: readonly string[] };
@@ -57,14 +65,14 @@ type ReferenceAssets = { groupId?: string; imageAssetUrls: string[]; videoAssetU
 const uploadReferences = async (groupId: string, type: TokenStarAssetType, urls: readonly string[], assetUrls: string[]) => {
   for (const [index, url] of uniqueUrls(urls).entries()) {
     const name = `reference-${labelFor(type)}-${index + 1}`;
-    const preparedUrl = await preparedReferenceUrl(url, type, index);
+    const prepared = await preparedReference(url, type, index);
     let created: Awaited<ReturnType<typeof createAssetFromUrl>>;
     try {
-      created = await createAssetFromUrl({ groupId, name, assetType: type, url: preparedUrl });
+      created = await createAssetFromUrl({ groupId, name, assetType: type, url: prepared.url });
     } catch (error) {
       if (error instanceof TokenStarError) {
         throw new TokenStarError(
-          `CreateAsset failed for ${labelFor(type)} reference ${index + 1}. GroupId: ${groupId}. Name: ${name}. AssetType: ${type}. Source: ${sourceSummary(url)}. Prepared URL: ${sourceSummary(preparedUrl)}. TokenStar error: ${error.message}`,
+          `CreateAsset failed for ${labelFor(type)} reference ${index + 1} by public URL. GroupId: ${groupId}. Name: ${name}. AssetType: ${type}. Source: ${sourceSummary(url)}. Prepared URL: ${sourceSummary(prepared.url)}. TokenStar CreateAsset URL must be a reachable image/video/audio URL; base64 and data URIs are not sent. TokenStar error: ${error.message}`,
           error.status,
           error.errorCode,
           error.requestId,

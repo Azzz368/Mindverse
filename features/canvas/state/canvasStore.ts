@@ -51,6 +51,14 @@ const schedulePoll = (id: string, run: () => void, intervalMs = 3000) => {
   const timer = window.setTimeout(() => { pollTimers.delete(id); run(); }, Math.max(5000, intervalMs));
   pollTimers.set(id, timer);
 };
+const withRunMetadata = (value: unknown, provider?: string, polling?: unknown) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  return { ...(value as Record<string, unknown>), ...(provider ? { provider } : {}), ...(polling ? { polling } : {}) };
+};
+const pollProviderFor = (node: CanvasNode, value: Record<string, unknown>) =>
+  node.data.nodeType === "video" ? asText(value.provider) || node.data.videoProvider : undefined;
+const videoProviderFrom = (value: string | undefined): CanvasNodeData["videoProvider"] | undefined =>
+  value === "mock" || value === "302ai" || value === "302-sora2" || value === "tokenstar" || value === "kling" ? value : undefined;
 const restoreStatuses = (nodes: CanvasNode[]): CanvasNode[] => nodes.map((node) => { if (node.data.status !== "running") return node; const polling = ["pending", "running"].includes(asText(asRecord(node.data.output?.value).status)); const status: CanvasNodeData["status"] = polling ? "waiting" : "idle"; return { ...node, data: { ...node.data, status } }; });
 const edgeFor = (source: CanvasNode, target: CanvasNode): WorkflowEdge => {
   const targetHandle = target.data.nodeType === "video" ? videoTargetHandleForNodeType(source.data.nodeType, target.data) : undefined;
@@ -318,8 +326,76 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       throw error;
     }
   },
-  runNode: async (id) => { const state = get(), node = state.nodes.find((item) => item.id === id); if (!node) return; set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "running", error: undefined } } : item), lastError: null })); try { const incomingEdges = get().edges.filter((edge) => edge.target === id); const upstream = incomingEdges.map((edge) => get().nodes.find((item) => item.id === edge.source)).filter((item): item is CanvasNode => Boolean(item && hasRunnableSource(item))); const inputs = upstream.map((source) => source.data.output?.value).filter((value): value is NonNullable<typeof value> => value !== undefined); let result: NodeOutput; let intervalMs = 3000; const generationContext = promptFrom(node, upstream); if (canRunRemotely(node.data.nodeType)) { const payload = await runNodeRemote({ nodeType: node.data.nodeType, input: inputFor(node, upstream, incomingEdges) }); intervalMs = Number(payload.polling?.intervalMs) || intervalMs; result = outputFromProvider(node.data.nodeType, payload.output); } else if (node.data.nodeType === "storyboardImage") { const storyboard = upstream.find((item) => item.data.nodeType === "storyboard"); const prompts = promptsFromStoryboard(storyboard?.data.output?.value, node.data.aspectRatio, node.data.negativePrompt); if (!prompts.length) throw new Error("Connect and run a Storyboard node before generating image prompts."); result = makeOutput("storyboardImage", `${prompts.length} image prompts prepared`, { prompts }); } else if (node.data.nodeType === "prompt") { if (!node.data.prompt) throw new Error("Add a prompt or input before running this node."); result = makeOutput("prompt", "Structured prompt prepared", { prompt: node.data.prompt, negativePrompt: node.data.negativePrompt, style: node.data.style, aspectRatio: node.data.aspectRatio }); } else if (node.data.nodeType === "reference") result = makeOutput("reference", "Reference material available", { imageUrl: node.data.imageUrl, notes: node.data.notes }); else result = makeOutput("output", `${inputs.length} upstream result${inputs.length === 1 ? "" : "s"} collected as ${node.data.format || "Creative package"}`, outputFor(node.data.format, upstream)); const taskState = asText(asRecord(result.value).status); const polling = taskState === "pending" || taskState === "running"; set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: taskState === "failed" ? "error" : taskState === "running" ? "running" : polling ? "waiting" : "success", output: result, generationContext, rawStatus: asText(asRecord(result.value).rawStatus) || taskState || item.data.rawStatus, storyboardImagePrompts: node.data.nodeType === "storyboardImage" ? (asRecord(result.value).prompts as CanvasNodeData["storyboardImagePrompts"]) : item.data.storyboardImagePrompts } } : item) })); if (polling) schedulePoll(id, () => void get().pollNode(id), intervalMs); } catch (error) { const message = error instanceof Error ? error.message : "Node execution failed"; set((current) => ({ lastError: message, nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "error", error: message } } : item) })); } },
-  pollNode: async (id) => { const node = get().nodes.find((item) => item.id === id); const value = asRecord(node?.data.output?.value); const taskId = asText(value.taskId); if (!node || !taskId || !["image", "video", "audio"].includes(node.data.nodeType)) return; set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "running", error: undefined } } : item) })); try { const payload = await pollTaskRemote({ type: node.data.nodeType, taskId, provider: node.data.nodeType === "video" ? node.data.videoProvider : undefined, pollUrl: asText(value.pollUrl) || undefined, pollAction: node.data.nodeType === "video" ? (asText(value.pollAction) || undefined) : undefined }); const rawOutput = asRecord(payload.output); const result = outputFromProvider(node.data.nodeType, node.data.nodeType === "video" ? { ...rawOutput, videoUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl) } : payload.output); const state = asText(rawOutput.status); const intervalMs = Number(payload.polling?.intervalMs) || 3000; if (state === "pending" || state === "running") schedulePoll(id, () => void get().pollNode(id), intervalMs); set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: state === "failed" ? "error" : state === "completed" ? "success" : state === "running" ? "running" : "waiting", output: result, taskId, resultUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl), rawStatus: asText(rawOutput.rawStatus) || state, lastPollAt: new Date().toISOString() } } : item) })); } catch (error) { const message = error instanceof Error ? error.message : "Task polling failed"; set((current) => ({ lastError: message, nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "error", error: message } } : item) })); } },
+  runNode: async (id) => {
+    const state = get(), node = state.nodes.find((item) => item.id === id);
+    if (!node) return;
+    set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "running", error: undefined } } : item), lastError: null }));
+    try {
+      const incomingEdges = get().edges.filter((edge) => edge.target === id);
+      const upstream = incomingEdges.map((edge) => get().nodes.find((item) => item.id === edge.source)).filter((item): item is CanvasNode => Boolean(item && hasRunnableSource(item)));
+      const inputs = upstream.map((source) => source.data.output?.value).filter((value): value is NonNullable<typeof value> => value !== undefined);
+      let result: NodeOutput;
+      let intervalMs = 3000;
+      let providerFromRun: string | undefined;
+      const generationContext = promptFrom(node, upstream);
+      if (canRunRemotely(node.data.nodeType)) {
+        const payload = await runNodeRemote({ nodeType: node.data.nodeType, input: inputFor(node, upstream, incomingEdges) });
+        providerFromRun = typeof payload.provider === "string" ? payload.provider : undefined;
+        intervalMs = Number(payload.polling?.intervalMs) || intervalMs;
+        result = outputFromProvider(node.data.nodeType, withRunMetadata(payload.output, providerFromRun, payload.polling));
+      } else if (node.data.nodeType === "storyboardImage") {
+        const storyboard = upstream.find((item) => item.data.nodeType === "storyboard");
+        const prompts = promptsFromStoryboard(storyboard?.data.output?.value, node.data.aspectRatio, node.data.negativePrompt);
+        if (!prompts.length) throw new Error("Connect and run a Storyboard node before generating image prompts.");
+        result = makeOutput("storyboardImage", `${prompts.length} image prompts prepared`, { prompts });
+      } else if (node.data.nodeType === "prompt") {
+        if (!node.data.prompt) throw new Error("Add a prompt or input before running this node.");
+        result = makeOutput("prompt", "Structured prompt prepared", { prompt: node.data.prompt, negativePrompt: node.data.negativePrompt, style: node.data.style, aspectRatio: node.data.aspectRatio });
+      } else if (node.data.nodeType === "reference") {
+        result = makeOutput("reference", "Reference material available", { imageUrl: node.data.imageUrl, notes: node.data.notes });
+      } else {
+        result = makeOutput("output", `${inputs.length} upstream result${inputs.length === 1 ? "" : "s"} collected as ${node.data.format || "Creative package"}`, outputFor(node.data.format, upstream));
+      }
+      const resultValue = asRecord(result.value);
+      const taskState = asText(resultValue.status);
+      const polling = taskState === "pending" || taskState === "running";
+      const runVideoProvider = videoProviderFrom(providerFromRun);
+      set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, ...(node.data.nodeType === "video" && runVideoProvider ? { videoProvider: runVideoProvider } : {}), status: taskState === "failed" ? "error" : taskState === "running" ? "running" : polling ? "waiting" : "success", output: result, generationContext, rawStatus: asText(resultValue.rawStatus) || taskState || item.data.rawStatus, storyboardImagePrompts: node.data.nodeType === "storyboardImage" ? (resultValue.prompts as CanvasNodeData["storyboardImagePrompts"]) : item.data.storyboardImagePrompts } } : item) }));
+      if (polling) schedulePoll(id, () => void get().pollNode(id), intervalMs);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Node execution failed";
+      set((current) => ({ lastError: message, nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "error", error: message } } : item) }));
+    }
+  },
+  pollNode: async (id) => {
+    const node = get().nodes.find((item) => item.id === id);
+    const value = asRecord(node?.data.output?.value);
+    const taskId = asText(value.taskId);
+    if (!node || !taskId || !["image", "video", "audio"].includes(node.data.nodeType)) return;
+    set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "running", error: undefined } } : item) }));
+    try {
+      const payload = await pollTaskRemote({ type: node.data.nodeType, taskId, provider: pollProviderFor(node, value), pollUrl: asText(value.pollUrl) || undefined, pollAction: node.data.nodeType === "video" ? (asText(value.pollAction) || undefined) : undefined });
+      const rawOutput = asRecord(payload.output);
+      const providerFromPoll = typeof payload.provider === "string" ? payload.provider : pollProviderFor(node, value);
+      const pollVideoProvider = videoProviderFrom(providerFromPoll);
+      const result = outputFromProvider(node.data.nodeType, node.data.nodeType === "video" ? { ...rawOutput, provider: providerFromPoll, videoUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl) } : payload.output);
+      const state = asText(rawOutput.status);
+      const intervalMs = Number(payload.polling?.intervalMs) || 3000;
+      if (state === "pending" || state === "running") schedulePoll(id, () => void get().pollNode(id), intervalMs);
+      set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, ...(node.data.nodeType === "video" && pollVideoProvider ? { videoProvider: pollVideoProvider } : {}), status: state === "failed" ? "error" : state === "completed" ? "success" : state === "running" ? "running" : "waiting", output: result, taskId, resultUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl), rawStatus: asText(rawOutput.rawStatus) || state, lastPollAt: new Date().toISOString() } } : item) }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Task polling failed";
+      const retryStatus = asText(value.status);
+      const shouldRetry = retryStatus === "pending" || retryStatus === "running" || pollProviderFor(node, value) === "tokenstar";
+      if (shouldRetry) {
+        const retryMs = Number(asRecord(value.polling).intervalMs) || 12000;
+        schedulePoll(id, () => void get().pollNode(id), retryMs);
+        set((current) => ({ lastError: message, nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: item.data.status === "success" ? "success" : "waiting", error: undefined, rawStatus: `Polling retry: ${message}`, lastPollAt: new Date().toISOString() } } : item) }));
+        return;
+      }
+      set((current) => ({ lastError: message, nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "error", error: message } } : item) }));
+    }
+  },
   runWorkflow: async () => { try { set({ lastError: null }); const ordered = topologicalSort(get().nodes, get().edges); for (const node of ordered) await get().runNode(node.id); } catch (error) { if (error instanceof Error) set({ lastError: error.message }); } },
   runAgentWorkflow: async (brief) => {
     const idea = brief.trim();

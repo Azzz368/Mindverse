@@ -39,7 +39,7 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
     const hasImageInput = upstreamKinds.includes("image") || upstreamKinds.includes("reference");
     const hasVideoInput = upstreamKinds.includes("video");
     const selectedTokenstarMode = tokenstarMode(text(params.tokenstarMode) || (provider === "tokenstar" ? (hasImageInput || hasVideoInput || upstreamKinds.includes("audio")) ? "asset-video" : "text-to-video" : ""));
-    const fallbackModel = selectedTokenstarMode === "asset-video" ? "seedance-2.0-asset-fast"
+    const fallbackModel = selectedTokenstarMode === "asset-video" ? "seedance-2.0-asset"
       : selectedTokenstarMode === "kling-omni" ? "kling-v3-omni"
       : selectedTokenstarMode === "kling-image" || selectedTokenstarMode === "kling-text" ? "kling-v3"
       : "";
@@ -57,7 +57,7 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
       videoProvider: provider === "kling" || provider === "302ai" || provider === "302-sora2" ? provider : "tokenstar",
       tokenstarMode: selectedTokenstarMode === "asset-video" || selectedTokenstarMode === "kling-image" || selectedTokenstarMode === "kling-text" || selectedTokenstarMode === "kling-omni" ? selectedTokenstarMode : "text-to-video",
       klingMode: selectedTokenstarMode === "kling-omni" ? "omni" : selectedTokenstarMode === "kling-text" ? "text-to-video" : "image-to-video",
-      generateAudio: bool(params.generateAudio) ?? plan.includeAudio ?? true,
+      generateAudio: selectedTokenstarMode === "asset-video" ? false : bool(params.generateAudio) ?? plan.includeAudio ?? true,
       referenceImageAssetUrl: "",
       referenceVideoAssetUrl: "",
       referenceAudioAssetUrl: "",

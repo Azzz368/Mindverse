@@ -70,7 +70,7 @@ AI_VIDEO_PROVIDER=tokenstar
 TOKENSTAR_API_KEY=********
 TOKENSTAR_API_ORIGIN=https://api.tokenstar.world
 TOKENSTAR_VIDEO_MODEL=seedance-2.0-fast
-TOKENSTAR_VIDEO_ASSET_MODEL=seedance-2.0-asset-fast
+TOKENSTAR_VIDEO_ASSET_MODEL=seedance-2.0-asset
 TOKENSTAR_DEFAULT_RATIO=16:9
 TOKENSTAR_DEFAULT_DURATION=8
 TOKENSTAR_DEFAULT_RESOLUTION=720p
@@ -79,7 +79,7 @@ TOKENSTAR_ASSET_POLL_INTERVAL_MS=1500
 TOKENSTAR_ASSET_MAX_POLL_ATTEMPTS=20
 ```
 
-Text-to-video creates a task at `/v1/video/generations`; polling reads `/v1/video/generations/{taskId}` and displays the returned video URL (`content.video_url` in current TokenStar responses, with `result_url` fallbacks). For asset video, connect completed ImageNodes (PNG, JPEG, or WebP), VideoNodes (MP4), and/or AudioNodes (MP3) to the VideoNode. The server uploads them to one TokenStar asset group, polls `ListAssets` until each asset is available, and then sends the resulting `asset://` URLs in image → video → audio order. Existing TokenStar `asset://` URLs can also be supplied in the VideoNode inspector. Mock ImageNodes produce SVG previews and are intentionally rejected. The browser only calls project API routes; the TokenStar key remains server-only.
+Text-to-video creates a task at `/v1/video/generations`; polling reads `/v1/video/generations/{taskId}` and displays the returned video URL (`content.video_url` in current TokenStar responses, with `result_url` fallbacks). For asset video, connect completed ImageNodes (PNG, JPEG, or WebP), VideoNodes (MP4), and/or AudioNodes (MP3) to the VideoNode. The server uploads them to one TokenStar asset group, polls `ListAssets` until each asset is available, and then sends the resulting `asset://` URLs in text → image → video → audio order with only the documented asset-video fields (`model`, `content`, `duration`, `resolution`). Existing TokenStar `asset://` URLs can also be supplied in the VideoNode inspector. Mock ImageNodes produce SVG previews and are intentionally rejected. The browser only calls project API routes; the TokenStar key remains server-only.
 
 ## Image annotation and revision
 

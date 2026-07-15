@@ -1,6 +1,7 @@
 export type VideoModelPresetId =
   | "seedance-2.0"
   | "seedance-2.0-assets"
+  | "seedance-asset-fast"
   | "gen-4.5"
   | "kling-v2.6"
   | "kling-v3-tokenstar"
@@ -53,7 +54,14 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     id: "seedance-2.0-assets",
     label: "Seedance 2.0 Assets",
     desc: "TokenStar image/video/audio references",
-    patch: { videoModelPreset: "seedance-2.0-assets", videoProvider: "tokenstar", model: "seedance-2.0-asset-fast", tokenstarMode: "asset-video", videoInputMode: "image-to-video", duration: 5, resolution: "720p", generateAudio: true },
+    patch: { videoModelPreset: "seedance-2.0-assets", videoProvider: "tokenstar", model: "seedance-2.0-asset", tokenstarMode: "asset-video", videoInputMode: "image-to-video", duration: 5, resolution: "720p", generateAudio: false },
+    inputPorts: [textPort, imagePort, videoPort, audioPort],
+  },
+  "seedance-asset-fast": {
+    id: "seedance-asset-fast",
+    label: "seedance-asset-fast",
+    desc: "TokenStar fast asset-video references",
+    patch: { videoModelPreset: "seedance-asset-fast", videoProvider: "tokenstar", model: "seedance-2.0-asset-fast", tokenstarMode: "asset-video", videoInputMode: "image-to-video", duration: 5, resolution: "720p", generateAudio: false },
     inputPorts: [textPort, imagePort, videoPort, audioPort],
   },
   "gen-4.5": {
@@ -140,6 +148,7 @@ export const videoModelPresetIdFromData = (data: {
   if (data.videoProvider === "302-sora2") return "sora-2";
   if (data.videoProvider === "302ai" && data.model === "gen-4.5") return "gen-4.5";
   if (data.videoProvider === "kling") return "kling-v2.6";
+  if (data.videoProvider === "tokenstar" && data.tokenstarMode === "asset-video" && ["seedance-asset-fast", "seedance-2.0-asset-fast"].includes(data.model || "")) return "seedance-asset-fast";
   if (data.videoProvider === "tokenstar" && data.tokenstarMode === "asset-video") return "seedance-2.0-assets";
   if (data.videoProvider === "tokenstar" && data.tokenstarMode === "kling-omni") return "kling-v3-omni-tokenstar";
   if (data.videoProvider === "tokenstar" && data.tokenstarMode === "kling-text") return "kling-v3-text-tokenstar";

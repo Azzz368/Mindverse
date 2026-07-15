@@ -295,8 +295,8 @@ export function CreativeCanvas() {
     } else if (ghostMediaUrl) {
       const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       placeGhostMedia(flowPos);
-    } else {
-      return;
+    } else if (!selectionMode) {
+      setSelectedNode(null);
     }
   }, [ghostType, ghostMediaUrl, pendingAgentPatch, screenToFlowPosition, placeGhostNode, placeGhostMedia, placeAgentPatch, selectionMode, setSelectedNode]);
 
@@ -361,7 +361,6 @@ export function CreativeCanvas() {
         deleteKeyCode={["Backspace", "Delete"]}
         selectionKeyCode="Control"
         multiSelectionKeyCode="Control"
-        onlyRenderVisibleElements
         defaultEdgeOptions={{ animated: false, style: { stroke: edgeColor } }}
         reconnectRadius={20}
         onReconnectStart={handleReconnectStart}

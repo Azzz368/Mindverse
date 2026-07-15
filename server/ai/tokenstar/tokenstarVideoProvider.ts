@@ -120,6 +120,23 @@ const contentFor = (input: TokenStarCreateVideoInput, assetMode: boolean): Token
   existingAssetUrls("Audio reference", [...(input.referenceAudioAssetUrls || []), input.referenceAudioAssetUrl || ""]).forEach((url) => content.push({ type: "audio_url", audio_url: { url }, role: "reference_audio" }));
   return content;
 };
+const seedanceAssetModelFor = (inputModel?: string) => {
+  const envModel = process.env.TOKENSTAR_VIDEO_ASSET_MODEL?.trim() || "seedance-2.0-asset";
+  const model = inputModel?.trim();
+  if (!model) return envModel;
+  if (model === "seedance-asset-fast") return "seedance-2.0-asset-fast";
+  return model;
+};
+const assetVideoRequestSummary = (request: { model: string; content: TokenStarContentItem[]; duration: number; resolution: string; callback_url?: string }, references: { groupId?: string; images: string[]; videos: string[]; audios: string[] }) => ({
+  model: request.model,
+  content: request.content.map((item) => item.type),
+  duration: request.duration,
+  resolution: request.resolution,
+  hasCallback: Boolean(request.callback_url),
+  referenceGroupId: references.groupId,
+  referenceCounts: { images: references.images.length, videos: references.videos.length, audios: references.audios.length },
+  referenceAssetUrls: references,
+});
 const isMaterialOssMissing = (error: unknown) => error instanceof TokenStarError && error.status === 422 && /material[_\s-]*resource[_\s-]*oss[_\s-]*missing|material resource oss object is missing/i.test(error.message);
 export async function createSeedanceVideo(input: TokenStarCreateVideoInput): Promise<NormalizedVideoTask> { const raw = await tokenstarJsonRequest<TokenStarCreateVideoResponse>("/v1/video/generations", { model: input.model || process.env.TOKENSTAR_VIDEO_MODEL || "seedance-2.0-fast", content: contentFor(input, false), generate_audio: input.generateAudio ?? bool(process.env.TOKENSTAR_GENERATE_AUDIO, true), ratio: input.ratio || process.env.TOKENSTAR_DEFAULT_RATIO || "16:9", duration: input.duration || Number(process.env.TOKENSTAR_DEFAULT_DURATION || 8), ...(input.callbackUrl ? { callback_url: input.callbackUrl } : {}) }); return normalized(taskId(raw), raw); }
 export async function createKlingTextVideo(input: TokenStarCreateVideoInput): Promise<NormalizedVideoTask> {
@@ -150,7 +167,8 @@ export async function createSeedanceAssetVideo(input: TokenStarCreateVideoInput)
   const referenceVideoAssetUrls = unique([...(input.referenceVideoAssetUrls || []), input.referenceVideoAssetUrl || "", ...references.videoAssetUrls]);
   const referenceAudioAssetUrls = unique([...(input.referenceAudioAssetUrls || []), input.referenceAudioAssetUrl || "", ...references.audioAssetUrls]);
   if (!referenceImageAssetUrls.length && !referenceVideoAssetUrls.length && !referenceAudioAssetUrls.length) throw new TokenStarError("TokenStar asset-video requires at least one completed Image, Video, or Audio reference, or an existing asset:// URL.", 400);
-  const request = { model: input.model || process.env.TOKENSTAR_VIDEO_ASSET_MODEL || "seedance-2.0-asset-fast", content: contentFor({ ...input, referenceImageAssetUrls, referenceVideoAssetUrls, referenceAudioAssetUrls }, true), generate_audio: input.generateAudio ?? bool(process.env.TOKENSTAR_GENERATE_AUDIO, true), ratio: input.ratio || process.env.TOKENSTAR_DEFAULT_RATIO || "16:9", duration: input.duration || 5, resolution: input.resolution || process.env.TOKENSTAR_DEFAULT_RESOLUTION || "720p", ...(input.callbackUrl ? { callback_url: input.callbackUrl } : {}) };
+  const request = { model: seedanceAssetModelFor(input.model), content: contentFor({ ...input, referenceImageAssetUrls, referenceVideoAssetUrls, referenceAudioAssetUrls }, true), duration: input.duration || 5, resolution: input.resolution || process.env.TOKENSTAR_DEFAULT_RESOLUTION || "720p", ...(input.callbackUrl ? { callback_url: input.callbackUrl } : {}) };
+  const requestSummary = assetVideoRequestSummary(request, { groupId: references.groupId, images: referenceImageAssetUrls, videos: referenceVideoAssetUrls, audios: referenceAudioAssetUrls });
   const attempts = Math.max(1, Math.floor(numberFromEnv("TOKENSTAR_ASSET_VIDEO_CREATE_MAX_ATTEMPTS", 8)));
   const intervalMs = Math.max(250, Math.floor(numberFromEnv("TOKENSTAR_ASSET_VIDEO_CREATE_RETRY_MS", 5000)));
   let raw: TokenStarCreateVideoResponse | undefined;
@@ -161,6 +179,9 @@ export async function createSeedanceAssetVideo(input: TokenStarCreateVideoInput)
       raw = await tokenstarJsonRequest<TokenStarCreateVideoResponse>("/v1/video/generations", request);
       break;
     } catch (error) {
+      if (error instanceof TokenStarError && !isMaterialOssMissing(error) && (error.status === 400 || error.errorCode === "invalid_request" || error.errorCode === "invalid_json")) {
+        throw new TokenStarError(`Seedance asset-video create rejected request. Request summary: ${summary(requestSummary)}. TokenStar error: ${error.message}`, error.status, error.errorCode, error.requestId);
+      }
       if (!isMaterialOssMissing(error)) throw error;
       lastMaterialError = error;
       if (references.groupId) {
@@ -177,7 +198,7 @@ export async function createSeedanceAssetVideo(input: TokenStarCreateVideoInput)
     }
   }
   if (!raw) throw new TokenStarError("TokenStar asset-video create did not return a response.", 502);
-  return { ...normalized(taskId(raw), raw), referenceAssetGroupId: references.groupId, referenceImageAssetUrls, referenceVideoAssetUrls, referenceAudioAssetUrls };
+  return { ...normalized(taskId(raw), raw), request: requestSummary, referenceAssetGroupId: references.groupId, referenceImageAssetUrls, referenceVideoAssetUrls, referenceAudioAssetUrls };
 }
 export async function pollSeedanceVideo(id: string): Promise<NormalizedVideoTask> { const raw = await tokenstarGet<TokenStarPollVideoResponse>(`/v1/video/generations/${encodeURIComponent(id)}`); return normalized(id, raw); }
 export async function pollKlingVideo(id: string, action: string): Promise<NormalizedVideoTask> {

@@ -1,6 +1,6 @@
 import "server-only";
 import { TokenStarError } from "../errors";
-const origin = () => (process.env.TOKENSTAR_API_ORIGIN || "https://api.tokenstar.io").replace(/\/$/, "");
+const origin = () => (process.env.TOKENSTAR_API_ORIGIN || "https://api.tokenstar.world").replace(/\/$/, "");
 const rec = (v: unknown): Record<string, unknown> => v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const str = (v: unknown) => typeof v === "string" && v.trim() ? v.trim() : undefined;
 const extractError = (body: unknown): { message: string; errorCode?: string; requestId?: string } => {
@@ -16,7 +16,25 @@ const extractError = (body: unknown): { message: string; errorCode?: string; req
   return { message, errorCode, requestId };
 };
 const isFormData = (body: unknown) => Boolean(body && typeof body === "object" && typeof (body as { append?: unknown }).append === "function" && typeof (body as { get?: unknown }).get === "function");
-async function request<T>(path: string, init: RequestInit = {}) { const key = process.env.TOKENSTAR_API_KEY; if (!key) throw new TokenStarError("TokenStar API key is missing. Please set TOKENSTAR_API_KEY.", 500); const multipart = isFormData(init.body); const response = await fetch(`${origin()}${path}`, { ...init, cache: "no-store", headers: { Authorization: `Bearer ${key}`, Accept: "application/json", ...(multipart ? {} : { "Content-Type": "application/json" }), ...init.headers } }); const raw = await response.text(); let body: unknown = raw; try { body = raw ? JSON.parse(raw) : {}; } catch { /* preserve text */ } if (!response.ok) { const { message, errorCode, requestId } = extractError(body); throw new TokenStarError(message, response.status, errorCode, requestId); } return body as T; }
+async function request<T>(path: string, init: RequestInit = {}) {
+  const key = process.env.TOKENSTAR_API_KEY;
+  if (!key) throw new TokenStarError("TokenStar API key is missing. Please set TOKENSTAR_API_KEY.", 500);
+  const multipart = isFormData(init.body);
+  let response: Response;
+  try {
+    response = await fetch(`${origin()}${path}`, { ...init, cache: "no-store", headers: { Authorization: `Bearer ${key}`, Accept: "application/json", ...(multipart ? {} : { "Content-Type": "application/json" }), ...init.headers } });
+  } catch (error) {
+    throw new TokenStarError(`TokenStar request failed before a response was received for ${path}: ${error instanceof Error ? error.message : "unknown network error"}`, 502);
+  }
+  const raw = await response.text();
+  let body: unknown = raw;
+  try { body = raw ? JSON.parse(raw) : {}; } catch { /* preserve text */ }
+  if (!response.ok) {
+    const { message, errorCode, requestId } = extractError(body);
+    throw new TokenStarError(message, response.status, errorCode, requestId);
+  }
+  return body as T;
+}
 export const tokenstarJsonRequest = <T>(path: string, body?: unknown, method = "POST") => request<T>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
 export const tokenstarGet = <T>(path: string) => request<T>(path, { method: "GET" });
 export const tokenstarFormRequest = <T>(path: string, formData: FormData) => request<T>(path, { method: "POST", body: formData });
