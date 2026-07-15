@@ -9,21 +9,28 @@ import { createFfmpegVideoEdit } from "@/server/video/ffmpegEditRunner";
 import { createMotionComposition } from "@/server/motion/motionCompositionRunner";
 import { parseScript, scriptInstruction } from "@/shared/workflow/storyPipeline";
 import { archiveResultMedia } from "@/server/storage/mediaArchive";
+import { synthesizeWithClonedVoice } from "@/server/qwen/speechSynthesis";
+import { qwenErrorPayload } from "@/server/qwen/errors";
+import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER, type QwenVoiceProvider } from "@/shared/api/qwenContracts";
 import type { GenerateAudioInput, GenerateImageInput, GenerateImageRevisionInput, GenerateStoryboardInput, GenerateTextInput, GenerateVideoInput } from "@/server/ai/types";
 
-export type RunnableNodeType = "text" | "script" | "image" | "image-revision" | "video" | "videoEdit" | "motion" | "audio" | "storyboard";
+export type RunnableNodeType = "text" | "script" | "image" | "image-revision" | "video" | "videoEdit" | "motion" | "audio" | "voiceClone" | "voiceTTS" | "storyboard";
 
 export type RunNodeResult =
   | { ok: true; provider: string; output: unknown; polling: { intervalMs: number; maxAttempts?: number } }
   | { ok: false; error: { message: string; code?: string; status: number } };
 
 export const isRunnableNodeType = (value: unknown): value is RunnableNodeType =>
-  ["text", "script", "image", "image-revision", "video", "videoEdit", "motion", "audio", "storyboard"].includes(String(value));
+  ["text", "script", "image", "image-revision", "video", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "storyboard"].includes(String(value));
 
 const fail = (message: string, status = 400, code?: string): RunNodeResult => ({ ok: false, error: { message, status, ...(code ? { code } : {}) } });
 
 const text = (value: unknown) => typeof value === "string" ? value : "";
 const optionalText = (value: unknown) => typeof value === "string" ? value : undefined;
+const optionalVoiceProvider = (value: unknown): QwenVoiceProvider | undefined => {
+  if (value === "qwen_tts" || value === "dashscope" || value === "omni" || value === "qwencloud") return value;
+  return undefined;
+};
 const optionalNumber = (value: unknown) => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim()) {
@@ -144,6 +151,56 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
       return { ok: true, provider: "hyperframes", output, polling: { intervalMs: 0 } };
     } catch (error) {
       return fail(error instanceof Error ? error.message : "Motion render failed.", 500, "MOTION_RENDER_ERROR");
+    }
+  }
+
+  if (nodeType === "voiceClone") {
+    const voice = text(rawInput.voice);
+    if (!voice) return fail("Create or select a cloned voice before running this node.", 400, "VOICE_REQUIRED");
+    const targetModel = optionalText(rawInput.targetModel) || DEFAULT_QWEN_VOICE_MODEL;
+    return {
+      ok: true,
+      provider: "qwencloud",
+      output: {
+        status: "completed",
+        kind: "clonedVoice",
+        voice,
+        targetModel,
+        voiceProvider: optionalVoiceProvider(rawInput.voiceProvider) || DEFAULT_QWEN_VOICE_PROVIDER,
+        language: optionalText(rawInput.language),
+        fallbackMode: typeof rawInput.fallbackMode === "boolean" ? rawInput.fallbackMode : undefined,
+        fallbackReason: optionalText(rawInput.fallbackReason),
+      },
+      polling: { intervalMs: 0 },
+    };
+  }
+
+  if (nodeType === "voiceTTS") {
+    try {
+      const output = await synthesizeWithClonedVoice({
+        text: text(rawInput.text),
+        voice: text(rawInput.voice),
+        targetModel: optionalText(rawInput.targetModel) || DEFAULT_QWEN_VOICE_MODEL,
+        voiceProvider: optionalVoiceProvider(rawInput.voiceProvider) || DEFAULT_QWEN_VOICE_PROVIDER,
+        languageType: rawInput.languageType === "Chinese" || rawInput.languageType === "English" || rawInput.languageType === "German" || rawInput.languageType === "Italian" || rawInput.languageType === "Portuguese" || rawInput.languageType === "Spanish" || rawInput.languageType === "Japanese" || rawInput.languageType === "Korean" || rawInput.languageType === "French" || rawInput.languageType === "Russian" ? rawInput.languageType : "Auto",
+      });
+      return {
+        ok: true,
+        provider: "qwencloud",
+        output: await archiveResultMedia({
+          ...output,
+          url: output.audioUrl,
+          model: output.model || optionalText(rawInput.targetModel) || DEFAULT_QWEN_VOICE_MODEL,
+          voice: text(rawInput.voice),
+          provider: "qwencloud",
+          voiceProvider: output.voiceProvider || optionalVoiceProvider(rawInput.voiceProvider) || DEFAULT_QWEN_VOICE_PROVIDER,
+          text: text(rawInput.text),
+        }, { sourceProvider: "qwencloud", mediaTypeHint: "audio" }),
+        polling: { intervalMs: 0 },
+      };
+    } catch (error) {
+      const normalized = qwenErrorPayload(error);
+      return fail(normalized.message, normalized.status, normalized.code || "QWEN_TTS_ERROR");
     }
   }
 

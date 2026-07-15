@@ -1,7 +1,7 @@
 import type { AgentCanvasOrganizePlan, CanvasEditPatch } from "@/shared/agent/agentSchema";
 import type { CanvasNode, NodeType, WorkflowEdge } from "@/shared/canvas";
 
-const workflowColumnByType: Record<NodeType, number> = { prompt: 0, text: 1, script: 1, storyboard: 2, storyboardImage: 3, image: 4, reference: 4, video: 5, audio: 5, videoEdit: 6, motion: 7, output: 8 };
+const workflowColumnByType: Record<NodeType, number> = { prompt: 0, text: 1, script: 1, storyboard: 2, storyboardImage: 3, image: 4, reference: 4, video: 5, audio: 5, voiceClone: 5, voiceTTS: 6, videoEdit: 7, motion: 8, output: 9 };
 
 const connectedNodeIdsFrom = (seedIds: string[], nodes: CanvasNode[], edges: WorkflowEdge[]) => {
   const ids = new Set(nodes.map((node) => node.id));

@@ -4,11 +4,16 @@ import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/share
 import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
 import { defaultMotionTemplateVariablesJson, getMotionTemplate } from "@/shared/motion/templates";
 import { videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
+import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER, qwenTtsLanguageTypes } from "@/shared/api/qwenContracts";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : undefined;
 const bool = (value: unknown) => typeof value === "boolean" ? value : undefined;
+const qwenLanguageType = (value: unknown): CanvasNodeData["languageType"] => {
+  const normalized = text(value);
+  return qwenTtsLanguageTypes.includes(normalized as NonNullable<CanvasNodeData["languageType"]>) ? normalized as NonNullable<CanvasNodeData["languageType"]> : "Auto";
+};
 const jsonText = (value: unknown) => {
   if (typeof value === "string") return value.trim();
   if (value && typeof value === "object") return JSON.stringify(value, null, 2);
@@ -17,6 +22,15 @@ const jsonText = (value: unknown) => {
 const safeId = (value: string) => value.trim().replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "step";
 const hasChinese = (value: string) => /[\u3400-\u9fff]/.test(value);
 const tokenstarMode = (value: string) => value === "kling-reference" || value === "kling-image-to-video" ? "kling-image" : value === "kling-text-to-video" ? "kling-text" : value;
+const voiceTtsTargetHandleForNodeType = (sourceType: NodeType) => sourceType === "voiceClone" ? "voice" : ["prompt", "text", "script", "storyboard"].includes(sourceType) ? "text" : undefined;
+const targetHandleFor = (sourceNode: CanvasNode | undefined, targetNode: CanvasNode | undefined) =>
+  sourceNode && targetNode?.data.nodeType === "video"
+    ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data)
+    : sourceNode && targetNode?.data.nodeType === "videoEdit" && (sourceNode.data.nodeType === "video" || sourceNode.data.nodeType === "videoEdit" || sourceNode.data.nodeType === "motion" || sourceNode.data.nodeType === "audio" || sourceNode.data.nodeType === "voiceTTS")
+      ? sourceNode.data.nodeType === "audio" || sourceNode.data.nodeType === "voiceTTS" ? "audio" : "video"
+      : sourceNode && targetNode?.data.nodeType === "voiceTTS"
+        ? voiceTtsTargetHandleForNodeType(sourceNode.data.nodeType)
+        : undefined;
 const DEFAULT_AGENT_IMAGE_MODEL = "gpt-image-2(tokenstar)";
 const sceneCountFor = (plan: AgentWorkflowPlan, params: Record<string, unknown>) =>
   Math.max(1, Math.min(30, Math.round(plan.sceneCount || number(params.targetShotCount) || number(params.numberOfScenes) || 3)));
@@ -38,7 +52,7 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
     const provider = text(params.videoProvider) || plan.videoProvider || "tokenstar";
     const hasImageInput = upstreamKinds.includes("image") || upstreamKinds.includes("reference");
     const hasVideoInput = upstreamKinds.includes("video");
-    const selectedTokenstarMode = tokenstarMode(text(params.tokenstarMode) || (provider === "tokenstar" ? (hasImageInput || hasVideoInput || upstreamKinds.includes("audio")) ? "asset-video" : "text-to-video" : ""));
+    const selectedTokenstarMode = tokenstarMode(text(params.tokenstarMode) || (provider === "tokenstar" ? (hasImageInput || hasVideoInput || upstreamKinds.includes("audio") || upstreamKinds.includes("voiceTTS")) ? "asset-video" : "text-to-video" : ""));
     const fallbackModel = selectedTokenstarMode === "asset-video" ? "seedance-2.0-asset-fast"
       : selectedTokenstarMode === "kling-omni" ? "kling-v3-omni"
       : selectedTokenstarMode === "kling-image" || selectedTokenstarMode === "kling-text" ? "kling-v3"
@@ -89,6 +103,8 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
     codexInstruction: text(params.codexInstruction),
   };
   if (step.kind === "audio") return { title: step.label, prompt, duration: number(params.duration) || 12, voiceStyle: text(params.voiceStyle) || (zh ? "氛围感" : "Atmospheric"), model: text(params.model), voice: text(params.voice), emotion: text(params.emotion), volume: number(params.volume) || 1 };
+  if (step.kind === "voiceClone") return { title: step.label, preferredName: text(params.preferredName) || "voice_1", targetModel: text(params.targetModel) || DEFAULT_QWEN_VOICE_MODEL, voiceProvider: DEFAULT_QWEN_VOICE_PROVIDER, language: text(params.language) || "zh", transcript: text(params.transcript), consentConfirmed: false };
+  if (step.kind === "voiceTTS") return { title: step.label, ttsText: step.prompt || text(params.text), voice: text(params.voice), targetModel: text(params.targetModel) || DEFAULT_QWEN_VOICE_MODEL, voiceProvider: DEFAULT_QWEN_VOICE_PROVIDER, languageType: qwenLanguageType(params.languageType) };
   if (step.kind === "reference") return { title: step.label, imageUrl: "", notes: step.purpose || prompt };
   return { title: step.label, format: text(params.format) || (zh ? "创作包" : "Creative package") };
 };
@@ -135,11 +151,7 @@ export function compileWorkflowPlanToCanvas(plan: AgentWorkflowPlan): CanvasPatc
       const target = stepIdToNodeId.get(step.id);
       const sourceNode = source ? nodes.find((node) => node.id === source) : undefined;
       const targetNode = target ? nodes.find((node) => node.id === target) : undefined;
-      const targetHandle = sourceNode && targetNode?.data.nodeType === "video"
-        ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data)
-        : sourceNode && targetNode?.data.nodeType === "videoEdit" && (sourceNode.data.nodeType === "video" || sourceNode.data.nodeType === "videoEdit" || sourceNode.data.nodeType === "motion" || sourceNode.data.nodeType === "audio")
-          ? sourceNode.data.nodeType === "audio" ? "audio" : "video"
-          : undefined;
+      const targetHandle = targetHandleFor(sourceNode, targetNode);
       if (source && target) edges.push({ id: `edge-${source}-${target}`, source, target, ...(targetHandle ? { targetHandle } : {}) });
     });
   });
@@ -168,10 +180,27 @@ function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
     const explicit = (step.dependsOn || []).filter((id) => byId.has(id) && id !== step.id);
     const previous = index > 0 ? [steps[index - 1].id] : [];
     const fallback = explicit.length ? explicit : previous;
+    if (step.kind === "voiceTTS") {
+      const explicitVoiceTtsDependencies = explicit.filter((id) => {
+        const kind = byId.get(id)?.kind;
+        return kind === "voiceClone" || kind === "text" || kind === "prompt" || kind === "script" || kind === "storyboard";
+      });
+      if (explicitVoiceTtsDependencies.length) {
+        map.set(step.id, explicitVoiceTtsDependencies);
+        return;
+      }
+
+      const previousVoiceTtsInputs = steps.slice(0, index).filter((item) => item.kind === "voiceClone" || item.kind === "text" || item.kind === "prompt" || item.kind === "script" || item.kind === "storyboard");
+      if (previousVoiceTtsInputs.length) {
+        map.set(step.id, previousVoiceTtsInputs.map((item) => item.id));
+        return;
+      }
+    }
+
     if (step.kind === "video") {
       const explicitMediaDependencies = explicit.filter((id) => {
         const kind = byId.get(id)?.kind;
-        return kind === "image" || kind === "reference" || kind === "video" || kind === "audio";
+        return kind === "image" || kind === "reference" || kind === "video" || kind === "audio" || kind === "voiceTTS";
       });
       if (explicitMediaDependencies.length) {
         map.set(step.id, explicitMediaDependencies);
@@ -194,14 +223,14 @@ function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
     if (step.kind === "videoEdit") {
       const explicitEditDependencies = explicit.filter((id) => {
         const kind = byId.get(id)?.kind;
-        return kind === "video" || kind === "videoEdit" || kind === "audio";
+        return kind === "video" || kind === "videoEdit" || kind === "audio" || kind === "voiceTTS";
       });
       if (explicitEditDependencies.length) {
         map.set(step.id, explicitEditDependencies);
         return;
       }
 
-      const previousEditMedia = steps.slice(0, index).filter((item) => item.kind === "video" || item.kind === "videoEdit" || item.kind === "audio");
+      const previousEditMedia = steps.slice(0, index).filter((item) => item.kind === "video" || item.kind === "videoEdit" || item.kind === "audio" || item.kind === "voiceTTS");
       if (previousEditMedia.length) {
         map.set(step.id, previousEditMedia.map((item) => item.id));
         return;
@@ -211,14 +240,14 @@ function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
     if (step.kind === "motion") {
       const explicitMotionDependencies = explicit.filter((id) => {
         const kind = byId.get(id)?.kind;
-        return kind === "video" || kind === "videoEdit" || kind === "image" || kind === "reference" || kind === "audio";
+        return kind === "video" || kind === "videoEdit" || kind === "image" || kind === "reference" || kind === "audio" || kind === "voiceTTS";
       });
       if (explicitMotionDependencies.length) {
         map.set(step.id, explicitMotionDependencies);
         return;
       }
 
-      const previousMotionMedia = steps.slice(0, index).filter((item) => item.kind === "video" || item.kind === "videoEdit" || item.kind === "image" || item.kind === "reference" || item.kind === "audio");
+      const previousMotionMedia = steps.slice(0, index).filter((item) => item.kind === "video" || item.kind === "videoEdit" || item.kind === "image" || item.kind === "reference" || item.kind === "audio" || item.kind === "voiceTTS");
       if (previousMotionMedia.length) {
         map.set(step.id, previousMotionMedia.map((item) => item.id));
         return;
@@ -252,7 +281,7 @@ function imageStepsBeforeVideo(steps: AgentWorkflowPlan["steps"], videoIndex: nu
 }
 
 function mediaStepsBeforeVideo(steps: AgentWorkflowPlan["steps"], videoIndex: number) {
-  const mediaKinds = new Set<NodeType>(["image", "reference", "video", "audio"]);
+  const mediaKinds = new Set<NodeType>(["image", "reference", "video", "audio", "voiceTTS"]);
   return steps.slice(0, videoIndex).filter((step) => mediaKinds.has(step.kind));
 }
 
@@ -262,6 +291,7 @@ function positionFor(kind: NodeType, level: number, row: number) {
   if (kind === "video") return { x, y: 90 + row * 190 };
   if (kind === "videoEdit") return { x, y: 90 + row * 190 };
   if (kind === "motion") return { x, y: 110 + row * 190 };
+  if (kind === "voiceClone" || kind === "voiceTTS") return { x, y: 120 + row * 190 };
   return { x, y: row * 170 };
 }
 

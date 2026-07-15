@@ -10,7 +10,7 @@ import type { CanvasNodeData, NodeType } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
 export function getIcon(type: string) {
-  const map: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", videoEdit: "\u2702", motion: "\u25A3", audio: "\u266B", storyboard: "\u25A6", reference: "\u2141", output: "\u2197", upload_image: "+", upload_video: "+", upload_audio: "+" };
+  const map: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", videoEdit: "\u2702", motion: "\u25A3", audio: "\u266B", voiceClone: "V", voiceTTS: "\u266A", storyboard: "\u25A6", reference: "\u2141", output: "\u2197", upload_image: "+", upload_video: "+", upload_audio: "+" };
   return map[type] || "T";
 }
 
@@ -38,6 +38,8 @@ const getTools = (t: Strings) => [
   { id: "upload-image", type: "upload_image", cat: "Image", title: t.uploadImage, desc: t.toolDescUploadImage, iconSrc: "/icons/normal.png" },
   { id: "upload-audio", type: "upload_audio", cat: "Audio", title: "Upload Audio", desc: "Use a local audio file as BGM or reference audio", iconSrc: "/icons/3.png" },
   { id: "audio-gen", type: "audio", cat: "Audio", title: t.nodeNames["audio"], desc: t.toolDescAudio, iconSrc: "/icons/3.png" },
+  { id: "voice-clone", type: "voiceClone", cat: "Audio", title: t.nodeNames["voiceClone"] || "Voice Clone", desc: "Clone an authorized reference voice with QwenCloud", iconSrc: "/icons/3.png" },
+  { id: "voice-tts", type: "voiceTTS", cat: "Audio", title: t.nodeNames["voiceTTS"] || "Cloned Voice TTS", desc: "Generate audio from text using a cloned voice", iconSrc: "/icons/3.png" },
   { id: "claude", type: "text", cat: "Text", title: "Claude", desc: t.toolDescText, iconSrc: "/icons/4.png" },
   { id: "prompt", type: "prompt", cat: "Text", title: t.nodeNames["prompt"], desc: t.toolDescPrompt, iconSrc: "/icons/4.png" },
   { id: "script", type: "script", cat: "Storyboard", title: t.nodeNames["script"], desc: t.toolDescScript, iconSrc: "/icons/5.png" },

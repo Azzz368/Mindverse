@@ -3,6 +3,7 @@ import type { AgentCanvasEditPlan, AgentEditOperation, CanvasEditPatch } from "@
 import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/shared/canvas";
 import { defaultMotionTemplateVariablesJson, getMotionTemplate } from "@/shared/motion/templates";
 import { videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
+import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER } from "@/shared/api/qwenContracts";
 
 const forbiddenPatchKeys = new Set([
   "b64_json",
@@ -20,7 +21,7 @@ const forbiddenPatchKeys = new Set([
   "error",
 ]);
 
-const safeNodeTypes: NodeType[] = ["prompt", "text", "script", "storyboard", "image", "video", "videoEdit", "motion", "audio", "reference", "output"];
+const safeNodeTypes: NodeType[] = ["prompt", "text", "script", "storyboard", "image", "video", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "reference", "output"];
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : undefined;
@@ -62,7 +63,7 @@ const patchFromParams = (operation: AgentEditOperation): Partial<CanvasNodeData>
   const params = object(operation.params);
   const dataPatch: Record<string, unknown> = {};
   if (operation.label) dataPatch.title = operation.label;
-  ["prompt", "editPlan", "compositionJson", "motionVariablesJson", "templateId", "motionMode", "codexInstruction", "negativePrompt", "style", "aspectRatio", "instruction", "inputText", "model", "size", "scriptTone", "format", "resolution", "fps", "voiceStyle", "voice", "emotion", "videoProvider", "tokenstarMode", "klingMode", "videoInputMode", "transition"].forEach((key) => {
+  ["prompt", "editPlan", "compositionJson", "motionVariablesJson", "templateId", "motionMode", "codexInstruction", "negativePrompt", "style", "aspectRatio", "instruction", "inputText", "ttsText", "model", "targetModel", "language", "languageType", "preferredName", "transcript", "size", "scriptTone", "format", "resolution", "fps", "voiceStyle", "voice", "emotion", "videoProvider", "tokenstarMode", "klingMode", "videoInputMode", "transition"].forEach((key) => {
     const value = params[key];
     if (typeof value === "string" && value.trim()) dataPatch[key] = value.trim();
     if ((key === "editPlan" || key === "compositionJson" || key === "motionVariablesJson") && value && typeof value === "object") dataPatch[key] = JSON.stringify(value, null, 2);
@@ -81,6 +82,18 @@ const patchFromParams = (operation: AgentEditOperation): Partial<CanvasNodeData>
   }
   if (merged.templateId && !merged.motionVariablesJson) {
     merged.motionVariablesJson = defaultMotionTemplateVariablesJson(getMotionTemplate(merged.templateId)?.id || "basic-title");
+  }
+  if (operation.nodeType === "voiceClone" && !merged.targetModel) {
+    merged.targetModel = DEFAULT_QWEN_VOICE_MODEL;
+  }
+  if (operation.nodeType === "voiceTTS" && !merged.targetModel) {
+    merged.targetModel = DEFAULT_QWEN_VOICE_MODEL;
+  }
+  if ((operation.nodeType === "voiceClone" || operation.nodeType === "voiceTTS") && !merged.voiceProvider) {
+    merged.voiceProvider = DEFAULT_QWEN_VOICE_PROVIDER;
+  }
+  if (operation.nodeType === "voiceClone") {
+    merged.consentConfirmed = false;
   }
   return merged;
 };
@@ -139,6 +152,7 @@ const makeRevisionNode = (target: CanvasNode, dataPatch: Partial<CanvasNodeData>
   }));
 };
 
+const voiceTtsTargetHandleForNodeType = (sourceType: NodeType) => sourceType === "voiceClone" ? "voice" : ["prompt", "text", "script", "storyboard"].includes(sourceType) ? "text" : undefined;
 const addEdgeIfNew = (edges: WorkflowEdge[], source: string, target: string, existingEdgeIds: Set<string>, warnings: string[], nodeById?: Map<string, CanvasNode>) => {
   if (source === target) {
     warnings.push(`Skipped self connection on ${source}.`);
@@ -151,9 +165,11 @@ const addEdgeIfNew = (edges: WorkflowEdge[], source: string, target: string, exi
   const targetNode = nodeById?.get(target);
   const targetHandle = sourceNode && targetNode?.data.nodeType === "video"
     ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data)
-    : sourceNode && targetNode?.data.nodeType === "videoEdit" && (sourceNode.data.nodeType === "video" || sourceNode.data.nodeType === "videoEdit" || sourceNode.data.nodeType === "motion" || sourceNode.data.nodeType === "audio")
-      ? sourceNode.data.nodeType === "audio" ? "audio" : "video"
-      : undefined;
+    : sourceNode && targetNode?.data.nodeType === "videoEdit" && (sourceNode.data.nodeType === "video" || sourceNode.data.nodeType === "videoEdit" || sourceNode.data.nodeType === "motion" || sourceNode.data.nodeType === "audio" || sourceNode.data.nodeType === "voiceTTS")
+      ? sourceNode.data.nodeType === "audio" || sourceNode.data.nodeType === "voiceTTS" ? "audio" : "video"
+      : sourceNode && targetNode?.data.nodeType === "voiceTTS"
+        ? voiceTtsTargetHandleForNodeType(sourceNode.data.nodeType)
+        : undefined;
   edges.push({ id, source, target, ...(targetHandle ? { targetHandle } : {}) });
 };
 

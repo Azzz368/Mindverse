@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Badge } from "@/components/ui/Badge";
 import { ImageAnnotationEditor } from "./ImageAnnotationEditor";
 import { ImeInput, ImeTextarea } from "./ImeTextFields";
+import { VoiceCloneNodeLayout, VoiceTTSNodeLayout } from "./VoiceNodes";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
 import { motionTemplateIds } from "@/shared/motion/templates";
@@ -18,6 +19,8 @@ const GLOW_COLORS: Record<string, string> = {
   motion: "#2563eb",
   image: "#3bf657",
   audio: "#f5510b",
+  voiceClone: "#14b8a6",
+  voiceTTS: "#f5510b",
   text: "#ebe46b",
   prompt: "#ebe46b",
   script: "#3eedb8",
@@ -26,7 +29,7 @@ const GLOW_COLORS: Record<string, string> = {
   reference: "#64748b",
   output: "#64748b",
 };
-const RUNNABLE_TYPES = new Set(["prompt", "text", "script", "image", "video", "videoEdit", "motion", "audio", "storyboard", "output"]);
+const RUNNABLE_TYPES = new Set(["prompt", "text", "script", "image", "video", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "storyboard", "output"]);
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value : "";
 const videoPortStyles: Record<VideoInputPortKind, { border: string; connected: string }> = {
@@ -122,7 +125,7 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
 function NodePreview({ node, t, onView, onViewVideo, onAnnotate }: { node: CanvasNode; t: Strings; onView(url: string): void; onViewVideo(url: string): void; onAnnotate(url: string): void }) {
   const value = node.data.output?.value, details = record(value), raw = record(details.raw), rawContent = record(raw.content);
   const imageUrl = text(details.imageUrl) || (typeof value === "string" ? value : "");
-  const audioUrl = text(details.audioUrl), videoUrl = text(details.videoUrl) || text(details.resultUrl) || text(details.finalVideoUrl) || text(rawContent.video_url), generatedText = text(details.generatedText);
+  const audioUrl = text(details.audioUrl) || text(details.url) || text(details.resultUrl), videoUrl = text(details.videoUrl) || text(details.resultUrl) || text(details.finalVideoUrl) || text(rawContent.video_url), generatedText = text(details.generatedText);
   if (node.data.nodeType === "image" && imageUrl) return (
     <div className="mt-2">
       <button onClick={() => onView(imageUrl)} className="block w-full overflow-hidden rounded-md border border-[#e7eaf0] hover:border-[#030303] dark:border-slate-700 dark:hover:border-cyan-300">
@@ -134,7 +137,7 @@ function NodePreview({ node, t, onView, onViewVideo, onAnnotate }: { node: Canva
       </div>
     </div>
   );
-  if (node.data.nodeType === "audio" && audioUrl) return <audio className="mt-2 w-full" controls src={audioUrl}/>;
+  if ((node.data.nodeType === "audio" || node.data.nodeType === "voiceTTS") && audioUrl) return <audio className="mt-2 w-full" controls src={audioUrl}/>;
   if ((node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") && videoUrl) {
     const composition = record(details.composition || details.motionComposition);
     const canvas = record(composition.canvas);
@@ -865,6 +868,12 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
   }
   if (data.nodeType === "storyboard") {
     return <StoryboardNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} />;
+  }
+  if (data.nodeType === "voiceClone") {
+    return <VoiceCloneNodeLayout id={id} data={data} selected={selected!} />;
+  }
+  if (data.nodeType === "voiceTTS") {
+    return <VoiceTTSNodeLayout id={id} data={data} selected={selected!} runNode={runNode} />;
   }
 
   return (

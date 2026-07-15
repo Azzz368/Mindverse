@@ -152,7 +152,7 @@ export type AgentDialogueResponse = {
 };
 
 const goals: AgentWorkflowGoal[] = ["story_to_video", "image_to_video", "storyboard_only", "ad_package", "custom"];
-const kinds: AgentStepKind[] = ["prompt", "text", "script", "storyboard", "image", "video", "videoEdit", "motion", "audio", "reference", "output"];
+const kinds: AgentStepKind[] = ["prompt", "text", "script", "storyboard", "image", "video", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "reference", "output"];
 const aspectRatios = ["16:9", "9:16", "1:1"] as const;
 const videoProviders = ["tokenstar", "kling", "302ai", "302-sora2"] as const;
 const editOperationTypes: AgentEditOperationType[] = ["createNode", "updateNodeData", "deleteNode", "connectNodes", "disconnectNodes", "replaceNodeType", "moveNode", "duplicateNode", "createBranch", "updateEdge", "noop"];
@@ -178,6 +178,8 @@ const fallbackLabel = (kind: AgentStepKind, index: number, zh: boolean) => {
     image: "关键帧图像",
     video: "视频生成",
     audio: "音频生成",
+    voiceClone: "人声克隆",
+    voiceTTS: "克隆人声生成",
     reference: "参考素材",
     output: "最终输出",
   };
