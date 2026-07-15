@@ -119,6 +119,15 @@ const numberFromEnv = (name: string, fallback: number) => {
 const normalizedStatus = (value: string | undefined) => value?.trim().toUpperCase();
 const isFailedStatus = (value: string | undefined) => ["FAILED", "FAILURE", "ERROR", "CANCELLED", "CANCELED", "REJECTED"].includes(normalizedStatus(value) || "");
 const isReadyStatus = (value: string | undefined) => !value || ["READY", "AVAILABLE", "ACTIVE", "COMPLETED", "SUCCESS", "SUCCEEDED", "DONE"].includes(normalizedStatus(value) || "");
+const extensionForMime = (mime: string, assetType: TokenStarAssetType) => {
+  const normalized = mime.split(";", 1)[0]?.trim().toLowerCase();
+  if (normalized === "audio/mpeg" || normalized === "audio/mp3") return "mp3";
+  if (normalized === "video/mp4") return "mp4";
+  if (normalized === "image/jpeg") return "jpg";
+  if (normalized === "image/png") return "png";
+  if (normalized === "image/webp") return "webp";
+  return assetType === "Audio" ? "mp3" : assetType === "Video" ? "mp4" : "png";
+};
 
 export async function createAssetGroup(name: string) {
   const raw = await tokenstarJsonRequest("/volc/asset/CreateAssetGroup", { model: "volc-asset", Name: name });
@@ -139,7 +148,7 @@ export async function createAssetFromUrl(input: { groupId: string; name: string;
 
 export async function createAssetFromFile(input: { groupId: string; name: string; assetType: TokenStarAssetType; file: Blob }) {
   const form = new FormData();
-  const extension = input.file.type.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "bin";
+  const extension = extensionForMime(input.file.type, input.assetType);
   form.append("file", input.file, `asset.${extension}`);
   form.append("GroupId", input.groupId);
   form.append("Name", input.name);

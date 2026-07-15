@@ -131,7 +131,7 @@ TOKENSTAR_ASSET_MAX_POLL_ATTEMPTS=20
 ### 模型配置注意事项
 
 - 已确认的资产视频请求模型是 `seedance-2.0-asset`。
-- 当前源码的 fallback 与 `.env.example` 仍可见 `seedance-2.0-asset-fast`。运行时应由 `.env.local` 显式覆盖为已确认模型；不要假设 fallback 可用。
+- 当前源码 fallback、`.env.example` 与前端 preset 应统一使用已确认模型 `seedance-2.0-asset`；不要假设 `seedance-2.0-asset-fast` 在当前账号或接口下可用。
 - 本轮未读取 `.env.local`，因此不能据此判断真实运行配置。
 
 ## 4. 代码地图
