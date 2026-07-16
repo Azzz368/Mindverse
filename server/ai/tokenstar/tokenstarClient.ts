@@ -10,7 +10,14 @@ const rec = (v: unknown): Record<string, unknown> => v && typeof v === "object" 
 const str = (v: unknown) => typeof v === "string" && v.trim() ? v.trim() : undefined;
 const retryableStatuses = new Set([502, 503, 504]);
 const extractError = (body: unknown): { message: string; errorCode?: string; requestId?: string } => {
-  if (typeof body === "string") return { message: body.trim() || "TokenStar request failed." };
+  if (typeof body === "string") {
+    const trimmed = body.trim();
+    if (/^<!doctype html/i.test(trimmed) || /^<html[\s>]/i.test(trimmed)) {
+      const title = /<title[^>]*>([^<]+)<\/title>/i.exec(trimmed)?.[1]?.trim();
+      return { message: title ? `TokenStar returned an HTML error page (${title}).` : "TokenStar returned an HTML error page instead of JSON." };
+    }
+    return { message: trimmed || "TokenStar request failed." };
+  }
   if (!body || typeof body !== "object") return { message: "TokenStar request failed." };
   const root = rec(body);
   const errObj = rec(root.error);

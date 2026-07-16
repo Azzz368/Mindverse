@@ -59,6 +59,11 @@ const preparedReference = async (url: string, type: TokenStarAssetType, index: n
   return { url: await archiveReference(url, type, index) };
 };
 
+export const prepareReferenceUrl = async (url: string, type: TokenStarAssetType, index: number) => {
+  const prepared = await preparedReference(url, type, index);
+  return prepared.url;
+};
+
 type ReferenceSources = { imageUrls?: readonly string[]; videoUrls?: readonly string[]; audioUrls?: readonly string[] };
 type ReferenceAssets = { groupId?: string; imageAssetUrls: string[]; videoAssetUrls: string[]; audioAssetUrls: string[] };
 

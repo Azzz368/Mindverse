@@ -3,7 +3,7 @@ import { TokenStarError } from "../errors";
 import { tokenstarActionGet, tokenstarActionJsonRequest, tokenstarGet, tokenstarJsonRequest } from "./tokenstarClient";
 import { waitForAigcElement } from "./tokenstarElement";
 import { listAssets } from "./tokenstarAsset";
-import { createReferenceAssets } from "./tokenstarReferenceAssets";
+import { createReferenceAssets, prepareReferenceUrl } from "./tokenstarReferenceAssets";
 import type { NormalizedVideoTask, TokenStarContentItem, TokenStarCreateVideoInput, TokenStarCreateVideoResponse, TokenStarPollVideoResponse } from "./tokenstarTypes";
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const numberFromEnv = (name: string, fallback: number) => {
@@ -86,7 +86,30 @@ const omniPrompt = (prompt: string, imageCount: number, videoCount: number, elem
   ].filter(Boolean).join("; ");
   return refs ? `${refs}.\n${prompt}` : prompt;
 };
-const klingOmniActionBody = (input: TokenStarCreateVideoInput, prompt: string, imageUrls: string[], videoUrls: string[], elementIds: string[]) => {
+const urlSummary = (value: string) => value.length > 180 ? `${value.slice(0, 177)}...` : value;
+const requirePublicHttpsUrl = (label: string, value: string) => {
+  if (!/^https:\/\//i.test(value)) {
+    throw new TokenStarError(`${label} must be a public HTTPS URL. Received: ${urlSummary(value)}`, 400);
+  }
+};
+const klingOmniRequestBody = (input: TokenStarCreateVideoInput, prompt: string, videoUrls: string[], elementIds: string[]) => {
+  const body: Record<string, unknown> = {
+    model_name: input.model || process.env.TOKENSTAR_KLING_OMNI_MODEL || process.env.KLING_OMNI_MODEL || "kling-v3-omni",
+    prompt: omniPrompt(prompt, 0, videoUrls.length, elementIds.length),
+    mode: omniModeFor(input.resolution || process.env.TOKENSTAR_KLING_MODE),
+    duration: String(input.duration || Number(process.env.TOKENSTAR_DEFAULT_DURATION || 5)),
+    aspect_ratio: input.ratio || process.env.TOKENSTAR_DEFAULT_RATIO || "16:9",
+    sound: input.generateAudio === true ? "on" : "off",
+    video_list: videoUrls.map((url, index) => ({
+      video_url: url,
+      refer_type: index === 0 ? "base" : "reference",
+      keep_original_sound: "no",
+    })),
+  };
+  if (elementIds.length) body.element_list = elementIds.map((id) => ({ element_id: elementId(id) }));
+  return body;
+};
+const legacyKlingOmniActionBody = (input: TokenStarCreateVideoInput, prompt: string, imageUrls: string[], videoUrls: string[], elementIds: string[]) => {
   const imageList = imageUrls.map((url, index) => ({
     ImageUrl: url,
     ...(imageUrls.length === 1 && index === 0 ? { Type: "first_frame" } : {}),
@@ -127,10 +150,9 @@ const seedanceAssetModelFor = (inputModel?: string) => {
   if (model === "seedance-asset-fast") return "seedance-2.0-asset-fast";
   return model;
 };
-const assetVideoRequestSummary = (request: { model: string; content: TokenStarContentItem[]; ratio?: string; duration: number; resolution: string; callback_url?: string }, references: { groupId?: string; images: string[]; videos: string[]; audios: string[] }) => ({
+const assetVideoRequestSummary = (request: { model: string; content: TokenStarContentItem[]; duration: number; resolution: string; callback_url?: string }, references: { groupId?: string; images: string[]; videos: string[]; audios: string[] }) => ({
   model: request.model,
   content: request.content.map((item) => item.type),
-  ratio: request.ratio,
   duration: request.duration,
   resolution: request.resolution,
   hasCallback: Boolean(request.callback_url),
@@ -159,8 +181,19 @@ export async function createKlingOmniVideo(input: TokenStarCreateVideoInput): Pr
   if (elementIds.length) await Promise.all(elementIds.map((elementId) => waitForAigcElement(elementId)));
   const prompt = input.prompt.trim();
   if (!prompt) throw new TokenStarError("Kling Omni requires a prompt.", 400);
-  const raw = await tokenstarActionJsonRequest<TokenStarCreateVideoResponse>("/v1/video/generations", "SubmitVideoEditKlingJob", klingOmniActionBody(input, prompt, imageUrls, videoUrls, elementIds));
-  return { ...normalizedKling(klingTaskId(record(raw)), raw, "DescribeVideoEditKlingJob"), request: { imageCount: imageUrls.length, videoCount: videoUrls.length, elementCount: elementIds.length, imageUrls, videoUrls, prompt, transport: "SubmitVideoEditKlingJob" } };
+  if (videoUrls.length) {
+    const preparedVideoUrls = await Promise.all(videoUrls.map((url, index) => prepareReferenceUrl(url, "Video", index)));
+    preparedVideoUrls.forEach((url, index) => requirePublicHttpsUrl(`Kling Omni video reference ${index + 1}`, url));
+    const request = klingOmniRequestBody(input, prompt, preparedVideoUrls, elementIds);
+    const raw = await tokenstarJsonRequest<TokenStarCreateVideoResponse>("/v1/videos/omni-video", request);
+    return { ...normalizedOmni(taskId(record(raw)), raw), request: { imageCount: imageUrls.length, videoCount: videoUrls.length, elementCount: elementIds.length, videoUrls: preparedVideoUrls, prompt, transport: "/v1/videos/omni-video", body: request } };
+  }
+  if (!imageUrls.length) throw new TokenStarError("Kling Omni requires a connected image/video or a public HTTPS reference URL.", 400);
+  const preparedImageUrls = await Promise.all(imageUrls.map((url, index) => prepareReferenceUrl(url, "Image", index)));
+  preparedImageUrls.forEach((url, index) => requirePublicHttpsUrl(`Kling Omni image reference ${index + 1}`, url));
+  const request = legacyKlingOmniActionBody(input, prompt, preparedImageUrls, [], elementIds);
+  const raw = await tokenstarActionJsonRequest<TokenStarCreateVideoResponse>("/v1/video/generations", "SubmitVideoEditKlingJob", request);
+  return { ...normalizedKling(klingTaskId(record(raw)), raw, "DescribeVideoEditKlingJob"), request: { imageCount: imageUrls.length, videoCount: 0, elementCount: elementIds.length, imageUrls: preparedImageUrls, prompt, transport: "SubmitVideoEditKlingJob", body: request } };
 }
 export async function createSeedanceAssetVideo(input: TokenStarCreateVideoInput): Promise<NormalizedVideoTask> {
   const references = await createReferenceAssets({ imageUrls: input.referenceImageUrls, videoUrls: input.referenceVideoUrls, audioUrls: input.referenceAudioUrls });
@@ -168,7 +201,7 @@ export async function createSeedanceAssetVideo(input: TokenStarCreateVideoInput)
   const referenceVideoAssetUrls = unique([...(input.referenceVideoAssetUrls || []), input.referenceVideoAssetUrl || "", ...references.videoAssetUrls]);
   const referenceAudioAssetUrls = unique([...(input.referenceAudioAssetUrls || []), input.referenceAudioAssetUrl || "", ...references.audioAssetUrls]);
   if (!referenceImageAssetUrls.length && !referenceVideoAssetUrls.length && !referenceAudioAssetUrls.length) throw new TokenStarError("TokenStar asset-video requires at least one completed Image, Video, or Audio reference, or an existing asset:// URL.", 400);
-  const request = { model: seedanceAssetModelFor(input.model), content: contentFor({ ...input, referenceImageAssetUrls, referenceVideoAssetUrls, referenceAudioAssetUrls }, true), ratio: input.ratio || process.env.TOKENSTAR_DEFAULT_RATIO || "16:9", duration: input.duration || 5, resolution: input.resolution || process.env.TOKENSTAR_DEFAULT_RESOLUTION || "720p", ...(input.callbackUrl ? { callback_url: input.callbackUrl } : {}) };
+  const request = { model: seedanceAssetModelFor(input.model), content: contentFor({ ...input, referenceImageAssetUrls, referenceVideoAssetUrls, referenceAudioAssetUrls }, true), duration: input.duration || 5, resolution: input.resolution || process.env.TOKENSTAR_DEFAULT_RESOLUTION || "720p", ...(input.callbackUrl ? { callback_url: input.callbackUrl } : {}) };
   const requestSummary = assetVideoRequestSummary(request, { groupId: references.groupId, images: referenceImageAssetUrls, videos: referenceVideoAssetUrls, audios: referenceAudioAssetUrls });
   const attempts = Math.max(1, Math.floor(numberFromEnv("TOKENSTAR_ASSET_VIDEO_CREATE_MAX_ATTEMPTS", 8)));
   const intervalMs = Math.max(250, Math.floor(numberFromEnv("TOKENSTAR_ASSET_VIDEO_CREATE_RETRY_MS", 5000)));
