@@ -49,6 +49,23 @@ const imageModelValue = (model?: string) => {
   if (value === "nano banana 2" || value === "nano banana pro" || value === "gemini-3.1-flash-image-preview") return "nano banana(tokenstar)";
   return model || "gpt-image-2(tokenstar)";
 };
+const imageAspectRatioValue = (aspectRatio?: string, size?: string) => {
+  if (aspectRatio) return aspectRatio;
+  const [w, h] = (size || "").replace(/[×脳]/g, "x").split("x").map((item) => Number(item));
+  if (w && h) {
+    if (w === h) return "1:1";
+    if (w > h) return w / h > 1.9 ? "21:9" : w / h > 1.45 ? "16:9" : "3:2";
+    return "9:16";
+  }
+  return "1:1";
+};
+const imageResolutionValue = (resolution?: string, size?: string) => {
+  if (resolution) return resolution;
+  const normalized = (size || "").toLowerCase();
+  if (normalized.includes("4k")) return "4K";
+  if (normalized.includes("2k") || normalized.includes("2048")) return "2K";
+  return "1K";
+};
 
 function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; nodeId: string; onClose(): void }) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
@@ -589,12 +606,12 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
               onChange={(v) => updateNodeData(id, { model: String(v) })}
             />
             <PillDropdown
-              value={data.aspectRatio || "16:9"}
+              value={imageAspectRatioValue(data.aspectRatio, data.size)}
               options={["16:9", "21:9", "9:16", "3:2", "1:1"].map((o) => ({ value: o, label: o }))}
               onChange={(v) => updateNodeData(id, { aspectRatio: String(v) })}
             />
             <PillDropdown
-              value={data.resolution || "1K"}
+              value={imageResolutionValue(data.resolution, data.size)}
               options={["1K", "2K", "4K"].map((o) => ({ value: o, label: o }))}
               onChange={(v) => updateNodeData(id, { resolution: String(v) })}
             />
@@ -749,7 +766,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
         </div>
       </div>
 
-      <div className={`nodrag nowheel absolute left-1/2 top-[calc(100%+8px)] z-50 flex max-h-[560px] w-[800px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
+      <div className={`nodrag nowheel absolute left-1/2 top-[calc(100%+8px)] z-50 flex max-h-[560px] w-[800px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
          <div className="min-h-0 flex-1 overflow-y-auto p-6 pb-4">
             {supportsImageInput && <div className="mb-3 flex items-center gap-2">
               <button
