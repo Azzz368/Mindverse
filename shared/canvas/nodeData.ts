@@ -14,7 +14,7 @@ export type CanvasNodeData = {
   nodeType: NodeType; title: string; status: NodeExecutionStatus; output?: NodeOutput; error?: string;
   prompt?: string; negativePrompt?: string; style?: string; aspectRatio?: string;
   instruction?: string; inputText?: string; textContent?: string; wordCount?: number;
-  model?: string; size?: string; referenceImageUrl?: string; imagePromptPreset?: "character-turnaround" | "scene-nine-grid" | "scene-top-view"; temperature?: number;
+  model?: string; size?: string; referenceImageUrl?: string; imageReferenceNodeIds?: string[]; imagePromptPreset?: "character-turnaround" | "scene-nine-grid" | "scene-top-view"; temperature?: number;
   duration?: number; voiceStyle?: string; voice?: string; emotion?: string; volume?: number; resolution?: string; fps?: string; videoInputMode?: "text-to-video" | "image-to-video";
   targetModel?: string; language?: QwenVoiceLanguageCode | string; languageType?: QwenTtsLanguageType; voiceProvider?: QwenVoiceProvider; preferredName?: string; transcript?: string; consentConfirmed?: boolean; referenceAudioName?: string; fallbackMode?: boolean; fallbackReason?: string; ttsText?: string; audioUrl?: string; audioId?: string; expiresAt?: number;
   editPlan?: string; preserveAudio?: boolean; originalVolume?: number; backgroundVolume?: number; fadeIn?: number; fadeOut?: number; transition?: "none" | "fade";
