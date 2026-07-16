@@ -46,6 +46,7 @@ const pathSeparator = process.platform === "win32" ? ";" : ":";
 const dateKey = () => new Date().toISOString().slice(0, 10);
 const isCodexHyperframesMode = (input: MotionCompositionInput) => input.motionMode === "codex-hyperframes";
 const codexRequired = () => !["0", "false", "no"].includes(String(process.env.MINDVERSE_CODEX_REQUIRED || "true").trim().toLowerCase());
+const codexBypassSandbox = () => ["1", "true", "yes", "on"].includes(String(process.env.MINDVERSE_CODEX_BYPASS_SANDBOX || "").trim().toLowerCase());
 
 const escapeHtml = (value: unknown) =>
   String(value ?? "")
@@ -560,11 +561,15 @@ const runCodexHyperframesEdit = async (projectDir: string, input: MotionComposit
     "--ephemeral",
     "--cd", projectDir,
     "--skip-git-repo-check",
-    "--sandbox", "workspace-write",
     "--json",
     "--output-last-message", outputPath,
     "--color", "never",
   ];
+  if (codexBypassSandbox()) {
+    args.push("--dangerously-bypass-approvals-and-sandbox");
+  } else {
+    args.push("--sandbox", "workspace-write");
+  }
   const model = process.env.MINDVERSE_CODEX_MODEL?.trim();
   if (model) args.push("--model", model);
   args.push(prompt);

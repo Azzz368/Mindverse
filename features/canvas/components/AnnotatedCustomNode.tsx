@@ -38,6 +38,7 @@ const videoPortStyles: Record<VideoInputPortKind, { border: string; connected: s
   video: { border: "border-[#7322e3]", connected: "bg-[#7322e3]" },
   audio: { border: "border-[#f5510b]", connected: "bg-[#f5510b]" },
 };
+const videoDurationOptions = Array.from({ length: 11 }, (_, index) => index + 5);
 const nodeImageUrl = (node: CanvasNode) => {
   const value = record(node.data.output?.value);
   return text(value.imageUrl || value.revisedImageUrl || node.data.imageUrl || "");
@@ -104,7 +105,7 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
           {provider === "kling" && <><label className={wrap}><span className={lbl}>Kling 模式</span><select className={sel} value={data.klingMode ?? "image-to-video"} onChange={e => set({ klingMode: e.target.value as CanvasNodeData["klingMode"] })}><option value="image-to-video">首帧生视频</option><option value="reference-image">参考图生视频（主体一致性）</option><option value="text-to-video">文生视频</option><option value="omni">Omni 视频编辑</option></select></label>{data.klingMode === "reference-image" && <><p className="mb-3 rounded-md bg-amber-50 px-2 py-1.5 text-[10px] text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">需先创建主体元素，将 ElementId 填入下方字段。</p><label className={wrap}><span className={lbl}>主体元素 ID（逗号分隔）</span>{textInput("klingElementId", data.klingElementId)}</label></>}{(data.klingMode === "image-to-video" || data.klingMode === "reference-image" || !data.klingMode) && <label className={wrap}><span className={lbl}>首帧 URL（可选）</span>{textInput("referenceImageUrl", data.referenceImageUrl)}</label>}{data.klingMode === "omni" && <label className={wrap}><span className={lbl}>参考视频 URL</span>{textInput("referenceVideoUrl", data.referenceVideoUrl)}</label>}</>}
           {provider === "tokenstar" && <><label className={wrap}><span className={lbl}>TokenStar 模式</span><select className={sel} value={data.tokenstarMode ?? "text-to-video"} onChange={e => set({ tokenstarMode: e.target.value as CanvasNodeData["tokenstarMode"] })}><option value="text-to-video">Seedance 文生视频</option><option value="asset-video">Seedance 参考素材</option><option value="kling-image">Kling 首帧生视频</option><option value="kling-reference">Kling 参考图生视频</option><option value="kling-text">Kling 文生视频</option><option value="kling-omni">Kling Omni 编辑</option></select></label><div className="mb-3 flex items-center justify-between"><span className={lbl} style={{marginBottom:0}}>生成音频</span><button onClick={() => set({ generateAudio: data.generateAudio === false })} className={`relative h-5 w-9 rounded-full transition-colors ${data.generateAudio !== false ? "bg-[#030303] dark:bg-cyan-500" : "bg-[#c9ccd1] dark:bg-slate-600"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${data.generateAudio !== false ? "translate-x-[18px]" : "translate-x-0.5"}`} /></button></div></>}
           <label className={wrap}><span className={lbl}>分辨率</span><select className={sel} value={data.resolution ?? ""} onChange={e => set({ resolution: e.target.value || undefined })}><option value="">服务器默认</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
-          <label className={wrap}><span className={lbl}>时长</span><select className={sel} value={String(data.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}><option value="">服务器默认</option>{[5,8,10,15].map(n=><option key={n} value={n}>{n}s</option>)}</select></label>
+          <label className={wrap}><span className={lbl}>时长</span><select className={sel} value={String(data.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}><option value="">服务器默认</option>{videoDurationOptions.map(n=><option key={n} value={n}>{n}s</option>)}</select></label>
           <label className={wrap}><span className={lbl}>画面比例</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}><option value="16:9">16:9 横屏</option><option value="9:16">9:16 竖屏</option><option value="1:1">1:1 方形</option></select></label>
         </>}
         {data.nodeType === "videoEdit" && <>
@@ -837,7 +838,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
               />
               <PillDropdown 
                  value={data.duration || 15} 
-                 options={[{value: 5, label: "5s"}, {value: 8, label: "8s"}, {value: 10, label: "10s"}, {value: 15, label: "15s"}]}
+                 options={videoDurationOptions.map((value) => ({ value, label: `${value}s` }))}
                  onChange={v => updateNodeData(id, { duration: Number(v) })}
               />
               <PillDropdown 
