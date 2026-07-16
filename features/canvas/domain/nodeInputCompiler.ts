@@ -96,8 +96,10 @@ export const promptFrom = (node: CanvasNode, upstream: CanvasNode[]) =>
 const videoPromptReferences = (prompt: string) =>
   prompt.replace(/@(?:image[_\s-]?|图|素材)?(\d+)/gi, (_, index: string) => `<<<image_${Number(index)}>>>`);
 
-const referencedImageUrlsFrom = (node: CanvasNode, upstream: CanvasNode[]) => {
-  const ids = node.data.videoReferenceNodeIds || [];
+const imagePromptReferences = (prompt: string) =>
+  prompt.replace(/@(?:image[_\s-]?|素材|图片|reference[_\s-]?image[_\s-]?|ref[_\s-]?)?(\d+)/gi, (_, index: string) => `reference image ${Number(index)}`);
+
+const referencedImageUrlsFrom = (node: CanvasNode, upstream: CanvasNode[], ids = node.data.videoReferenceNodeIds || []) => {
   if (!ids.length) {
     return [];
   }
@@ -231,11 +233,13 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
 
   if (d.nodeType === "image") {
     const upstreamRefImageUrls = [...upstreamReferenceImageUrls, ...upstreamImageUrls].filter(Boolean);
-    const upstreamRefImageUrl = upstreamRefImageUrls[0] || upstreamImage || "";
-    const referenceImageUrls = [...(d.referenceImageUrl ? [d.referenceImageUrl] : []), ...upstreamRefImageUrls].filter(Boolean).slice(0, 2);
+    const selectedRefImageUrls = referencedImageUrlsFrom(node, upstream, d.imageReferenceNodeIds || []);
+    const nodeReferenceImageUrls = selectedRefImageUrls.length ? selectedRefImageUrls : upstreamRefImageUrls;
+    const referenceImageUrls = [...(d.referenceImageUrl ? [d.referenceImageUrl] : []), ...nodeReferenceImageUrls].filter(Boolean).slice(0, 4);
+    const upstreamRefImageUrl = referenceImageUrls[0] || upstreamRefImageUrls[0] || upstreamImage || "";
 
     return {
-      prompt: limitProviderPrompt(imagePromptWithPreset(d.imagePromptPreset, prompt)),
+      prompt: limitProviderPrompt(imagePromptWithPreset(d.imagePromptPreset, imagePromptReferences(prompt))),
       negativePrompt: d.negativePrompt,
       model: d.model === "Mock Vision" ? undefined : d.model,
       size: d.size,

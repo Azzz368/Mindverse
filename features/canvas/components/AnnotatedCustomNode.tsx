@@ -538,12 +538,28 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
 function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImageRevision }: any) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const edges = useCanvasStore((s) => s.edges);
-  const connectedHandles = new Set(edges.filter((e) => e.target === id).map((e) => e.targetHandle || ""));
+  const allNodes = useCanvasStore((s) => s.nodes);
+  const incomingEdges = edges.filter((e) => e.target === id);
+  const connectedHandles = new Set(incomingEdges.map((e) => e.targetHandle || ""));
   const [viewUrl, setViewUrl] = useState("");
   const [annotatingUrl, setAnnotatingUrl] = useState("");
+  const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const outputValue = record(data.output?.value);
   const imageUrl = text(outputValue.imageUrl) || (typeof data.output?.value === "string" ? (data.output?.value as string) : "");
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
+  const imageSourceIds = new Set(incomingEdges
+    .filter((edge) => !edge.targetHandle || edge.targetHandle === "image" || edge.targetHandle === "ref-image" || edge.targetHandle.startsWith("ref-image-"))
+    .map((edge) => edge.source));
+  const materialOptions = allNodes
+    .filter((item: CanvasNode) => imageSourceIds.has(item.id))
+    .filter((item: CanvasNode) => item.id !== id && ["image", "reference"].includes(item.data.nodeType) && nodeImageUrl(item))
+    .map((item: CanvasNode) => ({ node: item, imageUrl: nodeImageUrl(item), label: materialLabel(item) }));
+  const selectedReferenceIds = (data.imageReferenceNodeIds || []).filter((refId: string) => materialOptions.some((item) => item.node.id === refId));
+  const selectedMaterials = selectedReferenceIds.map((refId: string) => materialOptions.find((item) => item.node.id === refId)).filter(Boolean) as typeof materialOptions;
+  const toggleMaterial = (nodeId: string) => {
+    const current = data.imageReferenceNodeIds || [];
+    updateNodeData(id, { imageReferenceNodeIds: current.includes(nodeId) ? current.filter((item: string) => item !== nodeId) : [...current, nodeId].slice(0, 4) });
+  };
 
   return (
     <>
@@ -589,10 +605,55 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
 
       <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[640px] -translate-x-1/2 overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
         <div className="p-6 pb-4">
+          <div className="mb-3 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setMaterialPickerOpen((open) => !open); }}
+              className="nodrag rounded-full border border-[#c9ccd1] px-3 py-1.5 text-[12px] font-semibold text-[#030303] hover:border-[#030303] dark:border-slate-600 dark:text-slate-100 dark:hover:border-cyan-300"
+            >
+              @引用素材
+            </button>
+            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+              {selectedMaterials.map((item, index) => (
+                <button
+                  key={item.node.id}
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); toggleMaterial(item.node.id); }}
+                  className="nodrag relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-[#c9ccd1] bg-[#f0f1f3] dark:border-slate-600 dark:bg-slate-800"
+                  title={`${index + 1}: ${item.label}`}
+                >
+                  <img src={item.imageUrl} alt={item.label} className="h-full w-full object-cover" />
+                  <span className="absolute right-0.5 top-0.5 rounded-full bg-[#030303]/85 px-1.5 py-0.5 text-[10px] font-bold text-white">@{index + 1}</span>
+                </button>
+              ))}
+              {!selectedMaterials.length && <span className="text-[12px] text-[#676f7b] dark:text-slate-400">Nano Banana 可选择最多 4 张参考图</span>}
+            </div>
+          </div>
+          {materialPickerOpen && (
+            <div className="nodrag mb-3 grid max-h-44 grid-cols-6 gap-2 overflow-y-auto rounded-xl border border-[#e7eaf0] bg-[#f8f9fa] p-2 dark:border-slate-700 dark:bg-[#071019]" onClick={(e) => e.stopPropagation()}>
+              {materialOptions.map((item) => {
+                const selectedIndex = selectedReferenceIds.indexOf(item.node.id);
+                return (
+                  <button
+                    key={item.node.id}
+                    type="button"
+                    onClick={() => toggleMaterial(item.node.id)}
+                    className={`relative h-20 overflow-hidden rounded-lg border text-left ${selectedIndex >= 0 ? "border-[#030303] ring-2 ring-[#030303]/15 dark:border-cyan-300 dark:ring-cyan-300/20" : "border-[#dfe3ea] hover:border-[#030303] dark:border-slate-700 dark:hover:border-cyan-300"}`}
+                    title={item.label}
+                  >
+                    <img src={item.imageUrl} alt={item.label} className="h-full w-full object-cover" />
+                    <div className="absolute inset-x-0 bottom-0 truncate bg-black/65 px-1.5 py-1 text-[10px] font-medium text-white">{item.label}</div>
+                    {selectedIndex >= 0 && <span className="absolute right-1 top-1 rounded-full bg-[#030303] px-1.5 py-0.5 text-[10px] font-bold text-white dark:bg-cyan-400 dark:text-[#030303]">@{selectedIndex + 1}</span>}
+                  </button>
+                );
+              })}
+              {!materialOptions.length && <div className="col-span-6 px-2 py-6 text-center text-[12px] text-[#676f7b] dark:text-slate-400">请先把图片或素材节点连到 Reference image</div>}
+            </div>
+          )}
           <AutoGrowTextarea
             value={data.prompt ?? ""}
             onChange={(v) => updateNodeData(id, { prompt: v })}
-            placeholder="描述你想生成的图像…"
+            placeholder="描述你想生成的图像，可用 @1、@2 引用素材..."
             minHeight={80}
           />
         </div>
