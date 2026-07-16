@@ -520,10 +520,23 @@ const runProcess = (command: string, args: string[], options: RunProcessOptions 
 
 const codexCliPath = () => path.join(process.cwd(), "node_modules", "@openai", "codex", "bin", "codex.js");
 
-const codexHome = () =>
-  process.env.MINDVERSE_CODEX_HOME?.trim() ||
-  process.env.CODEX_HOME?.trim() ||
-  path.join(process.env.USERPROFILE || process.env.HOME || "", ".codex");
+const resolveHomePath = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+  const homeDir = process.env.USERPROFILE || process.env.HOME || "";
+  if (trimmed === "~") return homeDir || trimmed;
+  if ((trimmed.startsWith("~/") || trimmed.startsWith("~\\")) && homeDir) {
+    return path.join(homeDir, trimmed.slice(2));
+  }
+  return path.isAbsolute(trimmed) ? trimmed : path.resolve(process.cwd(), trimmed);
+};
+
+const codexHome = () => {
+  const configured =
+    process.env.MINDVERSE_CODEX_HOME?.trim() ||
+    process.env.CODEX_HOME?.trim();
+  return resolveHomePath(configured || path.join(process.env.USERPROFILE || process.env.HOME || "", ".codex"));
+};
 
 type CodexRunRecord = {
   ok: boolean;
