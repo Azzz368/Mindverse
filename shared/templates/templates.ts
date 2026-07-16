@@ -8,7 +8,7 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   prompt: { prompt: "Describe an atmospheric creative direction", negativePrompt: "", style: "Cinematic", aspectRatio: "16:9" },
   text: { instruction: "Turn this brief into an engaging creative draft", model: "", temperature: 0.7 },
   script: { storyBrief: "A fictional creative story", scriptTone: "Cinematic, warm, fictional", numberOfScenes: 3, model: "" },
-  image: { prompt: "A cinematic editorial image", model: "gpt-image-2(tokenstar)", size: "2048x2048", referenceImageUrl: "" },
+  image: { prompt: "A cinematic editorial image", model: "gpt-image-2(tokenstar)", size: "2048x2048", aspectRatio: "1:1", resolution: "2K", referenceImageUrl: "" },
   video: { prompt: "A gentle cinematic movement", aspectRatio: "16:9", referenceImageUrl: "", fps: "", ...videoModelPatch("seedance-2.0"), referenceImageAssetUrl: "", referenceVideoAssetUrl: "", referenceAudioAssetUrl: "" },
   videoEdit: { prompt: "", editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" },
   motion: { prompt: "Create a clean HyperFrames-style title package", compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")), templateId: "basic-title", motionVariablesJson: defaultMotionTemplateVariablesJson("basic-title") },

@@ -240,6 +240,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       model: d.model === "Mock Vision" ? undefined : d.model,
       size: d.size,
       aspectRatio: d.aspectRatio,
+      resolution: d.resolution,
       referenceImageUrl: d.referenceImageUrl || upstreamRefImageUrl,
       referenceImageUrls,
     };

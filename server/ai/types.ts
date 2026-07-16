@@ -1,7 +1,7 @@
 export type AIProviderName = "mock" | "302ai";
 export type GenerateTextInput = { prompt: string; systemPrompt?: string; model?: string; temperature?: number; upstreamContext?: unknown };
 export type GenerateTextOutput = { text: string; raw?: unknown };
-export type GenerateImageInput = { prompt: string; negativePrompt?: string; model?: string; size?: string; aspectRatio?: string; referenceImageUrl?: string; referenceImageUrls?: string[] };
+export type GenerateImageInput = { prompt: string; negativePrompt?: string; model?: string; size?: string; aspectRatio?: string; resolution?: string; referenceImageUrl?: string; referenceImageUrls?: string[] };
 export type GenerateImageOutput = { imageUrl?: string; taskId?: string; status: "completed" | "pending" | "failed"; raw?: unknown };
 export type GenerateImageRevisionInput = { sourceImageUrl: string; annotations: unknown[]; instruction?: string; prompt?: string; model?: string; size?: string };
 export type GenerateImageRevisionOutput = GenerateImageOutput;

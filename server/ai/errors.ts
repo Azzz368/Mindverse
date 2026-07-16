@@ -18,6 +18,7 @@ const TOKENSTAR_CODE_MESSAGES: Record<string, string> = {
   upstream_unavailable: "Upstream model service is temporarily unavailable. Please retry later.",
   service_unavailable: "TokenStar service is temporarily unavailable. Please retry later.",
   service_timeout: "TokenStar service timed out. Please retry later.",
+  network_error: "Network connection to TokenStar failed before a response was received. Please retry.",
 };
 export function normalizeAIError(error: unknown) {
   if (error instanceof TokenStarError) {

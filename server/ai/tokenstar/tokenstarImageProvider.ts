@@ -26,6 +26,7 @@ const dataImage = (value: string) => {
   const match = /^data:([^;,]+);base64,(.+)$/i.exec(value);
   return match ? { mimeType: match[1], data: match[2] } : undefined;
 };
+const normalizeSizeText = (size?: string) => (size || "").trim().toLowerCase().replace(/[^0-9a-z]+/gi, "x");
 const referenceImageUrlsFrom = (input: GenerateImageInput) => {
   const urls = [...(input.referenceImageUrl ? [input.referenceImageUrl] : []), ...(input.referenceImageUrls || [])]
     .map((url) => url.trim())
@@ -33,20 +34,36 @@ const referenceImageUrlsFrom = (input: GenerateImageInput) => {
   return Array.from(new Set(urls)).slice(0, 4);
 };
 const imageSizeForNano = (size?: string) => {
-  const normalized = (size || "").replace(/×/g, "x").toLowerCase();
-  if (normalized.includes("2048") || normalized.includes("2k")) return "2K";
+  const normalized = normalizeSizeText(size);
+  if (normalized.includes("2048") || normalized.includes("2k") || normalized.includes("4k")) return "2K";
   return "1K";
 };
 const aspectRatioFrom = (aspectRatio?: string, size?: string) => {
   const normalized = aspectRatio?.replace(".", ":");
   if (normalized && ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"].includes(normalized)) return normalized;
-  const [w, h] = (size || "").replace(/×/g, "x").split("x").map((item) => Number(item));
+  const [w, h] = normalizeSizeText(size).split("x").map((item) => Number(item));
   if (w && h) {
     if (w === h) return "1:1";
     if (w > h) return w / h > 1.9 ? "21:9" : w / h > 1.45 ? "16:9" : "3:2";
     return h / w > 1.65 ? "9:16" : "2:3";
   }
   return "1:1";
+};
+const normalizedImageRatio = (aspectRatio?: string) => aspectRatio?.replace(".", ":").trim();
+const resolutionTier = (resolution?: string, size?: string) => {
+  const value = `${resolution || ""} ${normalizeSizeText(size)}`.toLowerCase();
+  if (value.includes("4k")) return "4K";
+  if (value.includes("2k") || value.includes("2048")) return "2K";
+  return "1K";
+};
+const imageSizeForGpt = (size?: string, aspectRatio?: string, resolution?: string) => {
+  const ratio = normalizedImageRatio(aspectRatio);
+  const tier = resolutionTier(resolution, size);
+  if (ratio && ["1:1", "3:2", "4:3", "5:4", "16:9", "21:9", "2:3", "3:4", "4:5", "9:16"].includes(ratio)) {
+    if (ratio === "1:1") return tier === "2K" || tier === "4K" ? "2048x2048" : "1024x1024";
+    return ["3:2", "4:3", "5:4", "16:9", "21:9"].includes(ratio) ? "1536x1024" : "1024x1536";
+  }
+  return normalizeSizeText(size) || "1024x1024";
 };
 const imageExtension = (contentType: string | null) => contentType?.includes("jpeg") ? "jpg" : contentType?.includes("webp") ? "webp" : "png";
 const outputFormat = (value?: string) => value?.toLowerCase().includes("webp") ? "webp" : value?.toLowerCase().includes("jpeg") || value?.toLowerCase().includes("jpg") ? "jpeg" : "png";
@@ -101,20 +118,20 @@ export async function generateTokenStarImage(input: GenerateImageInput): Promise
       contents: [{ role: "user", parts: [{ text: input.prompt }, ...imageParts] }],
       generationConfig: {
         responseModalities: ["TEXT", "IMAGE"],
-        imageConfig: compact({ aspectRatio: aspectRatioFrom(input.aspectRatio, input.size), imageSize: imageSizeForNano(input.size) }),
+        imageConfig: compact({ aspectRatio: aspectRatioFrom(input.aspectRatio, input.size), imageSize: imageSizeForNano(input.resolution || input.size) }),
       },
     });
     const imageUrl = imageFromNanoResponse(raw);
     return { imageUrl, status: imageUrl ? "completed" : "failed", raw };
   }
   if (input.referenceImageUrl) {
-    return generateTokenStarImageRevision({ sourceImageUrl: input.referenceImageUrl, prompt: input.prompt, annotations: [], size: input.size, model: input.model });
+    return generateTokenStarImageRevision({ sourceImageUrl: input.referenceImageUrl, prompt: input.prompt, annotations: [], size: imageSizeForGpt(input.size, input.aspectRatio, input.resolution), model: input.model });
   }
   const raw = await tokenstarJsonRequest<RecordValue>("/v1/images/generations", {
     model: GPT_IMAGE_MODEL,
     prompt: input.prompt,
     n: 1,
-    size: (input.size || "1024x1024").replace(/×/g, "x"),
+    size: imageSizeForGpt(input.size, input.aspectRatio, input.resolution),
     quality: process.env.TOKENSTAR_IMAGE_QUALITY || "low",
     output_format: process.env.TOKENSTAR_IMAGE_OUTPUT_FORMAT || "png",
   });
@@ -129,7 +146,7 @@ export async function generateTokenStarImageRevision(input: GenerateImageRevisio
   form.append("image", source.blob, source.filename);
   form.append("prompt", input.prompt || input.instruction || "Revise this image.");
   form.append("n", "1");
-  form.append("size", (input.size || "1024x1024").replace(/×/g, "x"));
+  form.append("size", normalizeSizeText(input.size) || "1024x1024");
   form.append("quality", process.env.TOKENSTAR_IMAGE_QUALITY || "low");
   form.append("output_format", process.env.TOKENSTAR_IMAGE_OUTPUT_FORMAT || "png");
   const raw = await tokenstarFormRequest<RecordValue>("/v1/images/edits", form);
