@@ -56,13 +56,16 @@ const resolutionTier = (resolution?: string, size?: string) => {
   if (value.includes("2k") || value.includes("2048")) return "2K";
   return "1K";
 };
-const imageSizeForGpt = (size?: string, aspectRatio?: string, resolution?: string) => {
+const GPT_IMAGE_SIZE_BY_ASPECT_RATIO: Record<string, string> = {
+  "9:16": "1152x2048",
+  "21:9": "2048x878",
+  "16:9": "2048x1152",
+  "1:1": "2048x2048",
+  "3:2": "2048x1365",
+};
+const imageSizeForGpt = (size?: string, aspectRatio?: string) => {
   const ratio = normalizedImageRatio(aspectRatio);
-  const tier = resolutionTier(resolution, size);
-  if (ratio && ["1:1", "3:2", "4:3", "5:4", "16:9", "21:9", "2:3", "3:4", "4:5", "9:16"].includes(ratio)) {
-    if (ratio === "1:1") return tier === "2K" || tier === "4K" ? "2048x2048" : "1024x1024";
-    return ["3:2", "4:3", "5:4", "16:9", "21:9"].includes(ratio) ? "1536x1024" : "1024x1536";
-  }
+  if (ratio && GPT_IMAGE_SIZE_BY_ASPECT_RATIO[ratio]) return GPT_IMAGE_SIZE_BY_ASPECT_RATIO[ratio];
   return normalizeSizeText(size) || "1024x1024";
 };
 const imageExtension = (contentType: string | null) => contentType?.includes("jpeg") ? "jpg" : contentType?.includes("webp") ? "webp" : "png";
@@ -125,13 +128,13 @@ export async function generateTokenStarImage(input: GenerateImageInput): Promise
     return { imageUrl, status: imageUrl ? "completed" : "failed", raw };
   }
   if (input.referenceImageUrl) {
-    return generateTokenStarImageRevision({ sourceImageUrl: input.referenceImageUrl, prompt: input.prompt, annotations: [], size: imageSizeForGpt(input.size, input.aspectRatio, input.resolution), model: input.model });
+    return generateTokenStarImageRevision({ sourceImageUrl: input.referenceImageUrl, prompt: input.prompt, annotations: [], size: imageSizeForGpt(input.size, input.aspectRatio), model: input.model });
   }
   const raw = await tokenstarJsonRequest<RecordValue>("/v1/images/generations", {
     model: GPT_IMAGE_MODEL,
     prompt: input.prompt,
     n: 1,
-    size: imageSizeForGpt(input.size, input.aspectRatio, input.resolution),
+    size: imageSizeForGpt(input.size, input.aspectRatio),
     quality: process.env.TOKENSTAR_IMAGE_QUALITY || "low",
     output_format: process.env.TOKENSTAR_IMAGE_OUTPUT_FORMAT || "png",
   });
