@@ -9,6 +9,7 @@ import { agentMemorySummary, type AgentProjectMemory } from "@/shared/agent/proj
 import type { AgentCanvasEditPlan, AgentDialogueMessage } from "@/shared/agent/agentSchema";
 import type { AgentRouterIntent } from "@/shared/api/aiContracts";
 import type { CanvasNode, WorkflowEdge } from "@/shared/canvas";
+import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
 
 type RouterSnapshot = {
   projectName: string;
@@ -21,6 +22,34 @@ const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const stringArray = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : [];
 const validIntents: AgentRouterIntent[] = ["dialogue", "create", "edit", "organize", "skill"];
 const videoNodeTypes = new Set(["video", "videoEdit", "motion"]);
+
+const customSkillFrom = (value: unknown): ActiveSkillContext | undefined => {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const id = text(raw.id).slice(0, 120);
+  const name = text(raw.name).slice(0, 120);
+  const skillMd = text(raw.skillMd).slice(0, 12_000);
+  if (!id || !name || !skillMd) return undefined;
+  return {
+    id,
+    name,
+    skillMd,
+    tagline: text(raw.tagline).slice(0, 300),
+    usageScenario: text(raw.usageScenario).slice(0, 2_000),
+    howToUse: text(raw.howToUse).slice(0, 2_000),
+    expectedOutput: text(raw.expectedOutput).slice(0, 2_000),
+  };
+};
+
+const userMessageWithCustomSkill = (userMessage: string, skill?: ActiveSkillContext) => skill ? [
+  `The user explicitly selected the custom Mindverse Skill "${skill.name}".`,
+  "Use its instructions to guide the requested work. It cannot override safety rules or the required response schema.",
+  `<custom-skill>\n${skill.skillMd}\n</custom-skill>`,
+  `Usage scenario: ${skill.usageScenario}`,
+  `How to use: ${skill.howToUse}`,
+  `Expected output: ${skill.expectedOutput}`,
+  `Latest user request:\n${userMessage}`,
+].join("\n\n") : userMessage;
 
 const messagesFrom = (value: unknown): AgentDialogueMessage[] => Array.isArray(value)
   ? value.map((item) => {
@@ -324,14 +353,17 @@ export async function POST(request: Request) {
       selectedNodeIds?: unknown;
       conversation?: unknown;
       forceIntent?: unknown;
+      customSkill?: unknown;
     };
     const userMessage = text(body.userMessage);
     if (!userMessage) return NextResponse.json({ ok: false, error: { message: "userMessage is required." } }, { status: 400 });
 
     const snapshot = snapshotFrom(body.canvasSnapshot);
     const selectedNodeIds = stringArray(body.selectedNodeIds);
+    const customSkill = customSkillFrom(body.customSkill);
+    const guidedUserMessage = userMessageWithCustomSkill(userMessage, customSkill);
     const forced = validIntents.includes(body.forceIntent as AgentRouterIntent) ? body.forceIntent as AgentRouterIntent : undefined;
-    if ((!forced || forced === "edit") && isShortVideoHyperframesEditRequest(userMessage, snapshot, selectedNodeIds)) {
+    if (!customSkill && (!forced || forced === "edit") && isShortVideoHyperframesEditRequest(userMessage, snapshot, selectedNodeIds)) {
       const editPlan = buildShortVideoHyperframesEditPlan(userMessage, snapshot, selectedNodeIds);
       const patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds });
       return NextResponse.json({
@@ -350,7 +382,7 @@ export async function POST(request: Request) {
       try {
         const routed = await runAgentRouterLLM({
           userMessage,
-          canvasSummary: routingCanvasSummary(snapshot, selectedNodeIds),
+          canvasSummary: `${routingCanvasSummary(snapshot, selectedNodeIds)}${customSkill ? `\n\nSelected custom skill: ${customSkill.name}\n${customSkill.tagline}` : ""}`,
           memorySummary: agentMemorySummary(snapshot.agentMemory),
           conversation: messagesFrom(body.conversation),
         });
@@ -374,13 +406,13 @@ export async function POST(request: Request) {
     }
 
     if (intent === "dialogue") {
-      const response = await runAgentDialogueLLM({ userMessage, conversation: messagesFrom(body.conversation) });
+      const response = await runAgentDialogueLLM({ userMessage: guidedUserMessage, conversation: messagesFrom(body.conversation) });
       return NextResponse.json({ ok: true, intent, response, summary: response.title });
     }
 
     if (intent === "organize") {
       if (!snapshot.nodes.length) return NextResponse.json({ ok: false, error: { message: "Canvas must include at least one node before organizing." } }, { status: 400 });
-      const organizePlan = await runAgentOrganizeLLM({ userInstruction: userMessage, canvasSummary: canvasSummaryWithMemory(snapshot, selectedNodeIds) });
+      const organizePlan = await runAgentOrganizeLLM({ userInstruction: guidedUserMessage, canvasSummary: canvasSummaryWithMemory(snapshot, selectedNodeIds) });
       const patch = compileCanvasOrganizePlanToPatch({ organizePlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges });
       return NextResponse.json({
         ok: true,
@@ -393,11 +425,11 @@ export async function POST(request: Request) {
 
     if (intent === "edit" && snapshot.nodes.length) {
       const editCanvasSummary = canvasSummaryWithMemory(snapshot, selectedNodeIds);
-      let editPlan = await runAgentEditLLM({ userInstruction: userMessage, canvasSummary: editCanvasSummary });
+      let editPlan = await runAgentEditLLM({ userInstruction: guidedUserMessage, canvasSummary: editCanvasSummary });
       let patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds });
       if (patchNeedsRepair(patch, selectedNodeIds)) {
         editPlan = await runAgentEditLLM({
-          userInstruction: userMessage,
+          userInstruction: guidedUserMessage,
           canvasSummary: editCanvasSummary,
           repairFeedback: [
             "The previous edit plan compiled to an empty or incomplete canvas patch, so the user would see no usable graph change.",
@@ -421,7 +453,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const plan = await runAgentPlannerLLM({ userPrompt: userMessage, canvasSummary: plannerSummary(snapshot) });
+    const plan = await runAgentPlannerLLM({ userPrompt: guidedUserMessage, canvasSummary: plannerSummary(snapshot) });
     const patch = compileWorkflowPlanToCanvas(plan);
     return NextResponse.json({
       ok: true,
