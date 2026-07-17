@@ -84,7 +84,7 @@ export function WorkflowDashboard() {
           </div>
           <nav className="space-y-1 text-sm">
             <div className="rounded px-3 py-2 bg-[#f2edff] text-[#6d28d9]">Projects</div>
-            <div className="px-3 py-2 text-[#404040]">Blueprints</div>
+            <Link href="/skills" className="block px-3 py-2 text-[#404040] transition hover:bg-[#f0f1f3]">Skills</Link>
             <div className="px-3 py-2 text-[#404040]">Environment Groups</div>
           </nav>
           <div className="mt-8 text-[11px] uppercase tracking-[0.2em] text-[#939393]">Workspace</div>

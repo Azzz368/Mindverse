@@ -11,6 +11,7 @@ import type {
 import type { AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 import type { AgentProjectMemory } from "@/shared/agent/projectMemory";
 import type { CanvasNode, NodeType, WorkflowEdge } from "@/shared/canvas";
+import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
 
 export type CanvasSnapshotPayload = { version: 1; projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; agentMemory?: AgentProjectMemory };
 
@@ -42,6 +43,7 @@ export type AgentRouterRequest = {
   selectedNodeIds: string[];
   conversation?: AgentDialogueMessage[];
   forceIntent?: AgentRouterIntent;
+  customSkill?: ActiveSkillContext;
 };
 export type AgentRouterResponse = {
   ok: true;

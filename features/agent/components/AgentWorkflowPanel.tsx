@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { requestAgentRouter } from "@/features/agent/services/agentClient";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
@@ -16,6 +16,8 @@ import type {
 } from "@/shared/agent/agentSchema";
 import type { AgentRouterIntent } from "@/shared/api/aiContracts";
 import type { CanvasNode } from "@/shared/canvas";
+import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
+import { ACTIVE_SKILL_KEY } from "@/features/skills/services/skillClient";
 
 type AgentPreview =
   | { intent: "create"; plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }
@@ -80,6 +82,7 @@ export function AgentWorkflowPanel() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [preview, setPreview] = useState<AgentPreview | null>(null);
   const [chat, setChat] = useState<ChatEntry[]>([]);
+  const [customSkill, setCustomSkill] = useState<ActiveSkillContext | null>(null);
 
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
@@ -113,6 +116,21 @@ export function AgentWorkflowPanel() {
   );
   const memoryText = useMemo(() => agentMemorySummary(agentMemory), [agentMemory]);
   const canSubmit = input.trim().length > 0 && !busy;
+
+  useEffect(() => {
+    const raw = window.localStorage.getItem(ACTIVE_SKILL_KEY);
+    if (!raw) return;
+    try {
+      setCustomSkill(JSON.parse(raw) as ActiveSkillContext);
+    } catch {
+      window.localStorage.removeItem(ACTIVE_SKILL_KEY);
+    }
+  }, []);
+
+  const clearCustomSkill = () => {
+    window.localStorage.removeItem(ACTIVE_SKILL_KEY);
+    setCustomSkill(null);
+  };
 
   const rememberSkill = (skillId: AgentWorkflowSkillId, brief: string) => {
     updateAgentMemory({
@@ -156,6 +174,7 @@ export function AgentWorkflowPanel() {
         selectedNodeIds,
         conversation: chat.map((item) => ({ role: item.role, content: item.content })),
         forceIntent,
+        customSkill: customSkill || undefined,
       });
 
       if (payload.intent === "skill" && payload.skillId) {
@@ -299,6 +318,17 @@ export function AgentWorkflowPanel() {
             <p>{selectionMode ? "Selection mode is on. Click canvas nodes to add them here." : "Click Select, then click one or more canvas nodes if you want Agent to edit specific videos, images, audio, or workflow nodes."}</p>
           )}
         </div>
+
+        {customSkill && (
+          <div className="rounded-[16px] border border-[#cfd9e6] bg-white px-3 py-3 text-[12px] leading-5 text-[#5f6b7a] shadow-sm">
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <span className="font-semibold text-[#111827]">当前 Skill</span>
+              <button type="button" onClick={clearCustomSkill} className="text-[11px] font-semibold text-[#6b7280] hover:text-[#111827]">清除</button>
+            </div>
+            <p className="font-semibold text-[#283241]">{customSkill.name}</p>
+            <p className="mt-1 line-clamp-2">{customSkill.tagline}</p>
+          </div>
+        )}
 
         {memoryText && (
           <div className="rounded-[16px] border border-[#dce2ea] bg-white px-3 py-3 text-[12px] leading-5 text-[#5f6b7a] shadow-sm">

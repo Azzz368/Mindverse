@@ -9,12 +9,32 @@ import { TopBar } from "./TopBar";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { ACCESS_KEY, getWorkflowSnapshot, saveWorkflowSnapshot } from "@/features/workspace/services/workflowClient";
 import type { CanvasSnapshot } from "@/shared/canvas";
+import type { StoredSkill } from "@/shared/skills/skillTypes";
+import { cloneSkillCanvasTemplate } from "@/shared/skills/skillTemplate";
+import { PENDING_SKILL_KEY } from "@/features/skills/services/skillClient";
 
 function PendingTaskRecovery() {
   const nodes = useCanvasStore((state) => state.nodes); const pollNode = useCanvasStore((state) => state.pollNode); const seen = useRef(new Set<string>());
   useEffect(() => { const active = new Set<string>(); nodes.forEach((node) => { const value = node.data.output?.value; const details = value && typeof value === "object" ? value as Record<string, unknown> : {}; const taskId = typeof details.taskId === "string" ? details.taskId : ""; if (taskId && (details.status === "pending" || details.status === "running")) { active.add(taskId); if (!seen.current.has(taskId)) { seen.current.add(taskId); void pollNode(node.id); } } }); seen.current.forEach((taskId) => { if (!active.has(taskId)) seen.current.delete(taskId); }); }, [nodes, pollNode]);
   return null;
 }
+
+function PendingSkillPlacement() {
+  const setPendingAgentPatch = useCanvasStore((state) => state.setPendingAgentPatch);
+  useEffect(() => {
+    const raw = window.sessionStorage.getItem(PENDING_SKILL_KEY);
+    if (!raw) return;
+    window.sessionStorage.removeItem(PENDING_SKILL_KEY);
+    try {
+      const skill = JSON.parse(raw) as StoredSkill;
+      if (skill.canvasTemplate?.nodes.length) setPendingAgentPatch(cloneSkillCanvasTemplate(skill.canvasTemplate));
+    } catch (error) {
+      console.warn("Could not prepare the selected skill template.", error);
+    }
+  }, [setPendingAgentPatch]);
+  return null;
+}
+
 export function Workspace({ workflowId }: { workflowId?: string }) {
   const projectName = useCanvasStore((state) => state.projectName);
   const nodes = useCanvasStore((state) => state.nodes);
@@ -103,6 +123,7 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
   return (
     <ReactFlowProvider>
       <PendingTaskRecovery />
+      <PendingSkillPlacement />
       <main className="flex h-screen flex-col overflow-hidden">
         <TopBar />
         <TemplateGallery />
