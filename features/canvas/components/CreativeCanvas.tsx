@@ -363,7 +363,7 @@ export function CreativeCanvas() {
         deleteKeyCode={["Backspace", "Delete"]}
         selectionKeyCode="Control"
         multiSelectionKeyCode="Control"
-        defaultEdgeOptions={{ animated: false, style: { stroke: edgeColor } }}
+        defaultEdgeOptions={{ animated: false, style: { stroke: edgeColor, strokeDasharray: "7 7", strokeWidth: 1.5 } }}
         reconnectRadius={20}
         onReconnectStart={handleReconnectStart}
         onReconnect={handleReconnect}
