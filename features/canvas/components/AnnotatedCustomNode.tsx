@@ -147,7 +147,7 @@ function NodePreview({ node, t, onView, onViewVideo, onAnnotate }: { node: Canva
   if (node.data.nodeType === "image" && imageUrl) return (
     <div className="mt-2">
       <button onClick={() => onView(imageUrl)} className="block w-full overflow-hidden rounded-md border border-[#e7eaf0] hover:border-[#030303] dark:border-slate-700 dark:hover:border-cyan-300">
-        <img src={imageUrl} alt="Generated result" className="h-36 w-full object-cover"/>
+        <img src={imageUrl} alt="Generated result" className="h-36 w-full bg-[#f0f1f3] object-contain dark:bg-slate-800"/>
       </button>
       <div className="mt-2 flex gap-2">
         <button onClick={() => onView(imageUrl)} className="text-[10px] text-[#404040] hover:text-[#030303] dark:text-cyan-300 dark:hover:text-cyan-100">{t.viewFullImage}</button>
@@ -209,7 +209,7 @@ function NodePreview({ node, t, onView, onViewVideo, onAnnotate }: { node: Canva
   if (node.data.nodeType === "reference" && node.data.imageUrl) return (
     <div className="mt-2">
       <button onClick={() => onView(node.data.imageUrl!)} className="block w-full overflow-hidden rounded-md border border-violet-200 hover:border-violet-400 dark:border-violet-700 dark:hover:border-violet-400">
-        <img src={node.data.imageUrl} alt="Reference" className="h-28 w-full object-cover"/>
+        <img src={node.data.imageUrl} alt="Reference" className="h-28 w-full bg-[#f0f1f3] object-contain dark:bg-slate-800"/>
       </button>
       <p className="mt-1 text-[9px] text-[#939393] dark:text-slate-500">{node.data.notes || "\u53ef\u8fde\u63a5\u5230\u56fe\u50cf\u6216\u89c6\u9891\u8282\u70b9\u4f5c\u4e3a\u53c2\u8003\u56fe"}</p>
     </div>
@@ -391,7 +391,7 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
 
   return (
     <>
-      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
         {visualGroupColor && !selected && (
           <div className="absolute inset-[-1.4px] -z-10 rounded-[26px] border-[1.4px]" style={{ borderColor: visualGroupColor }} />
         )}
@@ -483,7 +483,7 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
 
   return (
     <>
-      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
         {visualGroupColor && !selected && <div className="absolute inset-[-1.4px] -z-10 rounded-[26px] border-[1.4px]" style={{ borderColor: visualGroupColor }} />}
         {isGenerating && <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.storyboard || "#3eedb8" } as React.CSSProperties} />}
         <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">Storyboard</div>
@@ -563,7 +563,7 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
 
   return (
     <>
-      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
         {visualGroupColor && !selected && (
           <div className="absolute inset-[-1.4px] -z-10 rounded-[26px] border-[1.4px]" style={{ borderColor: visualGroupColor }} />
         )}
@@ -586,7 +586,7 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
           <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800 border-[6px] border-transparent">
             {imageUrl ? (
               <>
-                <img src={imageUrl} alt="Generated result" className="absolute inset-0 h-full w-full object-cover" />
+                <img src={imageUrl} alt="Generated result" className="absolute inset-0 h-full w-full bg-[#f0f1f3] object-contain dark:bg-slate-800" />
                 <div className="nodrag absolute right-2 top-2 flex gap-1.5">
                   <ExpandIcon onClick={() => setViewUrl(imageUrl)} className="static" />
                   <button onClick={() => setAnnotatingUrl(imageUrl)} title="标注 / 局部重绘" className="grid h-7 w-7 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70">
@@ -780,7 +780,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
 
   return (
     <>
-      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
         
         {visualGroupColor && !selected && (
           <div className="absolute inset-[-1.4px] -z-10 rounded-[26px] border-[1.4px]" style={{ borderColor: visualGroupColor }} />
@@ -804,7 +804,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
           <div className="group relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800 border-[6px] border-transparent">
              {videoUrl ? (
                <>
-                 <video ref={videoRef} src={videoUrl} loop muted playsInline preload="metadata" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} className="absolute inset-0 h-full w-full rounded-[14px] object-cover" />
+                 <video ref={videoRef} src={videoUrl} loop muted playsInline preload="metadata" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} className="absolute inset-0 h-full w-full rounded-[14px] bg-black object-contain" />
                  <button
                    type="button"
                    onClick={(event) => { event.stopPropagation(); togglePlayback(); }}
@@ -929,6 +929,73 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   );
 }
 
+function ReferenceNodeLayout({ id, data, selected }: { id: string; data: CanvasNodeData; selected: boolean }) {
+  const removeNode = useCanvasStore((state) => state.removeNode);
+  const duplicateNode = useCanvasStore((state) => state.duplicateNode);
+  const output = record(data.output?.value);
+  const imageUrl = data.imageUrl || text(output.imageUrl) || text(output.revisedImageUrl);
+  const isRunning = data.status === "running" || data.status === "waiting";
+
+  return (
+    <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"}`}>
+      {isRunning && <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.reference } as React.CSSProperties} />}
+      <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Reference"}</div>
+      <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
+      <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
+      <div className="flex flex-1 flex-col p-5">
+        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800">
+          {imageUrl ? <img src={imageUrl} alt="Reference material" className="h-full w-full object-contain" /> : <ImagePlaceholderIcon />}
+          {imageUrl && <ExpandIcon onClick={() => window.open(imageUrl, "_blank", "noopener,noreferrer")} />}
+        </div>
+        <p className="mt-3 line-clamp-2 text-[11px] leading-4 text-[#676f7b] dark:text-slate-400">{data.notes || "可连接到图像或视频节点作为参考图"}</p>
+      </div>
+      <div className="nodrag flex justify-end gap-1 border-t border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
+        <button onClick={() => duplicateNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-400 dark:hover:bg-slate-800">Duplicate</button>
+        <button onClick={() => removeNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-slate-800">Delete</button>
+      </div>
+    </div>
+  );
+}
+
+function AudioNodeLayout({ id, data, selected, runNode }: { id: string; data: CanvasNodeData; selected: boolean; runNode(id: string): Promise<void> }) {
+  const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const removeNode = useCanvasStore((state) => state.removeNode);
+  const duplicateNode = useCanvasStore((state) => state.duplicateNode);
+  const output = record(data.output?.value);
+  const audioUrl = text(output.audioUrl) || text(output.url) || text(output.resultUrl) || data.audioUrl || "";
+  const isRunning = data.status === "running" || data.status === "waiting";
+
+  return (
+    <>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"}`}>
+        {isRunning && <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.audio } as React.CSSProperties} />}
+        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Audio"}</div>
+        <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
+        <Handle type="source" id="audio" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#f5510b] dark:!border-[#101c29]" />
+        <div className="flex flex-1 flex-col justify-between p-5">
+          <div>
+            <p className="line-clamp-3 text-[15px] leading-6 text-[#404040] dark:text-slate-200">{data.prompt || data.output?.summary || "描述你想生成的音频"}</p>
+            {data.error && <p className="mt-2 text-[11px] text-rose-600 dark:text-rose-300">{data.error}</p>}
+          </div>
+          {audioUrl ? <audio controls src={audioUrl} className="w-full" /> : <div className="rounded-2xl border border-dashed border-[#c9ccd1] px-3 py-5 text-center text-[11px] text-[#676f7b] dark:border-slate-700 dark:text-slate-400">音频将在此处播放</div>}
+        </div>
+        <div className="nodrag flex items-center justify-end gap-1 border-t border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
+          <button onClick={() => duplicateNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-400 dark:hover:bg-slate-800">Duplicate</button>
+          <button onClick={() => removeNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-slate-800">Delete</button>
+          <button onClick={() => void runNode(id)} disabled={isRunning} className="ml-1 flex items-center gap-1 rounded-md bg-[#030303] px-2.5 py-1 text-[10px] font-semibold text-white transition hover:bg-[#1a1a1a] disabled:opacity-40 dark:bg-cyan-600 dark:hover:bg-cyan-500"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><path d="M2 1.5v7l6-3.5z" /></svg>Run</button>
+        </div>
+      </div>
+      <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[560px] -translate-x-1/2 rounded-[24px] border border-[#3f3f46] bg-white p-5 shadow-2xl transition-all dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
+        <AutoGrowTextarea value={data.prompt || ""} onChange={(prompt) => updateNodeData(id, { prompt })} placeholder="描述想要生成的音乐、环境音或语音…" minHeight={80} />
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <div className="flex gap-2"><PillDropdown value={data.model || "Default"} options={["Default", "Music", "TTS"].map((value) => ({ value, label: value }))} onChange={(model) => updateNodeData(id, { model: String(model) })} /><PillDropdown value={data.duration || 30} options={[5, 10, 15, 30, 60].map((value) => ({ value, label: `${value}s` }))} onChange={(duration) => updateNodeData(id, { duration: Number(duration) })} /></div>
+          <button onClick={() => void runNode(id)} disabled={isRunning} className="nodrag flex h-11 items-center justify-center rounded-full bg-[#030303] px-6 text-[15px] font-bold text-white transition hover:bg-[#1a1a1a] disabled:opacity-50 dark:bg-cyan-500 dark:text-[#030303] dark:hover:bg-cyan-400">Run</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode), duplicateNode = useCanvasStore((s) => s.duplicateNode), createImageRevision = useCanvasStore((s) => s.createImageRevision), runNode = useCanvasStore((s) => s.runNode);
   const { t } = useLang();
@@ -944,6 +1011,12 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
   }
   if (data.nodeType === "image") {
     return <ImageNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} createImageRevision={createImageRevision} />;
+  }
+  if (data.nodeType === "reference") {
+    return <ReferenceNodeLayout id={id} data={data} selected={selected!} />;
+  }
+  if (data.nodeType === "audio") {
+    return <AudioNodeLayout id={id} data={data} selected={selected!} runNode={runNode} />;
   }
   if (data.nodeType === "text" || data.nodeType === "script") {
     return <TextNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} />;
