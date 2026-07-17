@@ -944,7 +944,7 @@ function ReferenceNodeLayout({ id, data, selected }: { id: string; data: CanvasN
       <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
       <div className="flex flex-1 flex-col p-5">
         <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800">
-          {imageUrl ? <img src={imageUrl} alt="Reference material" className="h-full w-full object-contain" /> : <ImagePlaceholderIcon />}
+          {imageUrl ? <img src={imageUrl} alt="Reference material" className="absolute inset-0 h-full w-full object-contain" /> : <ImagePlaceholderIcon />}
           {imageUrl && <ExpandIcon onClick={() => window.open(imageUrl, "_blank", "noopener,noreferrer")} />}
         </div>
         <p className="mt-3 line-clamp-2 text-[11px] leading-4 text-[#676f7b] dark:text-slate-400">{data.notes || "可连接到图像或视频节点作为参考图"}</p>
