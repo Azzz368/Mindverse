@@ -622,7 +622,7 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
                   key={`${url}-${index}`}
                   type="button"
                   onClick={() => updateNodeData(id, { activeImageUrl: url })}
-                  className={`relative aspect-square overflow-hidden rounded-xl bg-[#f0f1f3] transition dark:bg-slate-800 ${url === imageUrl ? "ring-2 ring-[#030303] ring-offset-1 dark:ring-cyan-300" : "hover:opacity-85"}`}
+                  className={`relative aspect-square overflow-hidden rounded-xl bg-black transition-all duration-200 ${url === imageUrl ? "opacity-100" : "opacity-40 hover:opacity-75"}`}
                   title={`查看第 ${imageHistory.length - index} 张生成图片`}
                 >
                   <img src={url} alt={`Generated image ${imageHistory.length - index}`} className="h-full w-full object-cover" />
