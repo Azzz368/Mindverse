@@ -935,25 +935,35 @@ function ReferenceNodeLayout({ id, data, selected }: { id: string; data: CanvasN
   const output = record(data.output?.value);
   const imageUrl = data.imageUrl || text(output.imageUrl) || text(output.revisedImageUrl);
   const isRunning = data.status === "running" || data.status === "waiting";
+  const [viewUrl, setViewUrl] = useState("");
 
   return (
-    <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"}`}>
-      {isRunning && <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.reference } as React.CSSProperties} />}
-      <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Reference"}</div>
-      <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
-      <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
-      <div className="flex flex-1 flex-col p-5">
-        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800">
-          {imageUrl ? <img src={imageUrl} alt="Reference material" className="absolute inset-0 h-full w-full object-contain" /> : <ImagePlaceholderIcon />}
-          {imageUrl && <ExpandIcon onClick={() => window.open(imageUrl, "_blank", "noopener,noreferrer")} />}
+    <>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"}`}>
+        {isRunning && <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.reference } as React.CSSProperties} />}
+        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Reference"}</div>
+        <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
+        <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
+        <div className="flex flex-1 flex-col p-5">
+          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800">
+            {imageUrl ? <img src={imageUrl} alt="Reference material" className="absolute inset-0 h-full w-full object-contain" /> : <ImagePlaceholderIcon />}
+            {imageUrl && <ExpandIcon onClick={() => setViewUrl(imageUrl)} />}
+          </div>
+          <p className="mt-3 line-clamp-2 text-[11px] leading-4 text-[#676f7b] dark:text-slate-400">{data.notes || "可连接到图像或视频节点作为参考图"}</p>
         </div>
-        <p className="mt-3 line-clamp-2 text-[11px] leading-4 text-[#676f7b] dark:text-slate-400">{data.notes || "可连接到图像或视频节点作为参考图"}</p>
+        <div className="nodrag flex justify-end gap-1 border-t border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
+          <button onClick={() => duplicateNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-400 dark:hover:bg-slate-800">Duplicate</button>
+          <button onClick={() => removeNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-slate-800">Delete</button>
+        </div>
       </div>
-      <div className="nodrag flex justify-end gap-1 border-t border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
-        <button onClick={() => duplicateNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-400 dark:hover:bg-slate-800">Duplicate</button>
-        <button onClick={() => removeNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-slate-800">Delete</button>
-      </div>
-    </div>
+      {viewUrl && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[9999] grid place-items-center bg-black/85 p-8" onClick={() => setViewUrl("")}>
+          <div className="max-h-full max-w-5xl" onClick={(event) => event.stopPropagation()}>
+            <img src={viewUrl} alt="Full reference material" className="max-h-[80vh] max-w-full rounded-lg object-contain" />
+            <button onClick={() => setViewUrl("")} className="mx-auto mt-3 block rounded bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">退出放大预览</button>
+          </div>
+        </div>, document.body)}
+    </>
   );
 }
 
