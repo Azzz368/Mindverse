@@ -545,7 +545,9 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
   const [annotatingUrl, setAnnotatingUrl] = useState("");
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const outputValue = record(data.output?.value);
-  const imageUrl = text(outputValue.imageUrl) || (typeof data.output?.value === "string" ? (data.output?.value as string) : "");
+  const generatedImageUrl = text(outputValue.imageUrl) || text(outputValue.revisedImageUrl) || (typeof data.output?.value === "string" ? (data.output?.value as string) : "");
+  const imageUrl = data.activeImageUrl || generatedImageUrl;
+  const imageHistory = data.imageHistory || (generatedImageUrl ? [generatedImageUrl] : []);
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
   const imageSourceIds = new Set(incomingEdges
     .filter((edge) => !edge.targetHandle || edge.targetHandle === "image" || edge.targetHandle === "ref-image" || edge.targetHandle.startsWith("ref-image-"))
@@ -601,6 +603,34 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
             )}
           </div>
         </div>
+        {selected && imageHistory.length > 0 && (
+          <div className="nodrag nowheel absolute left-[calc(100%+16px)] top-0 z-40 h-[356px] w-[292px] overflow-hidden rounded-[32px] border-[1.4px] border-[#030303] bg-white p-2 shadow-sm dark:border-cyan-400 dark:bg-[#101c29]">
+            <div className="absolute right-3 top-3 z-10">
+              <button
+                type="button"
+                onClick={() => updateNodeData(id, { imageHistory: [], activeImageUrl: undefined })}
+                className="grid h-8 w-8 place-items-center rounded-full bg-black/55 text-white opacity-0 shadow-sm backdrop-blur-sm transition hover:bg-black/75 focus:opacity-100 group-hover:opacity-100"
+                title="清空生成历史"
+                aria-label="清空生成历史"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v5M14 11v5" /></svg>
+              </button>
+            </div>
+            <div className="group grid h-full grid-cols-2 content-start gap-1 overflow-y-auto rounded-[24px] pr-1">
+              {imageHistory.map((url: string, index: number) => (
+                <button
+                  key={`${url}-${index}`}
+                  type="button"
+                  onClick={() => updateNodeData(id, { activeImageUrl: url })}
+                  className={`relative aspect-square overflow-hidden rounded-[18px] bg-[#f0f1f3] transition dark:bg-slate-800 ${url === imageUrl ? "ring-2 ring-[#030303] ring-offset-1 dark:ring-cyan-300" : "hover:opacity-85"}`}
+                  title={`查看第 ${imageHistory.length - index} 张生成图片`}
+                >
+                  <img src={url} alt={`Generated image ${imageHistory.length - index}`} className="h-full w-full object-cover" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[640px] -translate-x-1/2 overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
