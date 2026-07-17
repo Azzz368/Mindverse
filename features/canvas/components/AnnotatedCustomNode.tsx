@@ -988,9 +988,11 @@ function ReferenceNodeLayout({ id, data, selected }: { id: string; data: CanvasN
       </div>
       {viewUrl && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[9999] grid place-items-center bg-black/85 p-8" onClick={() => setViewUrl("")}>
-          <div className="max-h-full max-w-5xl" onClick={(event) => event.stopPropagation()}>
+          <div className="relative max-h-full max-w-5xl" onClick={(event) => event.stopPropagation()}>
             <img src={viewUrl} alt="Full reference material" className="max-h-[80vh] max-w-full rounded-lg object-contain" />
-            <button onClick={() => setViewUrl("")} className="mx-auto mt-3 block rounded bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">退出放大预览</button>
+            <button onClick={() => setViewUrl("")} aria-label="关闭预览" title="关闭预览" className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-sm transition hover:scale-105 hover:bg-black/75 focus:outline-none focus:ring-2 focus:ring-white/80">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="m6 6 12 12M18 6 6 18" /></svg>
+            </button>
           </div>
         </div>, document.body)}
     </>
