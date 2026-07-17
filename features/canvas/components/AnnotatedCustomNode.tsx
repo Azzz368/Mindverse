@@ -616,14 +616,14 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v5M14 11v5" /></svg>
               </button>
             </div>
-            <div className="h-full overflow-y-auto rounded-xl pr-1">
-              <div className="group grid grid-cols-2 gap-1.5 pb-2">
+            <div className="h-full overflow-y-auto rounded-3xl pr-1">
+              <div className="group grid grid-cols-2 gap-1 pb-2">
                 {imageHistory.map((url: string, index: number) => (
                   <button
                     key={`${url}-${index}`}
                     type="button"
                     onClick={() => updateNodeData(id, { activeImageUrl: url })}
-                    className={`relative aspect-square w-full overflow-hidden rounded-xl bg-black transition-all duration-200 ${url === imageUrl ? "opacity-100" : "opacity-40 hover:opacity-75"}`}
+                    className={`relative aspect-square w-full overflow-hidden bg-black transition-all duration-200 ${url === imageUrl ? "opacity-100" : "opacity-40 hover:opacity-75"}`}
                     title={`查看第 ${imageHistory.length - index} 张生成图片`}
                   >
                     <img src={url} alt={`Generated image ${imageHistory.length - index}`} className="absolute inset-0 h-full w-full object-cover" />
