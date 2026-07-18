@@ -9,7 +9,7 @@ import { VoiceCloneNodeLayout, VoiceTTSNodeLayout } from "./VoiceNodes";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
 import { motionTemplateIds } from "@/shared/motion/templates";
-import { videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
+import { videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
@@ -78,7 +78,12 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
   const wrap = "mb-3 block";
   const ta = "w-full resize-none rounded-lg border border-[#e7eaf0] bg-white px-2.5 py-1.5 text-xs text-[#030303] focus:outline-none dark:border-slate-700 dark:bg-[#0c1622] dark:text-slate-100";
   const inp = "w-full rounded-lg border border-[#e7eaf0] bg-white px-2.5 py-1.5 text-xs text-[#030303] focus:outline-none dark:border-slate-700 dark:bg-[#0c1622] dark:text-slate-100";
-  const provider = data.videoProvider || "kling";
+  const activeVideoModel = videoModelPresetIdFromData(data);
+  const activeVideoPatch = videoModelPatch(activeVideoModel);
+  const provider = activeVideoPatch.videoProvider;
+  const videoAspectRatios = videoAspectRatiosForPreset(activeVideoModel);
+  const videoAspectRatio = videoAspectRatioForPreset(activeVideoModel, data.aspectRatio);
+  const sourceControlsVideoRatio = videoAspectRatioControlForPreset(activeVideoModel) === "source";
   const textInput = (key: keyof CanvasNodeData, value: string | undefined) => (
     <ImeInput className={inp} value={value ?? ""} onValueChange={(next) => set({ [key]: next } as Partial<CanvasNodeData>)} />
   );
@@ -99,14 +104,15 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
         {data.nodeType === "script" && <><label className={wrap}><span className={lbl}>创意概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>语调</span>{textInput("scriptTone", data.scriptTone)}</label><label className={wrap}><span className={lbl}>目标场景数</span><select className={sel} value={String(data.numberOfScenes ?? 3)} onChange={e => set({ numberOfScenes: Number(e.target.value) })}>{[1,2,3,4,5,6,8,10,12].map(n=><option key={n}>{n}</option>)}</select></label></>}
         {data.nodeType === "image" && <><label className={wrap}><span className={lbl}>图像提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>尺寸</span><select className={sel} value={data.size ?? "1024x1024"} onChange={e => set({ size: e.target.value })}>{["1024x1024","1536x1024","1024x1536","auto"].map(o=><option key={o}>{o}</option>)}</select></label></>}
         {data.nodeType === "video" && <>
-          <label className={wrap}><span className={lbl}>模型</span><select className={sel} value={videoModelPresetIdFromData(data)} onChange={e => set(videoModelPatch(e.target.value as VideoModelPresetId))}>{videoModelOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+          <label className={wrap}><span className={lbl}>模型</span><select className={sel} value={activeVideoModel} onChange={e => set(videoModelSelectionPatch(e.target.value as VideoModelPresetId, data.aspectRatio))}>{videoModelOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
           <label className={wrap}><span className={lbl}>动效提示词</span>{textArea("prompt", data.prompt, 3)}</label>
-          <label className={wrap}><span className={lbl}>视频提供商</span><select className={sel} value={provider} onChange={e => set({ videoProvider: e.target.value as CanvasNodeData["videoProvider"] })}><option value="kling">Kling（官方直连）</option><option value="tokenstar">TokenStar 网关</option><option value="302ai">302.ai</option></select></label>
-          {provider === "kling" && <><label className={wrap}><span className={lbl}>Kling 模式</span><select className={sel} value={data.klingMode ?? "image-to-video"} onChange={e => set({ klingMode: e.target.value as CanvasNodeData["klingMode"] })}><option value="image-to-video">首帧生视频</option><option value="reference-image">参考图生视频（主体一致性）</option><option value="text-to-video">文生视频</option><option value="omni">Omni 视频编辑</option></select></label>{data.klingMode === "reference-image" && <><p className="mb-3 rounded-md bg-amber-50 px-2 py-1.5 text-[10px] text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">需先创建主体元素，将 ElementId 填入下方字段。</p><label className={wrap}><span className={lbl}>主体元素 ID（逗号分隔）</span>{textInput("klingElementId", data.klingElementId)}</label></>}{(data.klingMode === "image-to-video" || data.klingMode === "reference-image" || !data.klingMode) && <label className={wrap}><span className={lbl}>首帧 URL（可选）</span>{textInput("referenceImageUrl", data.referenceImageUrl)}</label>}{data.klingMode === "omni" && <label className={wrap}><span className={lbl}>参考视频 URL</span>{textInput("referenceVideoUrl", data.referenceVideoUrl)}</label>}</>}
-          {provider === "tokenstar" && <><label className={wrap}><span className={lbl}>TokenStar 模式</span><select className={sel} value={data.tokenstarMode ?? "text-to-video"} onChange={e => set({ tokenstarMode: e.target.value as CanvasNodeData["tokenstarMode"] })}><option value="text-to-video">Seedance 文生视频</option><option value="asset-video">Seedance 参考素材</option><option value="kling-image">Kling 首帧生视频</option><option value="kling-reference">Kling 参考图生视频</option><option value="kling-text">Kling 文生视频</option><option value="kling-omni">Kling Omni 编辑</option></select></label><div className="mb-3 flex items-center justify-between"><span className={lbl} style={{marginBottom:0}}>生成音频</span><button onClick={() => set({ generateAudio: data.generateAudio === false })} className={`relative h-5 w-9 rounded-full transition-colors ${data.generateAudio !== false ? "bg-[#030303] dark:bg-cyan-500" : "bg-[#c9ccd1] dark:bg-slate-600"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${data.generateAudio !== false ? "translate-x-[18px]" : "translate-x-0.5"}`} /></button></div></>}
+          {sourceControlsVideoRatio && <label className={wrap}><span className={lbl}>首帧 URL（可选）</span>{textInput("referenceImageUrl", data.referenceImageUrl)}</label>}
+          {provider === "tokenstar" && (activeVideoModel === "kling-v3-tokenstar" || activeVideoModel === "kling-v3-omni-tokenstar") && <label className={wrap}><span className={lbl}>主体元素 ID（逗号分隔）</span>{textInput("klingElementId", data.klingElementId)}</label>}
+          {provider === "tokenstar" && activeVideoPatch.generateAudio !== undefined && <div className="mb-3 flex items-center justify-between"><span className={lbl} style={{marginBottom:0}}>生成音频</span><button onClick={() => set({ generateAudio: data.generateAudio === false })} className={`relative h-5 w-9 rounded-full transition-colors ${data.generateAudio !== false ? "bg-[#030303] dark:bg-cyan-500" : "bg-[#c9ccd1] dark:bg-slate-600"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${data.generateAudio !== false ? "translate-x-[18px]" : "translate-x-0.5"}`} /></button></div>}
           <label className={wrap}><span className={lbl}>分辨率</span><select className={sel} value={data.resolution ?? ""} onChange={e => set({ resolution: e.target.value || undefined })}><option value="">服务器默认</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
           <label className={wrap}><span className={lbl}>时长</span><select className={sel} value={String(data.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}><option value="">服务器默认</option>{videoDurationOptions.map(n=><option key={n} value={n}>{n}s</option>)}</select></label>
-          <label className={wrap}><span className={lbl}>画面比例</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}><option value="16:9">16:9 横屏</option><option value="9:16">9:16 竖屏</option><option value="1:1">1:1 方形</option></select></label>
+          <label className={wrap}><span className={lbl}>画面比例</span><select className={sel} value={videoAspectRatio} onChange={e => set({ aspectRatio: e.target.value })}>{videoAspectRatios.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}</select></label>
+          {sourceControlsVideoRatio && <p className="mb-3 text-[10px] leading-4 text-amber-700 dark:text-amber-300">该模型由首帧素材决定输出比例。运行前会校验首帧必须与所选比例一致。</p>}
         </>}
         {data.nodeType === "videoEdit" && <>
           <label className={wrap}><span className={lbl}>剪辑计划 JSON</span>{textArea("editPlan", data.editPlan, 5)}</label>
@@ -755,6 +761,9 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const isVideoEdit = data.nodeType === "videoEdit";
   const activeVideoModel = videoModelPresetIdFromData(data);
+  const videoAspectRatios = videoAspectRatiosForPreset(activeVideoModel);
+  const videoAspectRatio = videoAspectRatioForPreset(activeVideoModel, data.aspectRatio);
+  const sourceControlsVideoRatio = videoAspectRatioControlForPreset(activeVideoModel) === "source";
   const inputPorts = isVideoEdit
     ? [
         { id: "video", label: "Video", kind: "video" as const },
@@ -922,11 +931,11 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
               {!isVideoEdit && <PillDropdown
                 value={activeVideoModel}
                 options={videoModelOptions.map(option => ({ value: option.id, label: option.label }))}
-                onChange={v => updateNodeData(id, videoModelPatch(String(v) as VideoModelPresetId))}
+                onChange={v => updateNodeData(id, videoModelSelectionPatch(String(v) as VideoModelPresetId, data.aspectRatio))}
               />}
               <PillDropdown 
-                 value={data.aspectRatio || "16:9"} 
-                 options={[{value: "16:9", label: "16:9"}, {value: "21:9", label: "21:9"}, {value: "9:16", label: "9:16"}, {value: "3:2", label: "3:2"}, {value: "3:4", label: "3:4"}, {value: "1:1", label: "1:1"}]}
+                 value={isVideoEdit ? data.aspectRatio || "16:9" : videoAspectRatio}
+                 options={(isVideoEdit ? ["16:9", "9:16", "1:1"] : videoAspectRatios).map((ratio) => ({ value: ratio, label: ratio }))}
                  onChange={v => updateNodeData(id, { aspectRatio: String(v) })}
               />
               <PillDropdown 
@@ -948,6 +957,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
               Run
             </button>
          </div>
+         {!isVideoEdit && sourceControlsVideoRatio && <p className="shrink-0 border-t border-[#e7eaf0] px-6 py-2 text-[11px] text-amber-700 dark:border-slate-800 dark:text-amber-300">该模型的比例由首帧决定。首帧与所选比例不一致时会在提交前停止。</p>}
       </div>
 
       {previewOpen && videoUrl && typeof document !== "undefined" && createPortal(

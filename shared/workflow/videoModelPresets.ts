@@ -21,6 +21,9 @@ export type VideoModelPatch = {
   generateAudio?: boolean;
 };
 
+export type VideoAspectRatio = "16:9" | "9:16" | "1:1";
+export type VideoAspectRatioControl = "native" | "source";
+
 export type VideoInputPortKind = "text" | "image" | "video" | "audio";
 
 export type VideoInputPort = {
@@ -35,6 +38,8 @@ export type VideoModelPreset = {
   desc: string;
   patch: VideoModelPatch;
   inputPorts: VideoInputPort[];
+  aspectRatios: VideoAspectRatio[];
+  aspectRatioControl: VideoAspectRatioControl;
 };
 
 const textPort: VideoInputPort = { id: "text", label: "Text", kind: "text" };
@@ -49,6 +54,8 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     desc: "TokenStar text-to-video",
     patch: { videoModelPreset: "seedance-2.0", videoProvider: "tokenstar", model: "seedance-2.0-fast", tokenstarMode: "text-to-video", videoInputMode: "text-to-video", duration: 8, resolution: "720p", generateAudio: true },
     inputPorts: [textPort],
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    aspectRatioControl: "native",
   },
   "seedance-2.0-assets": {
     id: "seedance-2.0-assets",
@@ -56,6 +63,8 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     desc: "TokenStar image/video/audio references",
     patch: { videoModelPreset: "seedance-2.0-assets", videoProvider: "tokenstar", model: "seedance-2.0-asset", tokenstarMode: "asset-video", videoInputMode: "image-to-video", duration: 5, resolution: "720p", generateAudio: false },
     inputPorts: [textPort, imagePort, videoPort, audioPort],
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    aspectRatioControl: "native",
   },
   "seedance-asset-fast": {
     id: "seedance-asset-fast",
@@ -63,6 +72,8 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     desc: "TokenStar fast asset-video references",
     patch: { videoModelPreset: "seedance-asset-fast", videoProvider: "tokenstar", model: "seedance-2.0-asset-fast", tokenstarMode: "asset-video", videoInputMode: "image-to-video", duration: 5, resolution: "720p", generateAudio: false },
     inputPorts: [textPort, imagePort, videoPort, audioPort],
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    aspectRatioControl: "native",
   },
   "gen-4.5": {
     id: "gen-4.5",
@@ -70,6 +81,8 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     desc: "302.ai text-to-video",
     patch: { videoModelPreset: "gen-4.5", videoProvider: "302ai", model: "gen-4.5", videoInputMode: "text-to-video", duration: 10, resolution: "720p" },
     inputPorts: [textPort],
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    aspectRatioControl: "native",
   },
   "kling-v2.6": {
     id: "kling-v2.6",
@@ -77,6 +90,8 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     desc: "Official Kling image-to-video",
     patch: { videoModelPreset: "kling-v2.6", videoProvider: "kling", model: "kling-v2-6", videoInputMode: "image-to-video", klingMode: "image-to-video", duration: 5, resolution: "720p" },
     inputPorts: [textPort, imagePort],
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    aspectRatioControl: "source",
   },
   "kling-v3-tokenstar": {
     id: "kling-v3-tokenstar",
@@ -84,6 +99,8 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     desc: "TokenStar Kling image-to-video",
     patch: { videoModelPreset: "kling-v3-tokenstar", videoProvider: "tokenstar", model: "kling-v3", videoInputMode: "image-to-video", tokenstarMode: "kling-image", klingMode: "image-to-video", duration: 5, resolution: "720p", generateAudio: true },
     inputPorts: [textPort, imagePort],
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    aspectRatioControl: "source",
   },
   "kling-v3-omni-tokenstar": {
     id: "kling-v3-omni-tokenstar",
@@ -91,6 +108,8 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     desc: "TokenStar multi-reference Omni video",
     patch: { videoModelPreset: "kling-v3-omni-tokenstar", videoProvider: "tokenstar", model: "kling-v3-omni", videoInputMode: "image-to-video", tokenstarMode: "kling-omni", klingMode: "omni", duration: 5, resolution: "1080p", generateAudio: false },
     inputPorts: [textPort, imagePort, videoPort],
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    aspectRatioControl: "native",
   },
   "kling-v3-text-tokenstar": {
     id: "kling-v3-text-tokenstar",
@@ -98,6 +117,8 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     desc: "TokenStar Kling text-to-video",
     patch: { videoModelPreset: "kling-v3-text-tokenstar", videoProvider: "tokenstar", model: "kling-v3", videoInputMode: "text-to-video", tokenstarMode: "kling-text", klingMode: "text-to-video", duration: 5, resolution: "720p", generateAudio: true },
     inputPorts: [textPort],
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    aspectRatioControl: "native",
   },
   "sora-2": {
     id: "sora-2",
@@ -105,12 +126,28 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     desc: "302.ai image-to-video",
     patch: { videoModelPreset: "sora-2", videoProvider: "302-sora2", model: "sora-2", videoInputMode: "image-to-video", duration: 8, resolution: "720p" },
     inputPorts: [textPort, imagePort],
+    aspectRatios: ["16:9", "9:16"],
+    aspectRatioControl: "source",
   },
 };
 
 export const videoModelOptions = Object.values(videoModelPresets);
 
 export const videoModelPatch = (id: VideoModelPresetId): VideoModelPatch => ({ ...videoModelPresets[id].patch });
+
+export const videoAspectRatiosForPreset = (id: VideoModelPresetId) => [...videoModelPresets[id].aspectRatios];
+
+export const videoAspectRatioControlForPreset = (id: VideoModelPresetId) => videoModelPresets[id].aspectRatioControl;
+
+export const videoAspectRatioForPreset = (id: VideoModelPresetId, value: unknown): VideoAspectRatio => {
+  const supported = videoModelPresets[id].aspectRatios;
+  return supported.includes(value as VideoAspectRatio) ? value as VideoAspectRatio : supported[0];
+};
+
+export const videoModelSelectionPatch = (id: VideoModelPresetId, currentAspectRatio?: string): VideoModelPatch & { aspectRatio: VideoAspectRatio } => ({
+  ...videoModelPatch(id),
+  aspectRatio: videoAspectRatioForPreset(id, currentAspectRatio),
+});
 
 export const videoInputPortsForPreset = (id: VideoModelPresetId) => videoModelPresets[id].inputPorts;
 

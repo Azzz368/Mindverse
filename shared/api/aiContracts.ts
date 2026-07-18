@@ -18,7 +18,7 @@ export type CanvasSnapshotPayload = { version: 1; projectName: string; nodes: Ca
 export type RunNodeRequest = { nodeType: NodeType; input: Record<string, unknown> };
 export type RunNodeResponse = { ok: true; output?: unknown; provider?: string; polling?: PollingConfig };
 
-export type PollTaskRequest = { type: NodeType; taskId: string; provider?: string; pollUrl?: string; pollAction?: string };
+export type PollTaskRequest = { type: NodeType; taskId: string; provider?: string; pollUrl?: string; pollAction?: string; expectedAspectRatio?: string };
 export type PollTaskResponse = RunNodeResponse;
 
 export type EditImageRequest = { sourceImageUrl: string; prompt: string; size?: string };
