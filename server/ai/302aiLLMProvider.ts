@@ -1,10 +1,11 @@
 import "server-only";
 import { validateAgentCanvasEditPlan, validateAgentCanvasOrganizePlan, validateAgentDialogueResponse, validateAgentPlan, type AgentCanvasEditPlan, type AgentCanvasOrganizePlan, type AgentDialogueMessage, type AgentDialogueResponse, type AgentWorkflowPlan } from "@/shared/agent/agentSchema";
-import { buildAgentDialogueMessages, buildAgentEditMessages, buildAgentOrganizeMessages, buildAgentPlannerMessages, buildAgentRouterMessages, buildFixedSceneSkillMessages } from "@/server/agent/agentPrompt";
+import { buildAgentDialogueMessages, buildAgentEditMessages, buildAgentOrganizeMessages, buildAgentPlannerMessages, buildAgentRouterMessages, buildAgentVerifierMessages, buildFixedSceneSkillMessages } from "@/server/agent/agentPrompt";
 import { agentModel, agentProvider, requestChatCompletion } from "@/server/ai/textLLMClient";
 import type { AgentProjectMemory } from "@/shared/agent/projectMemory";
 import type { AgentRouterIntent } from "@/shared/api/aiContracts";
 import type { AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
+import { validateAgentVerificationDecision, type AgentObservationReport, type AgentVerificationDecision } from "@/shared/agent/agentAutonomy";
 
 type ChatResponse = {
   choices?: Array<{ message?: { content?: string }; delta?: { content?: string } }>;
@@ -158,4 +159,29 @@ export async function runFixedSceneSkillLLM({ userBrief }: { userBrief: string }
   const content = raw.choices?.[0]?.message?.content || raw.choices?.[0]?.delta?.content;
   if (!content) throw new Error("Fixed-scene skill compiler did not return JSON content.");
   return compiledFixedSceneBriefFrom(JSON.parse(cleanJson(content)), userBrief);
+}
+
+export async function runAgentVerifierLLM({
+  userMessage,
+  observation,
+  attempt,
+  maxRepairAttempts,
+}: {
+  userMessage: string;
+  observation: AgentObservationReport;
+  attempt: number;
+  maxRepairAttempts: number;
+}): Promise<AgentVerificationDecision> {
+  const raw = await requestChatCompletion<ChatResponse>({
+    provider: agentProvider(),
+    body: {
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      messages: buildAgentVerifierMessages({ userMessage, observation, attempt, maxRepairAttempts }),
+      temperature: 0,
+      response_format: { type: "json_object" },
+    },
+  });
+  const content = raw.choices?.[0]?.message?.content || raw.choices?.[0]?.delta?.content;
+  if (!content) throw new Error("Agent verifier did not return JSON content.");
+  return validateAgentVerificationDecision(JSON.parse(cleanJson(content)));
 }

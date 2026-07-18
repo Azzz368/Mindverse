@@ -367,6 +367,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const polling = taskState === "pending" || taskState === "running";
       const runVideoProvider = videoProviderFrom(providerFromRun);
       set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, ...(node.data.nodeType === "video" && runVideoProvider ? { videoProvider: runVideoProvider } : {}), status: taskState === "failed" ? "error" : taskState === "running" ? "running" : polling ? "waiting" : "success", output: result, generationContext, rawStatus: asText(resultValue.rawStatus) || taskState || item.data.rawStatus, storyboardImagePrompts: node.data.nodeType === "storyboardImage" ? (resultValue.prompts as CanvasNodeData["storyboardImagePrompts"]) : item.data.storyboardImagePrompts } } : item) }));
+      if (node.data.nodeType === "storyboard" && !polling && taskState !== "failed") get().materializeStoryboardBranch(id);
       if (polling) schedulePoll(id, () => void get().pollNode(id), intervalMs);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Node execution failed";

@@ -394,6 +394,13 @@ export async function POST(request: Request) {
       }
     }
 
+    // Store skills are instruction packages, not hard-coded workflow skill IDs.
+    // Route them through the normal planner/editor so their SKILL.md guides an executable patch.
+    if (customSkill && intent === "skill") {
+      intent = snapshot.nodes.length ? "edit" : "create";
+      routedSkillId = undefined;
+    }
+
     if (intent === "skill") {
       const skillBrief = await runFixedSceneSkillLLM({ userBrief: skillBriefFrom(userMessage, snapshot.agentMemory) });
       return NextResponse.json({

@@ -1,6 +1,7 @@
 import { listAgentSkills, readAgentSkill } from "./skillLoader";
 import { agentWorkflowSkills } from "@/shared/agent/workflowSkills";
 import type { AgentProjectMemory } from "@/shared/agent/projectMemory";
+import type { AgentObservationReport } from "@/shared/agent/agentAutonomy";
 
 const languageInstructionFor = (text: string) =>
   /[\u3400-\u9fff]/.test(text)
@@ -201,6 +202,43 @@ export function buildFixedSceneSkillMessages(userBrief: string) {
         "User fixed-scene workflow request:",
         userBrief,
         "Compile this into the structured fixed-scene brief.",
+      ].join("\n\n"),
+    },
+  ] as Array<{ role: "system" | "user"; content: string }>;
+}
+
+export function buildAgentVerifierMessages({
+  userMessage,
+  observation,
+  attempt,
+  maxRepairAttempts,
+}: {
+  userMessage: string;
+  observation: AgentObservationReport;
+  attempt: number;
+  maxRepairAttempts: number;
+}) {
+  return [
+    {
+      role: "system",
+      content: [
+        "You are Mindverse Run Verifier.",
+        languageInstructionFor(userMessage),
+        "Judge only from the supplied structured observation. Do not claim to have watched or listened to media.",
+        "Return completed only when executed nodes are terminal, successful, and no reported issue contradicts the request.",
+        "Return repair when a node parameter, graph connection, provider choice, duration, aspect ratio, or retry can plausibly fix the run.",
+        "Return blocked when user input, missing source media, credentials, provider availability, or exhausted repair attempts prevent an automatic fix.",
+        "Never propose deleting or overwriting the user's original source media.",
+        "Return JSON only: {\"status\":\"completed|repair|blocked\",\"summary\":\"...\",\"repairInstruction\":\"required only for repair\"}.",
+      ].join("\n\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `Original user request:\n${userMessage}`,
+        `Repair attempt: ${attempt} of ${maxRepairAttempts}`,
+        "Structured observation:",
+        JSON.stringify(observation, null, 2),
       ].join("\n\n"),
     },
   ] as Array<{ role: "system" | "user"; content: string }>;
