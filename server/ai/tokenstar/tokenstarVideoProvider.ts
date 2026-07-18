@@ -150,9 +150,17 @@ const seedanceAssetModelFor = (inputModel?: string) => {
   if (model === "seedance-asset-fast") return "seedance-2.0-asset-fast";
   return model;
 };
-const assetVideoRequestSummary = (request: { model: string; content: TokenStarContentItem[]; duration: number; resolution: string; callback_url?: string }, references: { groupId?: string; images: string[]; videos: string[]; audios: string[] }) => ({
+const assetAspectPrompt = (prompt: string, ratio: string) => [
+  `Native output frame requirement: ${ratio}.`,
+  `Compose the entire scene directly for a ${ratio} canvas.`,
+  "Do not use a square fallback canvas, letterboxing, pillarboxing, borders, split screen, stretching, or a framed landscape image inside another canvas.",
+  "Keep all important subjects inside the requested frame and fill it edge to edge.",
+  prompt,
+].join("\n");
+const assetVideoRequestSummary = (request: { model: string; content: TokenStarContentItem[]; ratio: string; duration: number; resolution: string; callback_url?: string }, references: { groupId?: string; images: string[]; videos: string[]; audios: string[] }) => ({
   model: request.model,
   content: request.content.map((item) => item.type),
+  ratio: request.ratio,
   duration: request.duration,
   resolution: request.resolution,
   hasCallback: Boolean(request.callback_url),
@@ -201,7 +209,8 @@ export async function createSeedanceAssetVideo(input: TokenStarCreateVideoInput)
   const referenceVideoAssetUrls = unique([...(input.referenceVideoAssetUrls || []), input.referenceVideoAssetUrl || "", ...references.videoAssetUrls]);
   const referenceAudioAssetUrls = unique([...(input.referenceAudioAssetUrls || []), input.referenceAudioAssetUrl || "", ...references.audioAssetUrls]);
   if (!referenceImageAssetUrls.length && !referenceVideoAssetUrls.length && !referenceAudioAssetUrls.length) throw new TokenStarError("TokenStar asset-video requires at least one completed Image, Video, or Audio reference, or an existing asset:// URL.", 400);
-  const request = { model: seedanceAssetModelFor(input.model), content: contentFor({ ...input, referenceImageAssetUrls, referenceVideoAssetUrls, referenceAudioAssetUrls }, true), duration: input.duration || 5, resolution: input.resolution || process.env.TOKENSTAR_DEFAULT_RESOLUTION || "720p", ...(input.callbackUrl ? { callback_url: input.callbackUrl } : {}) };
+  const ratio = input.ratio || process.env.TOKENSTAR_DEFAULT_RATIO || "16:9";
+  const request = { model: seedanceAssetModelFor(input.model), content: contentFor({ ...input, prompt: assetAspectPrompt(input.prompt, ratio), referenceImageAssetUrls, referenceVideoAssetUrls, referenceAudioAssetUrls }, true), ratio, duration: input.duration || 5, resolution: input.resolution || process.env.TOKENSTAR_DEFAULT_RESOLUTION || "720p", ...(input.callbackUrl ? { callback_url: input.callbackUrl } : {}) };
   const requestSummary = assetVideoRequestSummary(request, { groupId: references.groupId, images: referenceImageAssetUrls, videos: referenceVideoAssetUrls, audios: referenceAudioAssetUrls });
   const attempts = Math.max(1, Math.floor(numberFromEnv("TOKENSTAR_ASSET_VIDEO_CREATE_MAX_ATTEMPTS", 8)));
   const intervalMs = Math.max(250, Math.floor(numberFromEnv("TOKENSTAR_ASSET_VIDEO_CREATE_RETRY_MS", 5000)));

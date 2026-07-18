@@ -6,6 +6,7 @@ import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
 import { ImeInput, ImeTextarea } from "./ImeTextFields";
 import { motionTemplateIds } from "@/shared/motion/templates";
+import { videoAspectRatioForPreset, videoAspectRatiosForPreset, videoModelPresetIdFromData } from "@/shared/workflow/videoModelPresets";
 import type { CanvasNodeData } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
@@ -93,19 +94,26 @@ export function PropertyPanel() {
 
   const prompts = Array.isArray((node.data.output?.value as { prompts?: unknown })?.prompts)
     ? (node.data.output?.value as { prompts: unknown[] }).prompts : [];
+  const videoPresetId = videoModelPresetIdFromData(node.data);
+  const videoAspectRatios = videoAspectRatiosForPreset(videoPresetId);
 
   return (
     <aside className="w-72 shrink-0 overflow-y-auto border-l border-[#e7eaf0] bg-white p-4 dark:border-slate-800 dark:bg-[#0c1622]">
       <p className="text-xs font-semibold uppercase tracking-[.16em] text-[#939393] dark:text-slate-500">{t.inspector}</p>
       <div className="mt-4 space-y-4">
-        {fields[node.data.nodeType]?.map((field) => (
+        {fields[node.data.nodeType]?.map((field) => {
+          const options = node.data.nodeType === "video" && field.key === "aspectRatio" ? videoAspectRatios : field.options;
+          const value = node.data.nodeType === "video" && field.key === "aspectRatio"
+            ? videoAspectRatioForPreset(videoPresetId, node.data.aspectRatio)
+            : String(node.data[field.key] ?? "");
+          return (
           <label className="block" key={field.key}>
             <span className="mb-1.5 block text-xs text-[#676f7b] dark:text-slate-400">{field.label}</span>
             {field.kind === "textarea" ? (
               <ImeTextarea className={imeTextareaClass} value={String(node.data[field.key] ?? "")} onValueChange={(value) => change(field.key, value)} />
             ) : field.kind === "select" ? (
-              <Select value={String(node.data[field.key] ?? "")} onChange={(event) => change(field.key, event.target.value)}>
-                {field.options?.map((option) => <option key={option}>{option || t.serverDefault}</option>)}
+              <Select value={value} onChange={(event) => change(field.key, event.target.value)}>
+                {options?.map((option) => <option key={option}>{option || t.serverDefault}</option>)}
               </Select>
             ) : field.kind === "number" ? (
               <Input type="number" value={String(node.data[field.key] ?? "")} onChange={(event) => change(field.key, event.target.value)} />
@@ -113,7 +121,8 @@ export function PropertyPanel() {
               <ImeInput className={imeInputClass} type="text" value={String(node.data[field.key] ?? "")} onValueChange={(value) => change(field.key, value)} />
             )}
           </label>
-        ))}
+          );
+        })}
       </div>
       {node.data.nodeType === "image" && (
         <div className="mt-5 rounded-lg border border-[#e7eaf0] bg-[#f7f9fc] p-3 dark:border-slate-800 dark:bg-slate-900/40">
