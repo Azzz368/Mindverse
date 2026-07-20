@@ -1,7 +1,7 @@
 import { asRecord, asText } from "./values";
 import { DEFAULT_QWEN_VOICE_MODEL, qwenTtsLanguageTypes } from "@/shared/api/qwenContracts";
 import { imagePromptWithPreset } from "@/shared/workflow/imagePromptPresets";
-import { videoInputPortsForPreset, videoModelPresetIdFromData, type VideoInputPortKind } from "@/shared/workflow/videoModelPresets";
+import { videoAspectRatioForPreset, videoInputPortsForPreset, videoModelPatch, videoModelPresetIdFromData, type VideoInputPortKind } from "@/shared/workflow/videoModelPresets";
 import { storyboardSceneFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation, WorkflowEdge } from "@/shared/canvas";
 
@@ -284,6 +284,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
 
   if (d.nodeType === "video") {
     const activeVideoModel = videoModelPresetIdFromData(d);
+    const activeVideoPatch = videoModelPatch(activeVideoModel);
     const supportedKinds = new Set(videoInputPortsForPreset(activeVideoModel).map((port) => port.kind));
     const connections = upstreamConnectionsFrom(upstream, incomingEdges);
     const textSources = videoSourcesForKind(connections, "text", supportedKinds);
@@ -306,24 +307,24 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
     return {
       prompt: limitProviderPrompt(videoPromptReferences(videoPrompt)),
       negativePrompt: d.negativePrompt,
-      model: d.model,
+      model: activeVideoPatch.model,
       image: supportedKinds.has("image") ? d.referenceImageUrl || referenceImageUrls[0] : undefined,
       referenceImageUrls,
       referenceVideoUrls,
       referenceAudioUrls,
-      useImageInput: d.videoInputMode === "image-to-video",
+      useImageInput: activeVideoPatch.videoInputMode === "image-to-video",
       duration: d.duration,
       resolution: d.resolution,
-      aspectRatio: d.aspectRatio,
+      aspectRatio: videoAspectRatioForPreset(activeVideoModel, d.aspectRatio),
       fps: d.fps,
-      videoProvider: d.videoProvider,
-      tokenstarMode: d.tokenstarMode,
-      mode: d.tokenstarMode,
+      videoProvider: activeVideoPatch.videoProvider,
+      tokenstarMode: activeVideoPatch.tokenstarMode,
+      mode: activeVideoPatch.tokenstarMode,
       generateAudio: d.generateAudio,
       referenceImageAssetUrl: d.referenceImageAssetUrl,
       referenceVideoAssetUrl: d.referenceVideoAssetUrl,
       referenceAudioAssetUrl: d.referenceAudioAssetUrl,
-      klingMode: d.klingMode || "image-to-video",
+      klingMode: activeVideoPatch.klingMode || "image-to-video",
       klingElementId: d.klingElementId,
       referenceVideoUrl: supportedKinds.has("video") ? d.referenceVideoUrl || referenceVideoUrls[0] || undefined : undefined,
     };

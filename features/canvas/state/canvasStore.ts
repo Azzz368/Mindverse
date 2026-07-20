@@ -19,6 +19,12 @@ import { mergeAgentProjectMemory, type AgentProjectMemory } from "@/shared/agent
 import { buildFixedSceneVideoSkill, type AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 
 const DEFAULT_AGENT_IMAGE_MODEL = "gpt-image-2(tokenstar)";
+const imageUrlFromOutput = (output: NodeOutput) => {
+  const value = asRecord(output.value);
+  return asText(value.imageUrl) || asText(value.revisedImageUrl) || asText(value.resultUrl);
+};
+const appendImageHistory = (history: string[] | undefined, imageUrl: string) =>
+  imageUrl ? [imageUrl, ...(history || []).filter((url) => url !== imageUrl)].slice(0, 8) : history;
 
 type AgentStatus = "idle" | "planning" | "building" | "running" | "completed" | "error";
 type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; agentMemory: AgentProjectMemory | null; selectedNodeId: string | null; selectionMode: boolean; lastError: string | null; agentStatus: AgentStatus; agentMessage: string | null;
@@ -497,7 +503,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const taskState = asText(resultValue.status);
       const polling = taskState === "pending" || taskState === "running";
       const runVideoProvider = videoProviderFrom(providerFromRun);
-      set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, ...(node.data.nodeType === "video" && runVideoProvider ? { videoProvider: runVideoProvider } : {}), status: taskState === "failed" ? "error" : taskState === "running" ? "running" : polling ? "waiting" : "success", output: result, generationContext, rawStatus: asText(resultValue.rawStatus) || taskState || item.data.rawStatus, storyboardImagePrompts: node.data.nodeType === "storyboardImage" ? (resultValue.prompts as CanvasNodeData["storyboardImagePrompts"]) : item.data.storyboardImagePrompts } } : item) }));
+      const generatedImageUrl = node.data.nodeType === "image" ? imageUrlFromOutput(result) : "";
+      set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, ...(node.data.nodeType === "video" && runVideoProvider ? { videoProvider: runVideoProvider } : {}), ...(generatedImageUrl ? { imageHistory: appendImageHistory(item.data.imageHistory, generatedImageUrl), activeImageUrl: generatedImageUrl } : {}), status: taskState === "failed" ? "error" : taskState === "running" ? "running" : polling ? "waiting" : "success", error: taskState === "failed" ? asText(resultValue.errorMessage) || "Generated media failed validation." : undefined, output: result, generationContext, rawStatus: asText(resultValue.rawStatus) || taskState || item.data.rawStatus, storyboardImagePrompts: node.data.nodeType === "storyboardImage" ? (resultValue.prompts as CanvasNodeData["storyboardImagePrompts"]) : item.data.storyboardImagePrompts } } : item) }));
       if (node.data.nodeType === "storyboard" && !polling && taskState !== "failed") get().materializeStoryboardBranch(id);
       if (polling) schedulePoll(id, () => void get().pollNode(id), intervalMs);
     } catch (error) {
@@ -512,7 +519,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     if (!node || !taskId || !["image", "video", "audio"].includes(node.data.nodeType)) return;
     set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "running", error: undefined } } : item) }));
     try {
-      const payload = await pollTaskRemote({ type: node.data.nodeType, taskId, provider: pollProviderFor(node, value), pollUrl: asText(value.pollUrl) || undefined, pollAction: node.data.nodeType === "video" ? (asText(value.pollAction) || undefined) : undefined });
+      const payload = await pollTaskRemote({ type: node.data.nodeType, taskId, provider: pollProviderFor(node, value), pollUrl: asText(value.pollUrl) || undefined, pollAction: node.data.nodeType === "video" ? (asText(value.pollAction) || undefined) : undefined, expectedAspectRatio: node.data.nodeType === "video" ? asText(value.expectedAspectRatio) || node.data.aspectRatio : undefined });
       const rawOutput = asRecord(payload.output);
       const providerFromPoll = typeof payload.provider === "string" ? payload.provider : pollProviderFor(node, value);
       const pollVideoProvider = videoProviderFrom(providerFromPoll);
@@ -520,7 +527,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const state = asText(rawOutput.status);
       const intervalMs = Number(payload.polling?.intervalMs) || 3000;
       if (state === "pending" || state === "running") schedulePoll(id, () => void get().pollNode(id), intervalMs);
-      set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, ...(node.data.nodeType === "video" && pollVideoProvider ? { videoProvider: pollVideoProvider } : {}), status: state === "failed" ? "error" : state === "completed" ? "success" : state === "running" ? "running" : "waiting", output: result, taskId, resultUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl), rawStatus: asText(rawOutput.rawStatus) || state, lastPollAt: new Date().toISOString() } } : item) }));
+      const generatedImageUrl = node.data.nodeType === "image" ? imageUrlFromOutput(result) : "";
+      set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, ...(node.data.nodeType === "video" && pollVideoProvider ? { videoProvider: pollVideoProvider } : {}), ...(generatedImageUrl ? { imageHistory: appendImageHistory(item.data.imageHistory, generatedImageUrl), activeImageUrl: generatedImageUrl } : {}), status: state === "failed" ? "error" : state === "completed" ? "success" : state === "running" ? "running" : "waiting", error: state === "failed" ? asText(rawOutput.errorMessage) || "Generated media failed validation." : undefined, output: result, taskId, resultUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl), rawStatus: asText(rawOutput.rawStatus) || state, lastPollAt: new Date().toISOString() } } : item) }));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Task polling failed";
       const retryStatus = asText(value.status);

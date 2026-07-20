@@ -11,6 +11,7 @@ import { parseScript, scriptInstruction } from "@/shared/workflow/storyPipeline"
 import { archiveResultMedia } from "@/server/storage/mediaArchive";
 import { synthesizeWithClonedVoice } from "@/server/qwen/speechSynthesis";
 import { qwenErrorPayload } from "@/server/qwen/errors";
+import { assertSourceAspectRatio, verifyCompletedVideoAspectRatio } from "@/server/ai/videoAspectRatio";
 import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER, type QwenVoiceProvider } from "@/shared/api/qwenContracts";
 import type { GenerateAudioInput, GenerateImageInput, GenerateImageRevisionInput, GenerateStoryboardInput, GenerateTextInput, GenerateVideoInput } from "@/server/ai/types";
 
@@ -53,8 +54,10 @@ async function runSora2Video(input: Record<string, unknown>): Promise<RunNodeRes
   const prompt = text(input.prompt);
   const image = text(input.image);
   if (!prompt || !image) return fail("Sora-2 image-to-video requires both a prompt and a source image.");
+  await assertSourceAspectRatio(image, input.aspectRatio, "Sora-2 source image");
   const output = await createSora2ImageVideo({ prompt, image, duration: optionalNumber(input.duration), resolution: optionalText(input.resolution) });
-  return { ok: true, provider: "302-sora2", output: await archiveResultMedia(output, { sourceProvider: "302-sora2", mediaTypeHint: "video" }), polling: { intervalMs: 5000 } };
+  const verified = await verifyCompletedVideoAspectRatio(output, input.aspectRatio);
+  return { ok: true, provider: "302-sora2", output: await archiveResultMedia(verified, { sourceProvider: "302-sora2", mediaTypeHint: "video" }), polling: { intervalMs: 5000 } };
 }
 
 async function runKlingVideo(input: Record<string, unknown>): Promise<RunNodeResult> {
@@ -64,8 +67,10 @@ async function runKlingVideo(input: Record<string, unknown>): Promise<RunNodeRes
   if (!prompt) return fail("Kling video requires a prompt.");
   const image = text(input.image);
   if ((klingMode === "image-to-video" || klingMode === "reference-image") && !image) return fail("Kling 首帧/参考图生视频需要连接一张图片或填写参考图 URL。请连接已生成的图像节点，或在设置里填首帧 URL。");
+  if (image) await assertSourceAspectRatio(image, input.aspectRatio, "Kling source image");
   const output = await createKlingImageVideo({ prompt, image, modelName: optionalText(input.model), negativePrompt: optionalText(input.negativePrompt), duration: optionalNumber(input.duration), resolution: optionalText(input.resolution) });
-  return { ok: true, provider: "kling", output: await archiveResultMedia({ ...output, klingMode }, { sourceProvider: "kling", mediaTypeHint: "video" }), polling: { intervalMs: Number(process.env.KLING_POLL_INTERVAL_MS || 5000) } };
+  const verified = await verifyCompletedVideoAspectRatio({ ...output, klingMode }, input.aspectRatio);
+  return { ok: true, provider: "kling", output: await archiveResultMedia(verified, { sourceProvider: "kling", mediaTypeHint: "video" }), polling: { intervalMs: Number(process.env.KLING_POLL_INTERVAL_MS || 5000) } };
 }
 
 async function runTokenstarVideo(rawInput: Record<string, unknown>): Promise<RunNodeResult> {
@@ -93,12 +98,14 @@ async function runTokenstarVideo(rawInput: Record<string, unknown>): Promise<Run
     referenceAudioAssetUrl: optionalText(rawInput.referenceAudioAssetUrl),
   };
   const tsMode = normalizeTokenstarMode(rawInput.tokenstarMode, rawInput.mode);
+  if (tsMode === "kling-image" && input.image) await assertSourceAspectRatio(input.image, input.ratio, "TokenStar Kling source image");
   const output = tsMode === "kling-text" ? await createKlingTextVideo(input)
     : tsMode === "kling-image" ? await tsKlingImage(input)
     : tsMode === "kling-omni" ? await createKlingOmniVideo(input)
     : tsMode === "asset-video" ? await createSeedanceAssetVideo(input)
     : await createSeedanceVideo(input);
-  return { ok: true, provider: "tokenstar", output: await archiveResultMedia({ ...output, tokenstarMode: tsMode }, { sourceProvider: "tokenstar", mediaTypeHint: "video" }), polling: { intervalMs: Number(process.env.TOKENSTAR_POLL_INTERVAL_MS || 5000) } };
+  const verified = await verifyCompletedVideoAspectRatio({ ...output, tokenstarMode: tsMode }, input.ratio);
+  return { ok: true, provider: "tokenstar", output: await archiveResultMedia(verified, { sourceProvider: "tokenstar", mediaTypeHint: "video" }), polling: { intervalMs: Number(process.env.TOKENSTAR_POLL_INTERVAL_MS || 5000) } };
 }
 
 async function runScript(input: Record<string, unknown>) {
@@ -223,10 +230,11 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
     : nodeType === "video" ? await provider.generateVideo(rawInput as GenerateVideoInput)
     : nodeType === "audio" ? await provider.generateAudio(rawInput as GenerateAudioInput)
     : await textProvider.generateStoryboard(rawInput as GenerateStoryboardInput);
+  const verifiedOutput = nodeType === "video" ? await verifyCompletedVideoAspectRatio(output, rawInput.aspectRatio) : output;
   return {
     ok: true,
     provider: sourceProvider,
-    output: await archiveResultMedia(output, { sourceProvider, mediaTypeHint: nodeType === "audio" ? "audio" : nodeType === "image" || nodeType === "image-revision" ? "image" : nodeType === "video" ? "video" : undefined }),
+    output: await archiveResultMedia(verifiedOutput, { sourceProvider, mediaTypeHint: nodeType === "audio" ? "audio" : nodeType === "image" || nodeType === "image-revision" ? "image" : nodeType === "video" ? "video" : undefined }),
     polling: { intervalMs: Number(process.env.AI_302_POLL_INTERVAL_MS || 3000), maxAttempts: Number(process.env.AI_302_MAX_POLL_ATTEMPTS || 40) },
   };
 }

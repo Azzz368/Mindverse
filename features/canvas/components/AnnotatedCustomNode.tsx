@@ -9,7 +9,7 @@ import { VoiceCloneNodeLayout, VoiceTTSNodeLayout } from "./VoiceNodes";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
 import { motionTemplateIds } from "@/shared/motion/templates";
-import { videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
+import { videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
@@ -78,7 +78,12 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
   const wrap = "mb-3 block";
   const ta = "w-full resize-none rounded-lg border border-[#e7eaf0] bg-white px-2.5 py-1.5 text-xs text-[#030303] focus:outline-none dark:border-slate-700 dark:bg-[#0c1622] dark:text-slate-100";
   const inp = "w-full rounded-lg border border-[#e7eaf0] bg-white px-2.5 py-1.5 text-xs text-[#030303] focus:outline-none dark:border-slate-700 dark:bg-[#0c1622] dark:text-slate-100";
-  const provider = data.videoProvider || "kling";
+  const activeVideoModel = videoModelPresetIdFromData(data);
+  const activeVideoPatch = videoModelPatch(activeVideoModel);
+  const provider = activeVideoPatch.videoProvider;
+  const videoAspectRatios = videoAspectRatiosForPreset(activeVideoModel);
+  const videoAspectRatio = videoAspectRatioForPreset(activeVideoModel, data.aspectRatio);
+  const sourceControlsVideoRatio = videoAspectRatioControlForPreset(activeVideoModel) === "source";
   const textInput = (key: keyof CanvasNodeData, value: string | undefined) => (
     <ImeInput className={inp} value={value ?? ""} onValueChange={(next) => set({ [key]: next } as Partial<CanvasNodeData>)} />
   );
@@ -99,14 +104,15 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
         {data.nodeType === "script" && <><label className={wrap}><span className={lbl}>创意概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>语调</span>{textInput("scriptTone", data.scriptTone)}</label><label className={wrap}><span className={lbl}>目标场景数</span><select className={sel} value={String(data.numberOfScenes ?? 3)} onChange={e => set({ numberOfScenes: Number(e.target.value) })}>{[1,2,3,4,5,6,8,10,12].map(n=><option key={n}>{n}</option>)}</select></label></>}
         {data.nodeType === "image" && <><label className={wrap}><span className={lbl}>图像提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>尺寸</span><select className={sel} value={data.size ?? "1024x1024"} onChange={e => set({ size: e.target.value })}>{["1024x1024","1536x1024","1024x1536","auto"].map(o=><option key={o}>{o}</option>)}</select></label></>}
         {data.nodeType === "video" && <>
-          <label className={wrap}><span className={lbl}>模型</span><select className={sel} value={videoModelPresetIdFromData(data)} onChange={e => set(videoModelPatch(e.target.value as VideoModelPresetId))}>{videoModelOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+          <label className={wrap}><span className={lbl}>模型</span><select className={sel} value={activeVideoModel} onChange={e => set(videoModelSelectionPatch(e.target.value as VideoModelPresetId, data.aspectRatio))}>{videoModelOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
           <label className={wrap}><span className={lbl}>动效提示词</span>{textArea("prompt", data.prompt, 3)}</label>
-          <label className={wrap}><span className={lbl}>视频提供商</span><select className={sel} value={provider} onChange={e => set({ videoProvider: e.target.value as CanvasNodeData["videoProvider"] })}><option value="kling">Kling（官方直连）</option><option value="tokenstar">TokenStar 网关</option><option value="302ai">302.ai</option></select></label>
-          {provider === "kling" && <><label className={wrap}><span className={lbl}>Kling 模式</span><select className={sel} value={data.klingMode ?? "image-to-video"} onChange={e => set({ klingMode: e.target.value as CanvasNodeData["klingMode"] })}><option value="image-to-video">首帧生视频</option><option value="reference-image">参考图生视频（主体一致性）</option><option value="text-to-video">文生视频</option><option value="omni">Omni 视频编辑</option></select></label>{data.klingMode === "reference-image" && <><p className="mb-3 rounded-md bg-amber-50 px-2 py-1.5 text-[10px] text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">需先创建主体元素，将 ElementId 填入下方字段。</p><label className={wrap}><span className={lbl}>主体元素 ID（逗号分隔）</span>{textInput("klingElementId", data.klingElementId)}</label></>}{(data.klingMode === "image-to-video" || data.klingMode === "reference-image" || !data.klingMode) && <label className={wrap}><span className={lbl}>首帧 URL（可选）</span>{textInput("referenceImageUrl", data.referenceImageUrl)}</label>}{data.klingMode === "omni" && <label className={wrap}><span className={lbl}>参考视频 URL</span>{textInput("referenceVideoUrl", data.referenceVideoUrl)}</label>}</>}
-          {provider === "tokenstar" && <><label className={wrap}><span className={lbl}>TokenStar 模式</span><select className={sel} value={data.tokenstarMode ?? "text-to-video"} onChange={e => set({ tokenstarMode: e.target.value as CanvasNodeData["tokenstarMode"] })}><option value="text-to-video">Seedance 文生视频</option><option value="asset-video">Seedance 参考素材</option><option value="kling-image">Kling 首帧生视频</option><option value="kling-reference">Kling 参考图生视频</option><option value="kling-text">Kling 文生视频</option><option value="kling-omni">Kling Omni 编辑</option></select></label><div className="mb-3 flex items-center justify-between"><span className={lbl} style={{marginBottom:0}}>生成音频</span><button onClick={() => set({ generateAudio: data.generateAudio === false })} className={`relative h-5 w-9 rounded-full transition-colors ${data.generateAudio !== false ? "bg-[#030303] dark:bg-cyan-500" : "bg-[#c9ccd1] dark:bg-slate-600"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${data.generateAudio !== false ? "translate-x-[18px]" : "translate-x-0.5"}`} /></button></div></>}
+          {sourceControlsVideoRatio && <label className={wrap}><span className={lbl}>首帧 URL（可选）</span>{textInput("referenceImageUrl", data.referenceImageUrl)}</label>}
+          {provider === "tokenstar" && (activeVideoModel === "kling-v3-tokenstar" || activeVideoModel === "kling-v3-omni-tokenstar") && <label className={wrap}><span className={lbl}>主体元素 ID（逗号分隔）</span>{textInput("klingElementId", data.klingElementId)}</label>}
+          {provider === "tokenstar" && activeVideoPatch.generateAudio !== undefined && <div className="mb-3 flex items-center justify-between"><span className={lbl} style={{marginBottom:0}}>生成音频</span><button onClick={() => set({ generateAudio: data.generateAudio === false })} className={`relative h-5 w-9 rounded-full transition-colors ${data.generateAudio !== false ? "bg-[#030303] dark:bg-cyan-500" : "bg-[#c9ccd1] dark:bg-slate-600"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${data.generateAudio !== false ? "translate-x-[18px]" : "translate-x-0.5"}`} /></button></div>}
           <label className={wrap}><span className={lbl}>分辨率</span><select className={sel} value={data.resolution ?? ""} onChange={e => set({ resolution: e.target.value || undefined })}><option value="">服务器默认</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
           <label className={wrap}><span className={lbl}>时长</span><select className={sel} value={String(data.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}><option value="">服务器默认</option>{videoDurationOptions.map(n=><option key={n} value={n}>{n}s</option>)}</select></label>
-          <label className={wrap}><span className={lbl}>画面比例</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}><option value="16:9">16:9 横屏</option><option value="9:16">9:16 竖屏</option><option value="1:1">1:1 方形</option></select></label>
+          <label className={wrap}><span className={lbl}>画面比例</span><select className={sel} value={videoAspectRatio} onChange={e => set({ aspectRatio: e.target.value })}>{videoAspectRatios.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}</select></label>
+          {sourceControlsVideoRatio && <p className="mb-3 text-[10px] leading-4 text-amber-700 dark:text-amber-300">该模型由首帧素材决定输出比例。运行前会校验首帧必须与所选比例一致。</p>}
         </>}
         {data.nodeType === "videoEdit" && <>
           <label className={wrap}><span className={lbl}>剪辑计划 JSON</span>{textArea("editPlan", data.editPlan, 5)}</label>
@@ -147,7 +153,7 @@ function NodePreview({ node, t, onView, onViewVideo, onAnnotate }: { node: Canva
   if (node.data.nodeType === "image" && imageUrl) return (
     <div className="mt-2">
       <button onClick={() => onView(imageUrl)} className="block w-full overflow-hidden rounded-md border border-[#e7eaf0] hover:border-[#030303] dark:border-slate-700 dark:hover:border-cyan-300">
-        <img src={imageUrl} alt="Generated result" className="h-36 w-full object-cover"/>
+        <img src={imageUrl} alt="Generated result" className="h-36 w-full bg-[#f0f1f3] object-contain dark:bg-slate-800"/>
       </button>
       <div className="mt-2 flex gap-2">
         <button onClick={() => onView(imageUrl)} className="text-[10px] text-[#404040] hover:text-[#030303] dark:text-cyan-300 dark:hover:text-cyan-100">{t.viewFullImage}</button>
@@ -209,7 +215,7 @@ function NodePreview({ node, t, onView, onViewVideo, onAnnotate }: { node: Canva
   if (node.data.nodeType === "reference" && node.data.imageUrl) return (
     <div className="mt-2">
       <button onClick={() => onView(node.data.imageUrl!)} className="block w-full overflow-hidden rounded-md border border-violet-200 hover:border-violet-400 dark:border-violet-700 dark:hover:border-violet-400">
-        <img src={node.data.imageUrl} alt="Reference" className="h-28 w-full object-cover"/>
+        <img src={node.data.imageUrl} alt="Reference" className="h-28 w-full bg-[#f0f1f3] object-contain dark:bg-slate-800"/>
       </button>
       <p className="mt-1 text-[9px] text-[#939393] dark:text-slate-500">{node.data.notes || "\u53ef\u8fde\u63a5\u5230\u56fe\u50cf\u6216\u89c6\u9891\u8282\u70b9\u4f5c\u4e3a\u53c2\u8003\u56fe"}</p>
     </div>
@@ -391,7 +397,7 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
 
   return (
     <>
-      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
         {visualGroupColor && !selected && (
           <div className="absolute inset-[-1.4px] -z-10 rounded-[26px] border-[1.4px]" style={{ borderColor: visualGroupColor }} />
         )}
@@ -484,7 +490,7 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
 
   return (
     <>
-      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
         {visualGroupColor && !selected && <div className="absolute inset-[-1.4px] -z-10 rounded-[26px] border-[1.4px]" style={{ borderColor: visualGroupColor }} />}
         {isGenerating && <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.storyboard || "#3eedb8" } as React.CSSProperties} />}
         <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">Storyboard</div>
@@ -567,7 +573,9 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
   const [annotatingUrl, setAnnotatingUrl] = useState("");
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const outputValue = record(data.output?.value);
-  const imageUrl = text(outputValue.imageUrl) || (typeof data.output?.value === "string" ? (data.output?.value as string) : "");
+  const generatedImageUrl = text(outputValue.imageUrl) || text(outputValue.revisedImageUrl) || (typeof data.output?.value === "string" ? (data.output?.value as string) : "");
+  const imageUrl = data.activeImageUrl || generatedImageUrl;
+  const imageHistory = data.imageHistory || (generatedImageUrl ? [generatedImageUrl] : []);
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
   const imageSourceIds = new Set(incomingEdges
     .filter((edge) => !edge.targetHandle || edge.targetHandle === "image" || edge.targetHandle === "ref-image" || edge.targetHandle.startsWith("ref-image-"))
@@ -585,7 +593,7 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
 
   return (
     <>
-      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
         {visualGroupColor && !selected && (
           <div className="absolute inset-[-1.4px] -z-10 rounded-[26px] border-[1.4px]" style={{ borderColor: visualGroupColor }} />
         )}
@@ -608,7 +616,7 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
           <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800 border-[6px] border-transparent">
             {imageUrl ? (
               <>
-                <img src={imageUrl} alt="Generated result" className="absolute inset-0 h-full w-full object-cover" />
+                <img src={imageUrl} alt="Generated result" className="absolute inset-0 h-full w-full bg-[#f0f1f3] object-contain dark:bg-slate-800" />
                 <div className="nodrag absolute right-2 top-2 flex gap-1.5">
                   <ExpandIcon onClick={() => setViewUrl(imageUrl)} className="static" />
                   <button onClick={() => setAnnotatingUrl(imageUrl)} title="标注 / 局部重绘" className="grid h-7 w-7 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70">
@@ -623,6 +631,36 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
             )}
           </div>
         </div>
+        {selected && imageHistory.length > 1 && (
+          <div className="nodrag nowheel absolute left-[calc(100%+16px)] top-0 z-40 h-[280px] w-[210px] overflow-hidden rounded-[24px] border-[1.4px] border-[#030303] bg-white p-2 shadow-sm dark:border-cyan-400 dark:bg-[#101c29]">
+            <div className="absolute right-3 top-3 z-10">
+              <button
+                type="button"
+                onClick={() => updateNodeData(id, { imageHistory: imageHistory.slice(0, 1), activeImageUrl: undefined })}
+                className="grid h-8 w-8 place-items-center rounded-full bg-black/55 text-white opacity-0 shadow-sm backdrop-blur-sm transition hover:bg-black/75 focus:opacity-100 group-hover:opacity-100"
+                title="清空生成历史"
+                aria-label="清空生成历史"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v5M14 11v5" /></svg>
+              </button>
+            </div>
+            <div className="h-full overflow-y-auto rounded-3xl pr-1">
+              <div className="group grid grid-cols-2 gap-1 pb-2">
+                {imageHistory.map((url: string, index: number) => (
+                  <button
+                    key={`${url}-${index}`}
+                    type="button"
+                    onClick={() => updateNodeData(id, { activeImageUrl: url })}
+                    className={`relative aspect-square w-full overflow-hidden bg-black transition-all duration-200 ${url === imageUrl ? "opacity-100" : "opacity-40 hover:opacity-75"}`}
+                    title={`查看第 ${imageHistory.length - index} 张生成图片`}
+                  >
+                    <img src={url} alt={`Generated image ${imageHistory.length - index}`} className="absolute inset-0 h-full w-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[640px] -translate-x-1/2 overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
@@ -745,6 +783,9 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const isVideoEdit = data.nodeType === "videoEdit";
   const activeVideoModel = videoModelPresetIdFromData(data);
+  const videoAspectRatios = videoAspectRatiosForPreset(activeVideoModel);
+  const videoAspectRatio = videoAspectRatioForPreset(activeVideoModel, data.aspectRatio);
+  const sourceControlsVideoRatio = videoAspectRatioControlForPreset(activeVideoModel) === "source";
   const inputPorts = isVideoEdit
     ? [
         { id: "video", label: "Video", kind: "video" as const },
@@ -802,7 +843,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
 
   return (
     <>
-      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#030303] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border-[1.4px] bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"} ${visualGroupColor && !selected ? "!border-transparent" : ""}`}>
         
         {visualGroupColor && !selected && (
           <div className="absolute inset-[-1.4px] -z-10 rounded-[26px] border-[1.4px]" style={{ borderColor: visualGroupColor }} />
@@ -826,7 +867,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
           <div className="group relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800 border-[6px] border-transparent">
              {videoUrl ? (
                <>
-                 <video ref={videoRef} src={videoUrl} loop muted playsInline preload="metadata" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} className="absolute inset-0 h-full w-full rounded-[14px] object-cover" />
+                 <video ref={videoRef} src={videoUrl} loop muted playsInline preload="metadata" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} className="absolute inset-0 h-full w-full rounded-[14px] bg-black object-contain" />
                  <button
                    type="button"
                    onClick={(event) => { event.stopPropagation(); togglePlayback(); }}
@@ -912,11 +953,11 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
               {!isVideoEdit && <PillDropdown
                 value={activeVideoModel}
                 options={videoModelOptions.map(option => ({ value: option.id, label: option.label }))}
-                onChange={v => updateNodeData(id, videoModelPatch(String(v) as VideoModelPresetId))}
+                onChange={v => updateNodeData(id, videoModelSelectionPatch(String(v) as VideoModelPresetId, data.aspectRatio))}
               />}
               <PillDropdown 
-                 value={data.aspectRatio || "16:9"} 
-                 options={[{value: "16:9", label: "16:9"}, {value: "21:9", label: "21:9"}, {value: "9:16", label: "9:16"}, {value: "3:2", label: "3:2"}, {value: "3:4", label: "3:4"}, {value: "1:1", label: "1:1"}]}
+                 value={isVideoEdit ? data.aspectRatio || "16:9" : videoAspectRatio}
+                 options={(isVideoEdit ? ["16:9", "9:16", "1:1"] : videoAspectRatios).map((ratio) => ({ value: ratio, label: ratio }))}
                  onChange={v => updateNodeData(id, { aspectRatio: String(v) })}
               />
               <PillDropdown 
@@ -938,6 +979,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
               Run
             </button>
          </div>
+         {!isVideoEdit && sourceControlsVideoRatio && <p className="shrink-0 border-t border-[#e7eaf0] px-6 py-2 text-[11px] text-amber-700 dark:border-slate-800 dark:text-amber-300">该模型的比例由首帧决定。首帧与所选比例不一致时会在提交前停止。</p>}
       </div>
 
       {previewOpen && videoUrl && typeof document !== "undefined" && createPortal(
@@ -947,6 +989,85 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
             <button onClick={() => setPreviewOpen(false)} className="mx-auto mt-3 block rounded bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">Close</button>
           </div>
         </div>, document.body)}
+    </>
+  );
+}
+
+function ReferenceNodeLayout({ id, data, selected }: { id: string; data: CanvasNodeData; selected: boolean }) {
+  const removeNode = useCanvasStore((state) => state.removeNode);
+  const duplicateNode = useCanvasStore((state) => state.duplicateNode);
+  const output = record(data.output?.value);
+  const imageUrl = data.imageUrl || text(output.imageUrl) || text(output.revisedImageUrl);
+  const isRunning = data.status === "running" || data.status === "waiting";
+  const [viewUrl, setViewUrl] = useState("");
+
+  return (
+    <>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"}`}>
+        {isRunning && <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.reference } as React.CSSProperties} />}
+        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Reference"}</div>
+        <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
+        <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
+        <div className="flex flex-1 flex-col p-5">
+          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800">
+            {imageUrl ? <img src={imageUrl} alt="Reference material" className="absolute inset-0 h-full w-full object-contain" /> : <ImagePlaceholderIcon />}
+            {imageUrl && <ExpandIcon onClick={() => setViewUrl(imageUrl)} />}
+          </div>
+          <p className="mt-3 line-clamp-2 text-[11px] leading-4 text-[#676f7b] dark:text-slate-400">{data.notes || "可连接到图像或视频节点作为参考图"}</p>
+        </div>
+        <div className="nodrag flex justify-end gap-1 border-t border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
+          <button onClick={() => duplicateNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-400 dark:hover:bg-slate-800">Duplicate</button>
+          <button onClick={() => removeNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-slate-800">Delete</button>
+        </div>
+      </div>
+      {viewUrl && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[9999] grid place-items-center bg-black/85 p-8" onClick={() => setViewUrl("")}>
+          <div className="relative max-h-full max-w-5xl" onClick={(event) => event.stopPropagation()}>
+            <img src={viewUrl} alt="Full reference material" className="max-h-[80vh] max-w-full rounded-lg object-contain" />
+            <button onClick={() => setViewUrl("")} aria-label="关闭预览" title="关闭预览" className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-sm transition hover:scale-105 hover:bg-black/75 focus:outline-none focus:ring-2 focus:ring-white/80">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="m6 6 12 12M18 6 6 18" /></svg>
+            </button>
+          </div>
+        </div>, document.body)}
+    </>
+  );
+}
+
+function AudioNodeLayout({ id, data, selected, runNode }: { id: string; data: CanvasNodeData; selected: boolean; runNode(id: string): Promise<void> }) {
+  const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const removeNode = useCanvasStore((state) => state.removeNode);
+  const duplicateNode = useCanvasStore((state) => state.duplicateNode);
+  const output = record(data.output?.value);
+  const audioUrl = text(output.audioUrl) || text(output.url) || text(output.resultUrl) || data.audioUrl || "";
+  const isRunning = data.status === "running" || data.status === "waiting";
+
+  return (
+    <>
+      <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"}`}>
+        {isRunning && <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.audio } as React.CSSProperties} />}
+        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Audio"}</div>
+        <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
+        <Handle type="source" id="audio" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#f5510b] dark:!border-[#101c29]" />
+        <div className="flex flex-1 flex-col justify-between p-5">
+          <div>
+            <p className="line-clamp-3 text-[15px] leading-6 text-[#404040] dark:text-slate-200">{data.prompt || data.output?.summary || "描述你想生成的音频"}</p>
+            {data.error && <p className="mt-2 text-[11px] text-rose-600 dark:text-rose-300">{data.error}</p>}
+          </div>
+          {audioUrl ? <audio controls src={audioUrl} className="w-full" /> : <div className="rounded-2xl border border-dashed border-[#c9ccd1] px-3 py-5 text-center text-[11px] text-[#676f7b] dark:border-slate-700 dark:text-slate-400">音频将在此处播放</div>}
+        </div>
+        <div className="nodrag flex items-center justify-end gap-1 border-t border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
+          <button onClick={() => duplicateNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-400 dark:hover:bg-slate-800">Duplicate</button>
+          <button onClick={() => removeNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-slate-800">Delete</button>
+          <button onClick={() => void runNode(id)} disabled={isRunning} className="ml-1 flex items-center gap-1 rounded-md bg-[#030303] px-2.5 py-1 text-[10px] font-semibold text-white transition hover:bg-[#1a1a1a] disabled:opacity-40 dark:bg-cyan-600 dark:hover:bg-cyan-500"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><path d="M2 1.5v7l6-3.5z" /></svg>Run</button>
+        </div>
+      </div>
+      <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[560px] -translate-x-1/2 rounded-[24px] border border-[#3f3f46] bg-white p-5 shadow-2xl transition-all dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
+        <AutoGrowTextarea value={data.prompt || ""} onChange={(prompt) => updateNodeData(id, { prompt })} placeholder="描述想要生成的音乐、环境音或语音…" minHeight={80} />
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <div className="flex gap-2"><PillDropdown value={data.model || "Default"} options={["Default", "Music", "TTS"].map((value) => ({ value, label: value }))} onChange={(model) => updateNodeData(id, { model: String(model) })} /><PillDropdown value={data.duration || 30} options={[5, 10, 15, 30, 60].map((value) => ({ value, label: `${value}s` }))} onChange={(duration) => updateNodeData(id, { duration: Number(duration) })} /></div>
+          <button onClick={() => void runNode(id)} disabled={isRunning} className="nodrag flex h-11 items-center justify-center rounded-full bg-[#030303] px-6 text-[15px] font-bold text-white transition hover:bg-[#1a1a1a] disabled:opacity-50 dark:bg-cyan-500 dark:text-[#030303] dark:hover:bg-cyan-400">Run</button>
+        </div>
+      </div>
     </>
   );
 }
@@ -966,6 +1087,12 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
   }
   if (data.nodeType === "image") {
     return <ImageNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} createImageRevision={createImageRevision} />;
+  }
+  if (data.nodeType === "reference") {
+    return <ReferenceNodeLayout id={id} data={data} selected={selected!} />;
+  }
+  if (data.nodeType === "audio") {
+    return <AudioNodeLayout id={id} data={data} selected={selected!} runNode={runNode} />;
   }
   if (data.nodeType === "text" || data.nodeType === "script") {
     return <TextNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} />;
