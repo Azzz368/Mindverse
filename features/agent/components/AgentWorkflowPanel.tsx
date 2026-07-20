@@ -143,6 +143,9 @@ export function AgentWorkflowPanel() {
       preferredWorkflowSkill: skillId,
       constraints: fixedSceneConstraints,
       lastIntent: "skill",
+      pendingIntent: undefined,
+      pendingRequest: undefined,
+      pendingQuestions: undefined,
     });
   };
 
@@ -184,11 +187,12 @@ export function AgentWorkflowPanel() {
         forceIntent,
         customSkill: customSkill || undefined,
       });
+      const resolvedRequest = payload.resolvedRequest || message;
 
       if (autonomousEnabled && payload.intent !== "dialogue") {
-        updateAgentMemory({ storyBrief: message, lastIntent: payload.intent });
+        updateAgentMemory({ storyBrief: resolvedRequest, lastIntent: payload.intent, pendingIntent: undefined, pendingRequest: undefined, pendingQuestions: undefined });
         const result = await runAutonomousAgent({
-          userMessage: message,
+          userMessage: resolvedRequest,
           response: payload,
           selectedNodeIds,
           signal: autonomousController?.signal,
@@ -205,31 +209,44 @@ export function AgentWorkflowPanel() {
         setChat([...nextChat, { role: "assistant", content: payload.summary || "已选择专用工作流技能。", intent: payload.intent }]);
         previewWorkflowSkill(payload.skillId, brief, payload.summary);
       } else if (payload.intent === "dialogue" && payload.response) {
-        if (payload.response.brief) {
+        if (payload.requiresClarification && payload.pendingIntent && payload.pendingRequest) {
+          updateAgentMemory({
+            lastIntent: "dialogue",
+            pendingIntent: payload.pendingIntent,
+            pendingRequest: payload.pendingRequest,
+            pendingQuestions: payload.response.suggestedNext,
+          });
+        } else if (payload.response.brief) {
           addStoryChainNode(payload.response.brief, payload.response.title);
           updateAgentMemory({
             storyBrief: payload.response.brief,
             selectedDirection: payload.response.title,
             lastIntent: "dialogue",
+            pendingIntent: undefined,
+            pendingRequest: undefined,
+            pendingQuestions: undefined,
           });
         } else {
-          updateAgentMemory({ storyBrief: message, lastIntent: "dialogue" });
+          updateAgentMemory({ storyBrief: message, lastIntent: "dialogue", pendingIntent: undefined, pendingRequest: undefined, pendingQuestions: undefined });
         }
         setChat([...nextChat, { role: "assistant", content: payload.response.message, intent: payload.intent, response: payload.response }]);
       } else if (payload.intent === "create" && payload.plan && payload.patch) {
         updateAgentMemory({
-          storyBrief: message,
+          storyBrief: resolvedRequest,
           selectedDirection: payload.plan.title,
           lastIntent: "create",
+          pendingIntent: undefined,
+          pendingRequest: undefined,
+          pendingQuestions: undefined,
         });
         setPreview({ intent: "create", plan: payload.plan, patch: payload.patch as CanvasPatch, summary: payload.summary || "Workflow plan prepared." });
         setChat([...nextChat, { role: "assistant", content: payload.summary || "已生成工作流计划。", intent: payload.intent }]);
       } else if (payload.intent === "edit" && payload.editPlan && payload.patch) {
-        updateAgentMemory({ storyBrief: message, lastIntent: "edit" });
+        updateAgentMemory({ storyBrief: resolvedRequest, lastIntent: "edit", pendingIntent: undefined, pendingRequest: undefined, pendingQuestions: undefined });
         setPreview({ intent: "edit", editPlan: payload.editPlan, patch: payload.patch as CanvasEditPatch, summary: payload.summary || "Canvas edit plan prepared." });
         setChat([...nextChat, { role: "assistant", content: payload.summary || "已生成画布修改计划。", intent: payload.intent }]);
       } else if (payload.intent === "organize" && payload.organizePlan && payload.patch) {
-        updateAgentMemory({ storyBrief: message, lastIntent: "organize" });
+        updateAgentMemory({ storyBrief: resolvedRequest, lastIntent: "organize", pendingIntent: undefined, pendingRequest: undefined, pendingQuestions: undefined });
         setPreview({ intent: "organize", organizePlan: payload.organizePlan, patch: payload.patch as CanvasEditPatch, summary: payload.summary || "Canvas organization plan prepared." });
         setChat([...nextChat, { role: "assistant", content: payload.summary || "已生成画布整理计划。", intent: payload.intent }]);
       } else {

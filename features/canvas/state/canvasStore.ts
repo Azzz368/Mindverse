@@ -6,7 +6,7 @@ import { canvasStorage } from "@/features/canvas/services/canvasStorage";
 import { pollTaskRemote, requestImageRevision, runNodeRemote } from "@/features/canvas/services/nodeExecutionClient";
 import { requestAgentEdit, requestAgentOrganize, requestAgentPlan } from "@/features/agent/services/agentClient";
 import { buildTemplate, makeNode, type Template } from "@/shared/templates/templates";
-import { promptsFromStoryboard } from "@/shared/workflow/storyPipeline";
+import { promptsFromStoryboard, storyboardSceneNumber, storyboardScenesFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
 import { videoModelPatch, videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
 import type { AgentCanvasEditPlan, AgentCanvasOrganizePlan, AgentWorkflowPlan, CanvasEditPatch, CanvasPatch } from "@/shared/agent/agentSchema";
 import type { CanvasNode, CanvasNodeData, CanvasSnapshot, ImageAnnotation, NodeOutput, NodeType, WorkflowEdge } from "@/shared/canvas";
@@ -62,7 +62,9 @@ const videoProviderFrom = (value: string | undefined): CanvasNodeData["videoProv
 const restoreStatuses = (nodes: CanvasNode[]): CanvasNode[] => nodes.map((node) => { if (node.data.status !== "running") return node; const polling = ["pending", "running"].includes(asText(asRecord(node.data.output?.value).status)); const status: CanvasNodeData["status"] = polling ? "waiting" : "idle"; return { ...node, data: { ...node.data, status } }; });
 const voiceTtsTargetHandleForNodeType = (sourceType: NodeType) => sourceType === "voiceClone" ? "voice" : ["prompt", "text", "script", "storyboard"].includes(sourceType) ? "text" : undefined;
 const targetHandleForConnection = (source: CanvasNode, target: CanvasNode) =>
-  target.data.nodeType === "video" ? videoTargetHandleForNodeType(source.data.nodeType, target.data)
+  target.data.nodeType === "image" && ["prompt", "text", "script", "storyboard"].includes(source.data.nodeType) ? "text"
+    : (target.data.nodeType === "text" || target.data.nodeType === "script") && ["prompt", "text", "script", "storyboard"].includes(source.data.nodeType) ? "input-1"
+    : target.data.nodeType === "video" ? videoTargetHandleForNodeType(source.data.nodeType, target.data)
     : target.data.nodeType === "videoEdit" && (source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion" || source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS") ? source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS" ? "audio" : "video"
     : target.data.nodeType === "voiceTTS" ? voiceTtsTargetHandleForNodeType(source.data.nodeType)
     : undefined;
@@ -75,7 +77,7 @@ const withVideoTargetHandles = (nodes: CanvasNode[], edges: WorkflowEdge[]): Wor
   return edges.flatMap((edge) => {
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
-    if (!source || !target || (target.data.nodeType !== "video" && target.data.nodeType !== "videoEdit" && target.data.nodeType !== "voiceTTS")) return [edge];
+    if (!source || !target || !["text", "script", "image", "video", "videoEdit", "voiceTTS"].includes(target.data.nodeType)) return [edge];
     const targetHandle = targetHandleForConnection(source, target);
     return targetHandle ? [{ ...edge, targetHandle }] : [];
   });
@@ -83,26 +85,28 @@ const withVideoTargetHandles = (nodes: CanvasNode[], edges: WorkflowEdge[]): Wor
 const hasRunnableSource = (node: CanvasNode) =>
   Boolean(node.data.output || imageUrlFrom(node) || videoUrlFrom(node) || audioUrlFrom(node));
 const storyboardBranchFrom = (storyboard: CanvasNode, value: unknown): { nodes: CanvasNode[]; edges: WorkflowEdge[] } => {
-  const scenes = Array.isArray(value) ? value.map(asRecord).slice(0, 12) : [];
+  const scenes = storyboardScenesFromValue(value).slice(0, 12);
   const firstY = storyboard.position.y - Math.max(0, scenes.length - 1) * 155;
   const nodes: CanvasNode[] = [];
   const edges: WorkflowEdge[] = [];
 
   scenes.forEach((scene, index) => {
-    const sceneNumber = Number(scene.sceneNumber) || index + 1;
+    const sceneNumber = storyboardSceneNumber(scene, index);
     const description = asText(scene.description) || `Scene ${sceneNumber}`;
     const visualPrompt = asText(scene.visualPrompt) || description;
-    const camera = asText(scene.camera);
-    const duration = Number(scene.duration) || 0;
-    const script = [description, camera && `Camera: ${camera}`, duration && `Duration: ${duration}s`].filter(Boolean).join("\n");
+    const script = storyboardSceneTextFrom(scene, index);
     const textNode = makeNode("text", { x: storyboard.position.x + 470, y: firstY + index * 310 });
     const imageNode = makeNode("image", { x: storyboard.position.x + 800, y: firstY + index * 310 });
 
     textNode.data = {
       ...textNode.data,
       title: `Text* Script ${sceneNumber}`,
+      inputText: script,
       textContent: script,
-      instruction: "Polish or revise this scene script while preserving the established story continuity.",
+      sourceSceneText: script,
+      textSourceMode: "storyboard-scene",
+      instruction: `Refine only storyboard scene ${sceneNumber}. Do not include or summarize any other scene.`,
+      shotNumber: sceneNumber,
       sourceStoryboardNodeId: storyboard.id,
       storyboardGenerated: true,
     };
@@ -138,7 +142,134 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   placeAgentPatch: (position) => { const { pendingAgentPatch } = get(); if (!pendingAgentPatch) return; const placed = offsetPatchTo(pendingAgentPatch, position); set((state) => { const clean = dedupePatch(placed, state.nodes, state.edges); return { nodes: [...state.nodes, ...clean.nodes], edges: [...state.edges, ...clean.edges], selectedNodeId: clean.nodes[0]?.id || state.selectedNodeId, pendingAgentPatch: null, agentStatus: "completed", agentMessage: "工作流已放置到画布。请检查节点参数后手动运行。", lastError: null }; }); },
   addMediaNode: (dataUrl, position) => { const node: CanvasNode = { id: `reference-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: "reference", title: "Reference* 图片素材", status: "idle", imageUrl: dataUrl, notes: "" } }; set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id })); },
   normalizeVideoConnections: () => { const { nodes, edges } = get(); const next = withVideoTargetHandles(nodes, edges); if (next.length !== edges.length || next.some((edge, index) => edge.targetHandle !== edges[index]?.targetHandle)) set({ edges: next }); },
-  materializeStoryboardBranch: (storyboardId) => { const storyboard = get().nodes.find((node) => node.id === storyboardId && node.data.nodeType === "storyboard"); const scenes = storyboard?.data.output?.value; if (!storyboard || !Array.isArray(scenes)) return; const signature = JSON.stringify(scenes); if (storyboard.data.storyboardBranchSignature === signature) return; const branch = storyboardBranchFrom(storyboard, scenes); set((state) => { const previousIds = new Set(state.nodes.filter((node) => node.data.sourceStoryboardNodeId === storyboardId && node.data.storyboardGenerated).map((node) => node.id)); return { nodes: [...state.nodes.filter((node) => !previousIds.has(node.id)).map((node) => node.id === storyboardId ? { ...node, data: { ...node.data, storyboardBranchSignature: signature } } : node), ...branch.nodes], edges: [...state.edges.filter((edge) => !previousIds.has(edge.source) && !previousIds.has(edge.target)), ...branch.edges] }; }); },
+  materializeStoryboardBranch: (storyboardId) => {
+    const current = get();
+    const storyboard = current.nodes.find((node) => node.id === storyboardId && node.data.nodeType === "storyboard");
+    const scenes = storyboardScenesFromValue(storyboard?.data.output?.value).slice(0, 12);
+    if (!storyboard || !scenes.length) return;
+    const signature = `scene-bindings-v2:${JSON.stringify(scenes)}`;
+    if (storyboard.data.storyboardBranchSignature === signature) return;
+
+    const directTextIds = new Set(current.edges
+      .filter((edge) => edge.source === storyboardId)
+      .map((edge) => current.nodes.find((node) => node.id === edge.target))
+      .filter((node): node is CanvasNode => node?.data.nodeType === "text")
+      .map((node) => node.id));
+    const boundTexts = current.nodes
+      .filter((node) => node.data.nodeType === "text" && (directTextIds.has(node.id) || node.data.sourceStoryboardNodeId === storyboardId))
+      .sort((a, b) => (Number(a.data.shotNumber) || Number.MAX_SAFE_INTEGER) - (Number(b.data.shotNumber) || Number.MAX_SAFE_INTEGER) || a.position.y - b.position.y);
+    const groupImages = current.nodes
+      .filter((node) => node.data.nodeType === "image" && Boolean(storyboard.data.groupId) && node.data.groupId === storyboard.data.groupId)
+      .sort((a, b) => (Number(a.data.shotNumber) || Number.MAX_SAFE_INTEGER) - (Number(b.data.shotNumber) || Number.MAX_SAFE_INTEGER) || a.position.y - b.position.y);
+    const directImages = current.edges
+      .filter((edge) => edge.source === storyboardId)
+      .map((edge) => current.nodes.find((node) => node.id === edge.target))
+      .filter((node): node is CanvasNode => node?.data.nodeType === "image");
+    const candidateImages = [...new Map([...groupImages, ...directImages].map((node) => [node.id, node])).values()];
+
+    if (!boundTexts.length && !candidateImages.length) {
+      const branch = storyboardBranchFrom(storyboard, scenes);
+      set((state) => ({
+        nodes: [
+          ...state.nodes.map((node) => node.id === storyboardId ? { ...node, data: { ...node.data, storyboardBranchSignature: signature } } : node),
+          ...branch.nodes,
+        ],
+        edges: [...state.edges, ...branch.edges],
+      }));
+      return;
+    }
+
+    set((state) => {
+      const usedTextIds = new Set<string>();
+      const usedImageIds = new Set<string>();
+      const createdNodes: CanvasNode[] = [];
+      const desiredEdges: WorkflowEdge[] = [];
+      const textPatchById = new Map<string, Partial<CanvasNodeData>>();
+      const imagePatchById = new Map<string, Partial<CanvasNodeData>>();
+
+      scenes.forEach((scene, index) => {
+        const shotNumber = storyboardSceneNumber(scene, index);
+        const sourceSceneText = storyboardSceneTextFrom(scene, index);
+        let textNode = boundTexts.find((node) => !usedTextIds.has(node.id) && Number(node.data.shotNumber) === shotNumber)
+          || boundTexts.find((node) => !usedTextIds.has(node.id));
+        if (!textNode) {
+          textNode = makeNode("text", { x: storyboard.position.x + 470, y: storyboard.position.y - Math.max(0, scenes.length - 1) * 155 + index * 310 });
+          textNode.data = { ...textNode.data, groupId: storyboard.data.groupId, storyboardGenerated: true };
+          createdNodes.push(textNode);
+        }
+        usedTextIds.add(textNode.id);
+        textPatchById.set(textNode.id, {
+          title: textNode.data.storyboardGenerated ? `Text* Scene ${shotNumber}` : textNode.data.title || `Text* Scene ${shotNumber}`,
+          shotNumber,
+          sourceStoryboardNodeId: storyboardId,
+          sourceSceneText,
+          textSourceMode: "storyboard-scene",
+          inputText: sourceSceneText,
+          textContent: sourceSceneText,
+          instruction: `Refine only storyboard scene ${shotNumber}. Do not include or summarize any other scene.`,
+          status: "idle",
+          output: undefined,
+          error: undefined,
+        });
+
+        const imageConnectedToText = state.edges
+          .filter((edge) => edge.source === textNode!.id)
+          .map((edge) => state.nodes.find((node) => node.id === edge.target))
+          .find((node): node is CanvasNode => Boolean(node?.data.nodeType === "image" && !usedImageIds.has(node.id)));
+        let imageNode = imageConnectedToText
+          || candidateImages.find((node) => !usedImageIds.has(node.id) && Number(node.data.shotNumber) === shotNumber)
+          || candidateImages.find((node) => !usedImageIds.has(node.id));
+        if (!imageNode) {
+          imageNode = makeNode("image", { x: storyboard.position.x + 800, y: storyboard.position.y - Math.max(0, scenes.length - 1) * 155 + index * 310 });
+          imageNode.data = { ...imageNode.data, groupId: storyboard.data.groupId, storyboardGenerated: true };
+          createdNodes.push(imageNode);
+        }
+        usedImageIds.add(imageNode.id);
+        imagePatchById.set(imageNode.id, {
+          title: imageNode.data.storyboardGenerated ? `Image* Scene ${shotNumber}` : imageNode.data.title || `Image* Scene ${shotNumber}`,
+          shotNumber,
+          sourceStoryboardNodeId: storyboardId,
+          prompt: asText(scene.imagePrompt) || asText(scene.visualPrompt) || asText(scene.description) || sourceSceneText,
+          aspectRatio: imageNode.data.aspectRatio || storyboard.data.aspectRatio || "16:9",
+          status: "idle",
+          output: undefined,
+          error: undefined,
+        });
+        desiredEdges.push(
+          { id: `edge-${storyboardId}-${textNode.id}`, source: storyboardId, target: textNode.id, targetHandle: "input-1" },
+          { id: `edge-${textNode.id}-${imageNode.id}`, source: textNode.id, target: imageNode.id, targetHandle: "text" },
+        );
+      });
+
+      const branchNodeIds = new Set([...boundTexts.map((node) => node.id), ...candidateImages.map((node) => node.id)]);
+      const retainedEdges = state.edges.filter((edge) => {
+        if (!branchNodeIds.has(edge.target)) return true;
+        const sourceNode = state.nodes.find((node) => node.id === edge.source);
+        return sourceNode?.data.nodeType === "reference";
+      });
+      const edgeKeys = new Set(retainedEdges.map((edge) => `${edge.source}->${edge.target}`));
+      const uniqueDesiredEdges = desiredEdges.filter((edge) => {
+        const key = `${edge.source}->${edge.target}`;
+        if (edgeKeys.has(key)) return false;
+        edgeKeys.add(key);
+        return true;
+      });
+      return {
+        nodes: [
+          ...state.nodes.map((node) => {
+            if (node.id === storyboardId) return { ...node, data: { ...node.data, storyboardBranchSignature: signature } };
+            const patch = textPatchById.get(node.id) || imagePatchById.get(node.id);
+            return patch ? { ...node, data: { ...node.data, ...patch } } : node;
+          }),
+          ...createdNodes.map((node) => {
+            const patch = textPatchById.get(node.id) || imagePatchById.get(node.id);
+            return patch ? { ...node, data: { ...node.data, ...patch } } : node;
+          }),
+        ],
+        edges: [...retainedEdges, ...uniqueDesiredEdges],
+      };
+    });
+  },
   addStoryChainNode: (content, title) => set((state) => {
     const chain = state.nodes.filter((node) => node.data.groupId === "story-chain");
     const previous = chain.at(-1);

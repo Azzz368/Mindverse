@@ -11,6 +11,9 @@ export type AgentProjectMemory = {
   characters?: Array<{ id: string; name?: string; description: string }>;
   locations?: Array<{ id: string; name?: string; description: string }>;
   lastIntent?: AgentMemoryIntent;
+  pendingIntent?: Exclude<AgentMemoryIntent, "dialogue" | "organize">;
+  pendingRequest?: string;
+  pendingQuestions?: string[];
   updatedAt?: string;
 };
 
@@ -39,5 +42,8 @@ export const agentMemorySummary = (memory: AgentProjectMemory | undefined | null
     memory.characters?.length ? `characters: ${memory.characters.map((item) => `${item.name || item.id}: ${item.description}`).join("; ")}` : "",
     memory.locations?.length ? `locations: ${memory.locations.map((item) => `${item.name || item.id}: ${item.description}`).join("; ")}` : "",
     memory.lastIntent ? `lastIntent: ${memory.lastIntent}` : "",
+    memory.pendingIntent ? `pendingIntent: ${memory.pendingIntent}` : "",
+    memory.pendingRequest ? `pendingRequest: ${memory.pendingRequest}` : "",
+    memory.pendingQuestions?.length ? `pendingQuestions: ${memory.pendingQuestions.join("; ")}` : "",
   ].filter(Boolean).join("\n");
 };

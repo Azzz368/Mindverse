@@ -99,8 +99,44 @@ const fallbackScenes = (brief: string, count: number) =>
     };
   });
 
+export const storyboardScenesFromValue = (value: unknown): Record<string, unknown>[] => {
+  if (Array.isArray(value)) return value.map(record);
+  const source = record(value);
+  const scenes = Array.isArray(source.scenes) ? source.scenes : Array.isArray(source.shots) ? source.shots : [];
+  return scenes.map(record);
+};
+
+export const storyboardSceneNumber = (scene: Record<string, unknown>, index = 0) =>
+  Math.max(1, Math.floor(Number(scene.shotNumber || scene.sceneNumber) || index + 1));
+
+export const storyboardSceneFromValue = (value: unknown, shotNumber: number) => {
+  const scenes = storyboardScenesFromValue(value);
+  if (!scenes.length) return undefined;
+  const requestedShot = Math.max(1, Math.floor(Number(shotNumber) || 1));
+  return scenes.find((scene, index) => storyboardSceneNumber(scene, index) === requestedShot)
+    || scenes[Math.min(requestedShot - 1, scenes.length - 1)];
+};
+
+export const storyboardSceneTextFrom = (scene: Record<string, unknown>, index = 0) => {
+  const number = storyboardSceneNumber(scene, index);
+  const description = text(scene.description) || text(scene.action);
+  const visual = text(scene.imagePrompt) || text(scene.visualPrompt) || text(scene.visualDirection);
+  const camera = text(scene.camera) || text(scene.cameraMovement);
+  const composition = text(scene.composition);
+  const duration = Number(scene.duration);
+  const lines = [
+    `Scene ${number}`,
+    description,
+    visual && visual !== description ? `Visual: ${visual}` : "",
+    camera ? `Camera: ${camera}` : "",
+    composition ? `Composition: ${composition}` : "",
+    Number.isFinite(duration) && duration > 0 ? `Duration: ${duration}s` : "",
+  ].filter(Boolean);
+  return [...new Set(lines)].join("\n");
+};
+
 export function promptsFromStoryboard(value: unknown, aspectRatio = "16:9", negativePrompt = singleFrameNegative): StoryboardImagePrompt[] {
-  const shots = Array.isArray(value) ? value : Array.isArray(record(value).shots) ? record(value).shots as unknown[] : [];
+  const shots = storyboardScenesFromValue(value);
   return shots.map((shot, index) => {
     const item = record(shot);
     const number = Number(item.shotNumber || item.sceneNumber) || index + 1;

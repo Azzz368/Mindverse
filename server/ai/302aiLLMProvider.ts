@@ -1,11 +1,12 @@
 import "server-only";
 import { validateAgentCanvasEditPlan, validateAgentCanvasOrganizePlan, validateAgentDialogueResponse, validateAgentPlan, type AgentCanvasEditPlan, type AgentCanvasOrganizePlan, type AgentDialogueMessage, type AgentDialogueResponse, type AgentWorkflowPlan } from "@/shared/agent/agentSchema";
-import { buildAgentDialogueMessages, buildAgentEditMessages, buildAgentOrganizeMessages, buildAgentPlannerMessages, buildAgentRouterMessages, buildAgentVerifierMessages, buildFixedSceneSkillMessages } from "@/server/agent/agentPrompt";
+import { buildAgentDialogueMessages, buildAgentEditMessages, buildAgentOrganizeMessages, buildAgentPlannerMessages, buildAgentRequirementMessages, buildAgentRouterMessages, buildAgentVerifierMessages, buildFixedSceneSkillMessages } from "@/server/agent/agentPrompt";
 import { agentModel, agentProvider, requestChatCompletion } from "@/server/ai/textLLMClient";
 import type { AgentProjectMemory } from "@/shared/agent/projectMemory";
 import type { AgentRouterIntent } from "@/shared/api/aiContracts";
 import type { AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 import { validateAgentVerificationDecision, type AgentObservationReport, type AgentVerificationDecision } from "@/shared/agent/agentAutonomy";
+import { validateAgentRequirementDecision, type AgentRequirementDecision } from "@/shared/agent/agentRequirements";
 
 type ChatResponse = {
   choices?: Array<{ message?: { content?: string }; delta?: { content?: string } }>;
@@ -37,12 +38,26 @@ const compiledFixedSceneBriefFrom = (value: unknown, fallback: string) => {
   ].filter(Boolean).join("\n");
 };
 
-export async function runAgentPlannerLLM({ userPrompt, canvasSummary }: { userPrompt: string; canvasSummary?: string }): Promise<AgentWorkflowPlan> {
+export async function runAgentPlannerLLM({
+  userPrompt,
+  canvasSummary,
+  previousPlan,
+  repairFeedback,
+}: {
+  userPrompt: string;
+  canvasSummary?: string;
+  previousPlan?: AgentWorkflowPlan;
+  repairFeedback?: string;
+}): Promise<AgentWorkflowPlan> {
   const raw = await requestChatCompletion<ChatResponse>({
     provider: agentProvider(),
     body: {
       model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
-      messages: buildAgentPlannerMessages(userPrompt, canvasSummary),
+      messages: buildAgentPlannerMessages(
+        userPrompt,
+        canvasSummary,
+        previousPlan && repairFeedback ? { previousPlan, feedback: repairFeedback } : undefined,
+      ),
       temperature: 0.2,
       response_format: { type: "json_object" },
     },
@@ -50,6 +65,33 @@ export async function runAgentPlannerLLM({ userPrompt, canvasSummary }: { userPr
   const content = raw.choices?.[0]?.message?.content || raw.choices?.[0]?.delta?.content;
   if (!content) throw new Error("Agent planner did not return JSON content.");
   return validateAgentPlan(JSON.parse(cleanJson(content)));
+}
+
+export async function runAgentRequirementLLM({
+  userMessage,
+  pendingRequest,
+  intendedIntent,
+  canvasSummary,
+  conversation,
+}: {
+  userMessage: string;
+  pendingRequest?: string;
+  intendedIntent: "create" | "edit" | "skill";
+  canvasSummary: string;
+  conversation: AgentDialogueMessage[];
+}): Promise<AgentRequirementDecision> {
+  const raw = await requestChatCompletion<ChatResponse>({
+    provider: agentProvider(),
+    body: {
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      messages: buildAgentRequirementMessages({ userMessage, pendingRequest, intendedIntent, canvasSummary, conversation }),
+      temperature: 0,
+      response_format: { type: "json_object" },
+    },
+  });
+  const content = raw.choices?.[0]?.message?.content || raw.choices?.[0]?.delta?.content;
+  if (!content) throw new Error("Agent requirement check did not return JSON content.");
+  return validateAgentRequirementDecision(JSON.parse(cleanJson(content)), pendingRequest || userMessage);
 }
 
 export async function runAgentDialogueLLM({
@@ -128,7 +170,7 @@ export async function runAgentRouterLLM({
   memorySummary?: string;
   conversation: AgentDialogueMessage[];
   agentMemory?: AgentProjectMemory;
-}): Promise<{ intent: AgentRouterIntent; skillId?: AgentWorkflowSkillId; reason?: string }> {
+}): Promise<{ intent: AgentRouterIntent; skillId?: AgentWorkflowSkillId; resumePending: boolean; reason?: string }> {
   const raw = await requestChatCompletion<ChatResponse>({
     provider: agentProvider(),
     body: {
@@ -143,7 +185,7 @@ export async function runAgentRouterLLM({
   const parsed = object(JSON.parse(cleanJson(content)));
   const intent = routerIntents.includes(parsed.intent as AgentRouterIntent) ? parsed.intent as AgentRouterIntent : "dialogue";
   const skillId = workflowSkillIds.includes(parsed.skillId as AgentWorkflowSkillId) ? parsed.skillId as AgentWorkflowSkillId : undefined;
-  return { intent, skillId: intent === "skill" ? skillId || "fixed-scene-action-video" : undefined, reason: text(parsed.reason) || undefined };
+  return { intent, skillId: intent === "skill" ? skillId || "fixed-scene-action-video" : undefined, resumePending: parsed.resumePending === true, reason: text(parsed.reason) || undefined };
 }
 
 export async function runFixedSceneSkillLLM({ userBrief }: { userBrief: string }): Promise<string> {

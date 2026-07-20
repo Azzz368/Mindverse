@@ -217,9 +217,9 @@ export function validateAgentPlan(value: unknown): AgentWorkflowPlan {
   if (!userPrompt) throw new Error("Agent plan is missing userPrompt.");
   if (!steps.length) throw new Error("Agent plan must include at least one step.");
   const ids = new Set(steps.map((step) => step.id));
-  const normalizedSteps = steps.map((step, index) => ({
+  const normalizedSteps = steps.map((step) => ({
     ...step,
-    dependsOn: step.dependsOn?.filter((id) => ids.has(id) && id !== step.id) || (index > 0 ? [steps[index - 1].id] : undefined),
+    dependsOn: step.dependsOn?.filter((id) => ids.has(id) && id !== step.id),
   }));
   return {
     title,

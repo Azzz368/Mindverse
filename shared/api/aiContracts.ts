@@ -57,6 +57,11 @@ export type AgentRouterResponse = {
   patch?: CanvasPatch | CanvasEditPatch;
   skillId?: AgentWorkflowSkillId;
   skillBrief?: string;
+  requiresClarification?: boolean;
+  pendingIntent?: Exclude<AgentRouterIntent, "dialogue" | "organize">;
+  pendingRequest?: string;
+  missingInformation?: string[];
+  resolvedRequest?: string;
 };
 
 export type AgentObserveRequest = {

@@ -3,8 +3,9 @@ import type { AgentWorkflowPlan, CanvasPatch } from "@/shared/agent/agentSchema"
 import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/shared/canvas";
 import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
 import { defaultMotionTemplateVariablesJson, getMotionTemplate } from "@/shared/motion/templates";
-import { videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
+import { videoModelPresetIdFromData, videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
 import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER, qwenTtsLanguageTypes } from "@/shared/api/qwenContracts";
+import { assertWorkflowPatchMatchesPlan } from "@/server/agent/workflowPlanQuality";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
@@ -24,7 +25,11 @@ const hasChinese = (value: string) => /[\u3400-\u9fff]/.test(value);
 const tokenstarMode = (value: string) => value === "kling-reference" || value === "kling-image-to-video" ? "kling-image" : value === "kling-text-to-video" ? "kling-text" : value;
 const voiceTtsTargetHandleForNodeType = (sourceType: NodeType) => sourceType === "voiceClone" ? "voice" : ["prompt", "text", "script", "storyboard"].includes(sourceType) ? "text" : undefined;
 const targetHandleFor = (sourceNode: CanvasNode | undefined, targetNode: CanvasNode | undefined) =>
-  sourceNode && targetNode?.data.nodeType === "video"
+  sourceNode && targetNode?.data.nodeType === "image" && ["prompt", "text", "script", "storyboard"].includes(sourceNode.data.nodeType)
+    ? "text"
+    : sourceNode && (targetNode?.data.nodeType === "text" || targetNode?.data.nodeType === "script") && ["prompt", "text", "script", "storyboard"].includes(sourceNode.data.nodeType)
+      ? "input-1"
+    : sourceNode && targetNode?.data.nodeType === "video"
     ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data)
     : sourceNode && targetNode?.data.nodeType === "videoEdit" && (sourceNode.data.nodeType === "video" || sourceNode.data.nodeType === "videoEdit" || sourceNode.data.nodeType === "motion" || sourceNode.data.nodeType === "audio" || sourceNode.data.nodeType === "voiceTTS")
       ? sourceNode.data.nodeType === "audio" || sourceNode.data.nodeType === "voiceTTS" ? "audio" : "video"
@@ -34,44 +39,69 @@ const targetHandleFor = (sourceNode: CanvasNode | undefined, targetNode: CanvasN
 const DEFAULT_AGENT_IMAGE_MODEL = "gpt-image-2(tokenstar)";
 const sceneCountFor = (plan: AgentWorkflowPlan, params: Record<string, unknown>) =>
   Math.max(1, Math.min(30, Math.round(plan.sceneCount || number(params.targetShotCount) || number(params.numberOfScenes) || 3)));
-const asksForMultipleVideos = (prompt: string) =>
-  /每个(?:分镜|镜头|场景).*视频|(?:分别|各自).*视频|多个视频|多段视频|视频片段|片段视频|per[-\s]?shot|each shot|multiple videos|clips|segments/i.test(prompt);
-
 const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][number], upstreamKinds: NodeType[]): Partial<CanvasNodeData> => {
   const params = object(step.params);
-  const prompt = step.prompt || plan.userPrompt;
+  const stepPrompt = step.prompt?.trim() || "";
+  const prompt = stepPrompt || plan.userPrompt;
   const aspectRatio = text(params.aspectRatio) || plan.aspectRatio || "16:9";
   const zh = hasChinese(plan.userPrompt);
   const cinematicStyle = zh ? "电影感、港风、完整叙事" : "Cinematic";
   if (step.kind === "prompt") return { title: step.label, prompt, style: plan.style || text(params.style) || cinematicStyle, aspectRatio };
-  if (step.kind === "text") return { title: step.label, instruction: step.purpose || (zh ? "扩展创作方向。" : "Expand the creative direction."), inputText: prompt, model: text(params.model), temperature: number(params.temperature) ?? 0.7 };
+  if (step.kind === "text") {
+    const shotNumber = number(params.shotNumber);
+    const storyboardScene = upstreamKinds.includes("storyboard") && Boolean(shotNumber);
+    return {
+      title: step.label,
+      instruction: step.purpose || (storyboardScene
+        ? `Refine only storyboard scene ${shotNumber}. Do not include or summarize any other scene.`
+        : zh ? "扩展创作方向。" : "Expand the creative direction."),
+      inputText: storyboardScene ? stepPrompt : prompt,
+      textContent: storyboardScene ? stepPrompt : undefined,
+      textSourceMode: storyboardScene ? "storyboard-scene" : "manual",
+      model: text(params.model),
+      temperature: number(params.temperature) ?? 0.7,
+      shotNumber,
+    };
+  }
   if (step.kind === "script") return { title: step.label, storyBrief: prompt, scriptTone: plan.style || text(params.scriptTone) || (zh ? "电影感、喜剧节奏、完整可拍摄剧本" : "Cinematic, fictional"), numberOfScenes: sceneCountFor(plan, params), model: text(params.model) };
   if (step.kind === "storyboard") { const count = sceneCountFor(plan, params); return { title: step.label, storyBrief: prompt, numberOfScenes: count, targetShotCount: count, model: text(params.model) }; }
-  if (step.kind === "image") return { title: step.label, prompt, negativePrompt: text(params.negativePrompt) || "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay", model: text(params.model) || DEFAULT_AGENT_IMAGE_MODEL, size: text(params.size) || "1536x1024", aspectRatio, referenceImageUrl: "", shotNumber: number(params.shotNumber) };
+  if (step.kind === "image") { const shotNumber = number(params.shotNumber); return { title: step.label, prompt: shotNumber ? stepPrompt : prompt, negativePrompt: text(params.negativePrompt) || "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay", model: text(params.model) || DEFAULT_AGENT_IMAGE_MODEL, size: text(params.size) || "1536x1024", aspectRatio, referenceImageUrl: "", shotNumber }; }
   if (step.kind === "video") {
     const provider = text(params.videoProvider) || plan.videoProvider || "tokenstar";
     const hasImageInput = upstreamKinds.includes("image") || upstreamKinds.includes("reference");
     const hasVideoInput = upstreamKinds.includes("video");
-    const selectedTokenstarMode = tokenstarMode(text(params.tokenstarMode) || (provider === "tokenstar" ? (hasImageInput || hasVideoInput || upstreamKinds.includes("audio") || upstreamKinds.includes("voiceTTS")) ? "asset-video" : "text-to-video" : ""));
+    const hasAssetInput = hasImageInput || hasVideoInput || upstreamKinds.includes("audio") || upstreamKinds.includes("voiceTTS");
+    const requestedTokenstarMode = tokenstarMode(text(params.tokenstarMode));
+    const requestedModeAcceptsAssets = requestedTokenstarMode === "asset-video" || requestedTokenstarMode === "kling-image" || requestedTokenstarMode === "kling-omni";
+    const selectedTokenstarMode = provider === "tokenstar"
+      ? hasAssetInput && !requestedModeAcceptsAssets ? "asset-video" : requestedTokenstarMode || (hasAssetInput ? "asset-video" : "text-to-video")
+      : requestedTokenstarMode;
     const fallbackModel = selectedTokenstarMode === "asset-video" ? "seedance-2.0-asset-fast"
       : selectedTokenstarMode === "kling-omni" ? "kling-v3-omni"
       : selectedTokenstarMode === "kling-image" || selectedTokenstarMode === "kling-text" ? "kling-v3"
       : "";
+    const videoProvider = provider === "kling" || provider === "302ai" || provider === "302-sora2" ? provider : "tokenstar";
+    const model = text(params.model) || fallbackModel;
+    const normalizedTokenstarMode = selectedTokenstarMode === "asset-video" || selectedTokenstarMode === "kling-image" || selectedTokenstarMode === "kling-text" || selectedTokenstarMode === "kling-omni" ? selectedTokenstarMode : "text-to-video";
+    const klingMode = selectedTokenstarMode === "kling-omni" ? "omni" : selectedTokenstarMode === "kling-text" ? "text-to-video" : "image-to-video";
+    const videoModelPreset = videoModelPresetIdFromData({ videoProvider, model, tokenstarMode: normalizedTokenstarMode, klingMode });
     return {
       title: step.label,
       prompt: step.prompt || step.purpose || plan.userPrompt,
       negativePrompt: text(params.negativePrompt),
       duration: number(params.duration) || 10,
       aspectRatio,
-      model: text(params.model) || fallbackModel,
+      model,
       resolution: text(params.resolution) || "480p",
       fps: text(params.fps),
       referenceImageUrl: "",
-      videoInputMode: provider === "tokenstar" && !hasVideoInput ? "image-to-video" : hasImageInput ? "image-to-video" : "text-to-video",
-      videoProvider: provider === "kling" || provider === "302ai" || provider === "302-sora2" ? provider : "tokenstar",
-      tokenstarMode: selectedTokenstarMode === "asset-video" || selectedTokenstarMode === "kling-image" || selectedTokenstarMode === "kling-text" || selectedTokenstarMode === "kling-omni" ? selectedTokenstarMode : "text-to-video",
-      klingMode: selectedTokenstarMode === "kling-omni" ? "omni" : selectedTokenstarMode === "kling-text" ? "text-to-video" : "image-to-video",
+      videoInputMode: hasImageInput || hasVideoInput ? "image-to-video" : "text-to-video",
+      videoProvider,
+      videoModelPreset,
+      tokenstarMode: normalizedTokenstarMode,
+      klingMode,
       generateAudio: bool(params.generateAudio) ?? plan.includeAudio ?? true,
+      shotNumber: number(params.shotNumber),
       referenceImageAssetUrl: "",
       referenceVideoAssetUrl: "",
       referenceAudioAssetUrl: "",
@@ -110,7 +140,7 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
 };
 
 export function compileWorkflowPlanToCanvas(plan: AgentWorkflowPlan): CanvasPatch {
-  const steps = normalizeVideoSteps(plan);
+  const steps = plan.steps;
   const groupId = `agent-${crypto.randomUUID()}`;
   const groupColor = undefined;
   const stepIdToNodeId = new Map<string, string>();
@@ -155,31 +185,16 @@ export function compileWorkflowPlanToCanvas(plan: AgentWorkflowPlan): CanvasPatc
       if (source && target) edges.push({ id: `edge-${source}-${target}`, source, target, ...(targetHandle ? { targetHandle } : {}) });
     });
   });
-  return { nodes, edges };
-}
-
-function normalizeVideoSteps(plan: AgentWorkflowPlan) {
-  const videoSteps = plan.steps.filter((step) => step.kind === "video");
-  if (videoSteps.length <= 1 || asksForMultipleVideos(plan.userPrompt)) return plan.steps;
-  const keeper = videoSteps[0];
-  const removed = new Set(videoSteps.slice(1).map((step) => step.id));
-  return plan.steps
-    .filter((step) => !removed.has(step.id))
-    .map((step, index, steps) => {
-      const dependsOn = unique((step.dependsOn || (index > 0 ? [steps[index - 1].id] : []))
-        .map((id) => removed.has(id) ? keeper.id : id)
-        .filter((id) => id !== step.id));
-      return { ...step, dependsOn: dependsOn.length ? dependsOn : undefined };
-    });
+  const patch = { nodes, edges };
+  assertWorkflowPatchMatchesPlan(plan, patch);
+  return patch;
 }
 
 function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
   const byId = new Map(steps.map((step) => [step.id, step]));
   const map = new Map<string, string[]>();
-  steps.forEach((step, index) => {
+  steps.forEach((step) => {
     const explicit = (step.dependsOn || []).filter((id) => byId.has(id) && id !== step.id);
-    const previous = index > 0 ? [steps[index - 1].id] : [];
-    const fallback = explicit.length ? explicit : previous;
     if (step.kind === "voiceTTS") {
       const explicitVoiceTtsDependencies = explicit.filter((id) => {
         const kind = byId.get(id)?.kind;
@@ -189,33 +204,15 @@ function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
         map.set(step.id, explicitVoiceTtsDependencies);
         return;
       }
-
-      const previousVoiceTtsInputs = steps.slice(0, index).filter((item) => item.kind === "voiceClone" || item.kind === "text" || item.kind === "prompt" || item.kind === "script" || item.kind === "storyboard");
-      if (previousVoiceTtsInputs.length) {
-        map.set(step.id, previousVoiceTtsInputs.map((item) => item.id));
-        return;
-      }
     }
 
     if (step.kind === "video") {
       const explicitMediaDependencies = explicit.filter((id) => {
         const kind = byId.get(id)?.kind;
-        return kind === "image" || kind === "reference" || kind === "video" || kind === "audio" || kind === "voiceTTS";
+        return kind === "prompt" || kind === "text" || kind === "image" || kind === "reference" || kind === "video" || kind === "audio" || kind === "voiceTTS";
       });
       if (explicitMediaDependencies.length) {
         map.set(step.id, explicitMediaDependencies);
-        return;
-      }
-
-      const sceneImages = imageStepsBeforeVideo(steps, index);
-      if (sceneImages.length) {
-        map.set(step.id, sceneImages.map((item) => item.id));
-        return;
-      }
-
-      const previousMedia = mediaStepsBeforeVideo(steps, index);
-      if (previousMedia.length) {
-        map.set(step.id, previousMedia.map((item) => item.id));
         return;
       }
     }
@@ -229,12 +226,6 @@ function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
         map.set(step.id, explicitEditDependencies);
         return;
       }
-
-      const previousEditMedia = steps.slice(0, index).filter((item) => item.kind === "video" || item.kind === "videoEdit" || item.kind === "audio" || item.kind === "voiceTTS");
-      if (previousEditMedia.length) {
-        map.set(step.id, previousEditMedia.map((item) => item.id));
-        return;
-      }
     }
 
     if (step.kind === "motion") {
@@ -246,15 +237,9 @@ function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
         map.set(step.id, explicitMotionDependencies);
         return;
       }
-
-      const previousMotionMedia = steps.slice(0, index).filter((item) => item.kind === "video" || item.kind === "videoEdit" || item.kind === "image" || item.kind === "reference" || item.kind === "audio" || item.kind === "voiceTTS");
-      if (previousMotionMedia.length) {
-        map.set(step.id, previousMotionMedia.map((item) => item.id));
-        return;
-      }
     }
 
-    map.set(step.id, fallback);
+    map.set(step.id, explicit);
   });
   return map;
 }
@@ -276,15 +261,6 @@ function buildLevelMap(steps: AgentWorkflowPlan["steps"], dependencyMap: Map<str
   return levels;
 }
 
-function imageStepsBeforeVideo(steps: AgentWorkflowPlan["steps"], videoIndex: number) {
-  return steps.slice(0, videoIndex).filter((step) => step.kind === "image");
-}
-
-function mediaStepsBeforeVideo(steps: AgentWorkflowPlan["steps"], videoIndex: number) {
-  const mediaKinds = new Set<NodeType>(["image", "reference", "video", "audio", "voiceTTS"]);
-  return steps.slice(0, videoIndex).filter((step) => mediaKinds.has(step.kind));
-}
-
 function positionFor(kind: NodeType, level: number, row: number) {
   const x = level * 300;
   if (kind === "image") return { x, y: 180 + row * 190 };
@@ -293,8 +269,4 @@ function positionFor(kind: NodeType, level: number, row: number) {
   if (kind === "motion") return { x, y: 110 + row * 190 };
   if (kind === "voiceClone" || kind === "voiceTTS") return { x, y: 120 + row * 190 };
   return { x, y: row * 170 };
-}
-
-function unique(values: string[]) {
-  return Array.from(new Set(values));
 }
