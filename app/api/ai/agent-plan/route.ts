@@ -3,6 +3,7 @@ import { validateAgentPlan } from "@/shared/agent/agentSchema";
 import { compileWorkflowPlanToCanvas } from "@/server/agent/compileWorkflowPlan";
 import { normalizeAIError } from "@/server/ai/errors";
 import { runAgentPlannerLLM } from "@/server/ai/302aiLLMProvider";
+import { stabilizeWorkflowPlanDependencies, workflowPlanQualityIssues } from "@/server/agent/workflowPlanQuality";
 
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 
@@ -19,7 +20,19 @@ export async function POST(request: Request) {
     const body = await request.json() as { userPrompt?: unknown; canvasSnapshot?: unknown; mode?: unknown };
     const userPrompt = text(body.userPrompt);
     if (!userPrompt) return NextResponse.json({ ok: false, error: { message: "userPrompt is required." } }, { status: 400 });
-    const plan = validateAgentPlan(await runAgentPlannerLLM({ userPrompt, canvasSummary: summarizeCanvas(body.canvasSnapshot) }));
+    const canvasSummary = summarizeCanvas(body.canvasSnapshot);
+    let plan = stabilizeWorkflowPlanDependencies(validateAgentPlan(await runAgentPlannerLLM({ userPrompt, canvasSummary })));
+    let qualityIssues = workflowPlanQualityIssues(plan);
+    if (qualityIssues.length) {
+      plan = stabilizeWorkflowPlanDependencies(validateAgentPlan(await runAgentPlannerLLM({
+        userPrompt,
+        canvasSummary,
+        previousPlan: plan,
+        repairFeedback: qualityIssues.join("\n"),
+      })));
+      qualityIssues = workflowPlanQualityIssues(plan);
+    }
+    if (qualityIssues.length) throw new Error(`Agent planner returned an incomplete workflow template: ${qualityIssues.join(" ")}`);
     const patch = compileWorkflowPlanToCanvas(plan);
     return NextResponse.json({
       ok: true,

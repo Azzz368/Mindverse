@@ -12,6 +12,7 @@ import type { AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 import type { AgentProjectMemory } from "@/shared/agent/projectMemory";
 import type { CanvasNode, NodeType, WorkflowEdge } from "@/shared/canvas";
 import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
+import type { AgentObserveResponse } from "@/shared/agent/agentAutonomy";
 
 export type CanvasSnapshotPayload = { version: 1; projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; agentMemory?: AgentProjectMemory };
 
@@ -56,4 +57,19 @@ export type AgentRouterResponse = {
   patch?: CanvasPatch | CanvasEditPatch;
   skillId?: AgentWorkflowSkillId;
   skillBrief?: string;
+  requiresClarification?: boolean;
+  pendingIntent?: Exclude<AgentRouterIntent, "dialogue" | "organize">;
+  pendingRequest?: string;
+  missingInformation?: string[];
+  resolvedRequest?: string;
 };
+
+export type AgentObserveRequest = {
+  userMessage: string;
+  canvasSnapshot: CanvasSnapshotPayload;
+  executedNodeIds: string[];
+  attempt: number;
+  maxRepairAttempts: number;
+};
+
+export type AgentObserveApiResponse = AgentObserveResponse;

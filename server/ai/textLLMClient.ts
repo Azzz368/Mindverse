@@ -1,6 +1,7 @@
 import "server-only";
 import { request302OpenAI } from "./302aiClient";
 import { requestHKGAIOpenAI } from "./hkgaiClient";
+import { AIProviderError } from "./errors";
 
 export type TextLLMProvider = "302ai" | "hkgai";
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -38,7 +39,16 @@ export async function requestChatCompletion<T = ChatCompletionResponse>({
       },
     }
     : body;
-  return provider === "hkgai"
-    ? requestHKGAIOpenAI<T>("/chat/completions", { method: "POST", body: JSON.stringify(requestBody) })
-    : request302OpenAI<T>("/chat/completions", { method: "POST", body: JSON.stringify(requestBody) });
+  const maxRetries = Math.max(0, Math.min(3, Number(process.env.TEXT_LLM_MAX_RETRIES || 1)));
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return provider === "hkgai"
+        ? await requestHKGAIOpenAI<T>("/chat/completions", { method: "POST", body: JSON.stringify(requestBody) })
+        : await request302OpenAI<T>("/chat/completions", { method: "POST", body: JSON.stringify(requestBody) });
+    } catch (error) {
+      const retryable = error instanceof AIProviderError && (error.status === 429 || error.status >= 500);
+      if (!retryable || attempt >= maxRetries) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt));
+    }
+  }
 }

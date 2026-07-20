@@ -4,12 +4,13 @@ import { compileCanvasOrganizePlanToPatch } from "@/server/agent/compileCanvasOr
 import { compileWorkflowPlanToCanvas } from "@/server/agent/compileWorkflowPlan";
 import { summarizeCanvasForAgent } from "@/server/agent/summarizeCanvas";
 import { normalizeAIError } from "@/server/ai/errors";
-import { runAgentDialogueLLM, runAgentEditLLM, runAgentOrganizeLLM, runAgentPlannerLLM, runAgentRouterLLM, runFixedSceneSkillLLM } from "@/server/ai/302aiLLMProvider";
+import { runAgentDialogueLLM, runAgentEditLLM, runAgentOrganizeLLM, runAgentPlannerLLM, runAgentRequirementLLM, runAgentRouterLLM, runFixedSceneSkillLLM } from "@/server/ai/302aiLLMProvider";
 import { agentMemorySummary, type AgentProjectMemory } from "@/shared/agent/projectMemory";
 import type { AgentCanvasEditPlan, AgentDialogueMessage } from "@/shared/agent/agentSchema";
 import type { AgentRouterIntent } from "@/shared/api/aiContracts";
 import type { CanvasNode, WorkflowEdge } from "@/shared/canvas";
 import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
+import { stabilizeWorkflowPlanDependencies, workflowPlanQualityIssues } from "@/server/agent/workflowPlanQuality";
 
 type RouterSnapshot = {
   projectName: string;
@@ -361,52 +362,110 @@ export async function POST(request: Request) {
     const snapshot = snapshotFrom(body.canvasSnapshot);
     const selectedNodeIds = stringArray(body.selectedNodeIds);
     const customSkill = customSkillFrom(body.customSkill);
-    const guidedUserMessage = userMessageWithCustomSkill(userMessage, customSkill);
+    const conversation = messagesFrom(body.conversation);
     const forced = validIntents.includes(body.forceIntent as AgentRouterIntent) ? body.forceIntent as AgentRouterIntent : undefined;
-    if (!customSkill && (!forced || forced === "edit") && isShortVideoHyperframesEditRequest(userMessage, snapshot, selectedNodeIds)) {
-      const editPlan = buildShortVideoHyperframesEditPlan(userMessage, snapshot, selectedNodeIds);
-      const patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds });
-      return NextResponse.json({
-        ok: true,
-        intent: "edit",
-        editPlan,
-        patch,
-        summary: "已为选中的视频创建 Codex + HyperFrames 直接剪辑包装工作流。",
-      });
-    }
     let routedSkillId: "fixed-scene-action-video" | undefined;
+    let resumePending = false;
     let intent: AgentRouterIntent;
     if (forced) {
       intent = forced;
+      resumePending = snapshot.agentMemory?.pendingIntent === forced;
+    } else if (snapshot.agentMemory?.pendingIntent && snapshot.agentMemory.pendingRequest) {
+      intent = snapshot.agentMemory.pendingIntent;
+      resumePending = true;
     } else {
       try {
         const routed = await runAgentRouterLLM({
           userMessage,
           canvasSummary: `${routingCanvasSummary(snapshot, selectedNodeIds)}${customSkill ? `\n\nSelected custom skill: ${customSkill.name}\n${customSkill.tagline}` : ""}`,
           memorySummary: agentMemorySummary(snapshot.agentMemory),
-          conversation: messagesFrom(body.conversation),
+          conversation,
         });
-        intent = routed.intent;
+        resumePending = routed.resumePending && Boolean(snapshot.agentMemory?.pendingIntent);
+        intent = resumePending && snapshot.agentMemory?.pendingIntent
+          ? snapshot.agentMemory.pendingIntent
+          : routed.intent;
         routedSkillId = routed.skillId;
       } catch (routerError) {
         console.warn("Agent router LLM failed; using heuristic fallback", routerError instanceof Error ? routerError.message : routerError);
         intent = inferIntent(userMessage, snapshot, selectedNodeIds.length);
+        resumePending = snapshot.agentMemory?.pendingIntent === intent;
       }
     }
 
+    // Store skills are instruction packages, not hard-coded workflow skill IDs.
+    // Route them through the normal planner/editor so their SKILL.md guides an executable patch.
+    if (customSkill && intent === "skill") {
+      intent = snapshot.nodes.length ? "edit" : "create";
+      routedSkillId = undefined;
+    }
+
+    let effectiveUserMessage = userMessage;
+    if (intent === "create" || intent === "edit" || intent === "skill") {
+      const requirement = await runAgentRequirementLLM({
+        userMessage,
+        pendingRequest: resumePending ? snapshot.agentMemory?.pendingRequest : undefined,
+        intendedIntent: intent,
+        canvasSummary: [
+          routingCanvasSummary(snapshot, selectedNodeIds),
+          customSkill ? `Selected custom skill: ${customSkill.name}\nUsage: ${customSkill.howToUse}\nExpected output: ${customSkill.expectedOutput}` : "",
+        ].filter(Boolean).join("\n\n"),
+        conversation,
+      });
+      if (!requirement.ready) {
+        const zh = /[\u3400-\u9fff]/.test([snapshot.agentMemory?.pendingRequest, userMessage].filter(Boolean).join("\n"));
+        const message = requirement.questions.map((question, index) => `${index + 1}. ${question}`).join("\n");
+        return NextResponse.json({
+          ok: true,
+          intent: "dialogue",
+          requiresClarification: true,
+          pendingIntent: intent,
+          pendingRequest: requirement.resolvedRequest,
+          missingInformation: requirement.missingInformation,
+          response: {
+            stage: "ask",
+            title: zh ? "还需要确认几项关键信息" : "A few critical details are missing",
+            message,
+            suggestedNext: requirement.missingInformation,
+          },
+          summary: zh ? "补充关键信息后，Agent 会继续生成工作流。" : "The Agent will continue after these critical details are supplied.",
+        });
+      }
+      effectiveUserMessage = [
+        requirement.resolvedRequest,
+        requirement.assumptions.length ? `Editable assumptions:\n${requirement.assumptions.map((item) => `- ${item}`).join("\n")}` : "",
+      ].filter(Boolean).join("\n\n");
+    }
+
+    const guidedUserMessage = userMessageWithCustomSkill(effectiveUserMessage, customSkill);
+
+    if (intent === "edit" && !customSkill && isShortVideoHyperframesEditRequest(effectiveUserMessage, snapshot, selectedNodeIds)) {
+      const editPlan = buildShortVideoHyperframesEditPlan(effectiveUserMessage, snapshot, selectedNodeIds);
+      const patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds });
+      return NextResponse.json({
+        ok: true,
+        intent: "edit",
+        editPlan,
+        patch,
+        resolvedRequest: effectiveUserMessage,
+        summary: "已为选中的视频创建 Codex + HyperFrames 直接剪辑包装工作流。",
+      });
+    }
+
     if (intent === "skill") {
-      const skillBrief = await runFixedSceneSkillLLM({ userBrief: skillBriefFrom(userMessage, snapshot.agentMemory) });
+      const skillBrief = await runFixedSceneSkillLLM({ userBrief: skillBriefFrom(effectiveUserMessage, snapshot.agentMemory) });
       return NextResponse.json({
         ok: true,
         intent,
         skillId: routedSkillId || "fixed-scene-action-video",
         skillBrief,
+        resolvedRequest: effectiveUserMessage,
         summary: "Use the fixed-scene video skill: character turnaround images + scene nine-grid image + video node.",
       });
     }
 
     if (intent === "dialogue") {
-      const response = await runAgentDialogueLLM({ userMessage: guidedUserMessage, conversation: messagesFrom(body.conversation) });
+      const response = await runAgentDialogueLLM({ userMessage: guidedUserMessage, conversation });
       return NextResponse.json({ ok: true, intent, response, summary: response.title });
     }
 
@@ -419,6 +478,7 @@ export async function POST(request: Request) {
         intent,
         organizePlan,
         patch,
+        resolvedRequest: effectiveUserMessage,
         summary: `${organizePlan.title}: ${organizePlan.workflows.length} workflows identified, ${patch.updateNodes.length} nodes to arrange.`,
       });
     }
@@ -449,17 +509,30 @@ export async function POST(request: Request) {
         intent,
         editPlan,
         patch,
+        resolvedRequest: effectiveUserMessage,
         summary: editSummary(editPlan.title, patch),
       });
     }
 
-    const plan = await runAgentPlannerLLM({ userPrompt: guidedUserMessage, canvasSummary: plannerSummary(snapshot) });
+    let plan = stabilizeWorkflowPlanDependencies(await runAgentPlannerLLM({ userPrompt: guidedUserMessage, canvasSummary: plannerSummary(snapshot) }));
+    let qualityIssues = workflowPlanQualityIssues(plan);
+    if (qualityIssues.length) {
+      plan = stabilizeWorkflowPlanDependencies(await runAgentPlannerLLM({
+        userPrompt: guidedUserMessage,
+        canvasSummary: plannerSummary(snapshot),
+        previousPlan: plan,
+        repairFeedback: qualityIssues.join("\n"),
+      }));
+      qualityIssues = workflowPlanQualityIssues(plan);
+    }
+    if (qualityIssues.length) throw new Error(`Agent planner returned an incomplete workflow template: ${qualityIssues.join(" ")}`);
     const patch = compileWorkflowPlanToCanvas(plan);
     return NextResponse.json({
       ok: true,
       intent: "create",
       plan,
       patch,
+      resolvedRequest: effectiveUserMessage,
       summary: `${plan.title}: ${plan.steps.length} editable steps prepared.`,
     });
   } catch (error) {

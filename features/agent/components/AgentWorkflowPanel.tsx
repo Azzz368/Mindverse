@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { requestAgentRouter } from "@/features/agent/services/agentClient";
+import { runAutonomousAgent } from "@/features/agent/services/autonomousAgent";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { agentMemorySummary } from "@/shared/agent/projectMemory";
 import { agentWorkflowSkills, buildFixedSceneVideoSkill, type AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
@@ -18,6 +19,7 @@ import type { AgentRouterIntent } from "@/shared/api/aiContracts";
 import type { CanvasNode } from "@/shared/canvas";
 import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
 import { ACTIVE_SKILL_KEY } from "@/features/skills/services/skillClient";
+import type { AgentRunEvent } from "@/shared/agent/agentAutonomy";
 
 type AgentPreview =
   | { intent: "create"; plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }
@@ -83,6 +85,9 @@ export function AgentWorkflowPanel() {
   const [preview, setPreview] = useState<AgentPreview | null>(null);
   const [chat, setChat] = useState<ChatEntry[]>([]);
   const [customSkill, setCustomSkill] = useState<ActiveSkillContext | null>(null);
+  const [autonomousEnabled, setAutonomousEnabled] = useState(false);
+  const [autonomousEvents, setAutonomousEvents] = useState<AgentRunEvent[]>([]);
+  const autonomousControllerRef = useRef<AbortController | null>(null);
 
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
@@ -138,6 +143,9 @@ export function AgentWorkflowPanel() {
       preferredWorkflowSkill: skillId,
       constraints: fixedSceneConstraints,
       lastIntent: "skill",
+      pendingIntent: undefined,
+      pendingRequest: undefined,
+      pendingQuestions: undefined,
     });
   };
 
@@ -166,6 +174,9 @@ export function AgentWorkflowPanel() {
     const nextChat: ChatEntry[] = [...chat, { role: "user", content: message }];
     setChat(nextChat);
     setInput("");
+    const autonomousController = autonomousEnabled ? new AbortController() : null;
+    autonomousControllerRef.current = autonomousController;
+    if (autonomousEnabled) setAutonomousEvents([]);
 
     try {
       const payload = await requestAgentRouter({
@@ -176,37 +187,66 @@ export function AgentWorkflowPanel() {
         forceIntent,
         customSkill: customSkill || undefined,
       });
+      const resolvedRequest = payload.resolvedRequest || message;
+
+      if (autonomousEnabled && payload.intent !== "dialogue") {
+        updateAgentMemory({ storyBrief: resolvedRequest, lastIntent: payload.intent, pendingIntent: undefined, pendingRequest: undefined, pendingQuestions: undefined });
+        const result = await runAutonomousAgent({
+          userMessage: resolvedRequest,
+          response: payload,
+          selectedNodeIds,
+          signal: autonomousController?.signal,
+          maxRepairAttempts: 2,
+          onEvent: (event) => setAutonomousEvents((current) => [...current, event].slice(-24)),
+        });
+        setChat([...nextChat, { role: "assistant", content: result.summary, intent: payload.intent }]);
+        if (result.status === "blocked") setLocalError(result.summary);
+        return;
+      }
 
       if (payload.intent === "skill" && payload.skillId) {
         const brief = payload.skillBrief || message;
         setChat([...nextChat, { role: "assistant", content: payload.summary || "已选择专用工作流技能。", intent: payload.intent }]);
         previewWorkflowSkill(payload.skillId, brief, payload.summary);
       } else if (payload.intent === "dialogue" && payload.response) {
-        if (payload.response.brief) {
+        if (payload.requiresClarification && payload.pendingIntent && payload.pendingRequest) {
+          updateAgentMemory({
+            lastIntent: "dialogue",
+            pendingIntent: payload.pendingIntent,
+            pendingRequest: payload.pendingRequest,
+            pendingQuestions: payload.response.suggestedNext,
+          });
+        } else if (payload.response.brief) {
           addStoryChainNode(payload.response.brief, payload.response.title);
           updateAgentMemory({
             storyBrief: payload.response.brief,
             selectedDirection: payload.response.title,
             lastIntent: "dialogue",
+            pendingIntent: undefined,
+            pendingRequest: undefined,
+            pendingQuestions: undefined,
           });
         } else {
-          updateAgentMemory({ storyBrief: message, lastIntent: "dialogue" });
+          updateAgentMemory({ storyBrief: message, lastIntent: "dialogue", pendingIntent: undefined, pendingRequest: undefined, pendingQuestions: undefined });
         }
         setChat([...nextChat, { role: "assistant", content: payload.response.message, intent: payload.intent, response: payload.response }]);
       } else if (payload.intent === "create" && payload.plan && payload.patch) {
         updateAgentMemory({
-          storyBrief: message,
+          storyBrief: resolvedRequest,
           selectedDirection: payload.plan.title,
           lastIntent: "create",
+          pendingIntent: undefined,
+          pendingRequest: undefined,
+          pendingQuestions: undefined,
         });
         setPreview({ intent: "create", plan: payload.plan, patch: payload.patch as CanvasPatch, summary: payload.summary || "Workflow plan prepared." });
         setChat([...nextChat, { role: "assistant", content: payload.summary || "已生成工作流计划。", intent: payload.intent }]);
       } else if (payload.intent === "edit" && payload.editPlan && payload.patch) {
-        updateAgentMemory({ storyBrief: message, lastIntent: "edit" });
+        updateAgentMemory({ storyBrief: resolvedRequest, lastIntent: "edit", pendingIntent: undefined, pendingRequest: undefined, pendingQuestions: undefined });
         setPreview({ intent: "edit", editPlan: payload.editPlan, patch: payload.patch as CanvasEditPatch, summary: payload.summary || "Canvas edit plan prepared." });
         setChat([...nextChat, { role: "assistant", content: payload.summary || "已生成画布修改计划。", intent: payload.intent }]);
       } else if (payload.intent === "organize" && payload.organizePlan && payload.patch) {
-        updateAgentMemory({ storyBrief: message, lastIntent: "organize" });
+        updateAgentMemory({ storyBrief: resolvedRequest, lastIntent: "organize", pendingIntent: undefined, pendingRequest: undefined, pendingQuestions: undefined });
         setPreview({ intent: "organize", organizePlan: payload.organizePlan, patch: payload.patch as CanvasEditPatch, summary: payload.summary || "Canvas organization plan prepared." });
         setChat([...nextChat, { role: "assistant", content: payload.summary || "已生成画布整理计划。", intent: payload.intent }]);
       } else {
@@ -217,6 +257,7 @@ export function AgentWorkflowPanel() {
       setLocalError(messageText);
       setChat([...nextChat, { role: "assistant", content: messageText }]);
     } finally {
+      if (autonomousControllerRef.current === autonomousController) autonomousControllerRef.current = null;
       setBusy(false);
     }
   };
@@ -399,6 +440,49 @@ export function AgentWorkflowPanel() {
           <div className="flex items-start gap-2 rounded-xl border border-[#e1e6ee] bg-white px-3 py-2 text-[12px] text-[#5f6b7a] shadow-sm">
             <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${localError || agentStatus === "error" ? "bg-rose-500" : agentStatus === "completed" ? "bg-emerald-500" : "bg-sky-500"}`} />
             <span className={localError || agentStatus === "error" ? "text-rose-600" : ""}>{localError || agentMessage || "Ready."}</span>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-[#dce2ea] bg-white px-3 py-2 shadow-sm">
+          <div>
+            <div className="text-[12px] font-semibold text-[#111827]">自主执行</div>
+            <div className="text-[10px] leading-4 text-[#7b8794]">自动应用、运行、观察并最多修复两轮，可能触发付费生成。</div>
+          </div>
+          <div className="flex items-center gap-2">
+            {busy && autonomousEnabled && (
+              <button
+                type="button"
+                onClick={() => autonomousControllerRef.current?.abort()}
+                className="px-2 py-1 text-[11px] font-semibold text-rose-600 hover:text-rose-700"
+              >
+                停止
+              </button>
+            )}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autonomousEnabled}
+              aria-label="自主执行"
+              disabled={busy}
+              onClick={() => setAutonomousEnabled((value) => !value)}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition ${autonomousEnabled ? "bg-[#111827]" : "bg-[#cbd3df]"} disabled:opacity-50`}
+            >
+              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition ${autonomousEnabled ? "left-6" : "left-1"}`} />
+            </button>
+          </div>
+        </div>
+
+        {autonomousEvents.length > 0 && (
+          <div className="max-h-44 overflow-y-auto rounded-xl border border-[#dce2ea] bg-white px-3 py-2 shadow-sm">
+            <div className="mb-1 text-[11px] font-semibold text-[#111827]">执行记录</div>
+            <div className="space-y-1">
+              {autonomousEvents.slice(-10).map((event) => (
+                <div key={event.id} className="flex gap-2 text-[11px] leading-4 text-[#5f6b7a]">
+                  <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${event.phase === "blocked" ? "bg-rose-500" : event.phase === "completed" ? "bg-emerald-500" : event.phase === "repairing" ? "bg-amber-500" : "bg-sky-500"}`} />
+                  <span><strong className="font-semibold text-[#374151]">{event.phase}</strong> {event.message}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

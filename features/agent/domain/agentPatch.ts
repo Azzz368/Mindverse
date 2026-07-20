@@ -48,12 +48,25 @@ export const applyEditPatchToState = (state: { nodes: CanvasNode[]; edges: Workf
     .map((node) => {
       const update = updates.get(node.id);
       if (!update) return { ...node, selected: false };
+      const resetsExecution = Boolean(update.dataPatch && Object.keys(update.dataPatch).length);
       return {
         ...node,
         selected: false,
         position: update.position || node.position,
         type: update.type || node.type,
-        data: update.dataPatch ? { ...node.data, ...update.dataPatch } : node.data,
+        data: update.dataPatch ? {
+          ...node.data,
+          ...update.dataPatch,
+          ...(resetsExecution ? {
+            status: "idle" as const,
+            output: undefined,
+            error: undefined,
+            taskId: undefined,
+            resultUrl: undefined,
+            rawStatus: undefined,
+            lastPollAt: undefined,
+          } : {}),
+        } : node.data,
       };
     });
   const baseEdges = state.edges.filter((edge) => !deletedEdges.has(edge.id) && !deletedNodes.has(edge.source) && !deletedNodes.has(edge.target));

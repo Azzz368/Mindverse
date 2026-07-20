@@ -486,6 +486,7 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
   const sceneCount = data.targetShotCount ?? data.numberOfScenes ?? 3;
+  const scenes = Array.isArray(data.output?.value) ? data.output.value.map(record) : [];
 
   return (
     <>
@@ -497,10 +498,31 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
         <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
         <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
 
-        <div className="flex-1 p-6">
-          <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800">
+        <div className="min-h-0 flex-1 p-5">
+          <div className={`relative flex h-full min-h-0 w-full overflow-hidden rounded-[18px] bg-[#f0f1f3] dark:bg-slate-800 ${scenes.length ? "items-stretch justify-start" : "items-center justify-center"}`}>
             {isGenerating ? (
               <div className="absolute inset-0 m-auto h-12 w-12 animate-pulse rounded-2xl bg-[#c9ccd1] dark:bg-slate-600" />
+            ) : scenes.length ? (
+              <div className="nodrag nowheel h-full min-h-0 w-full overflow-y-auto overscroll-contain px-4 py-3">
+                <div className="sticky top-0 z-10 mb-1 flex items-center justify-between bg-[#f0f1f3] pb-2 text-[11px] font-semibold text-[#404040] dark:bg-slate-800 dark:text-slate-200">
+                  <span>{scenes.length} scenes</span>
+                  <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-[#676f7b] shadow-sm dark:bg-slate-700 dark:text-slate-300">Synced</span>
+                </div>
+                <div className="divide-y divide-[#d9dce1] dark:divide-slate-700">
+                  {scenes.map((scene: Record<string, unknown>, index: number) => (
+                    <div key={`${String(scene.shotNumber || scene.sceneNumber || index + 1)}-${index}`} className="py-2.5 first:pt-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="truncate text-[11px] font-semibold text-[#030303] dark:text-cyan-200">
+                          {text(scene.title) || `Scene ${String(scene.shotNumber || scene.sceneNumber || index + 1)}`}
+                        </p>
+                        {Number(scene.duration) > 0 && <span className="shrink-0 text-[10px] font-medium text-[#858b94] dark:text-slate-500">{Number(scene.duration)}s</span>}
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-[#404040] dark:text-slate-300">{text(scene.description) || text(scene.action) || text(scene.visualPrompt)}</p>
+                      {text(scene.camera) && <p className="mt-1 truncate text-[10px] text-[#858b94] dark:text-slate-500">{text(scene.camera)}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
             ) : <StoryboardPlaceholderIcon />}
           </div>
         </div>

@@ -2,6 +2,7 @@ import { asRecord, asText } from "./values";
 import { DEFAULT_QWEN_VOICE_MODEL, qwenTtsLanguageTypes } from "@/shared/api/qwenContracts";
 import { imagePromptWithPreset } from "@/shared/workflow/imagePromptPresets";
 import { videoAspectRatioForPreset, videoInputPortsForPreset, videoModelPatch, videoModelPresetIdFromData, type VideoInputPortKind } from "@/shared/workflow/videoModelPresets";
+import { storyboardSceneFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation, WorkflowEdge } from "@/shared/canvas";
 
 const MAX_PROVIDER_PROMPT_LENGTH = 2400;
@@ -57,6 +58,19 @@ export const audioUrlFrom = (node: CanvasNode) => {
 const ownPromptFrom = (data: CanvasNodeData) =>
   [data.prompt, data.instruction, data.textContent ?? data.inputText, data.storyBrief].filter(Boolean).join("\n\n");
 
+const storyboardScenePromptFrom = (node: CanvasNode, upstream: CanvasNode[]) => {
+  const storyboard = upstream.find((source) =>
+    source.data.nodeType === "storyboard"
+    && (!node.data.sourceStoryboardNodeId || source.id === node.data.sourceStoryboardNodeId));
+  const scene = storyboardSceneFromValue(storyboard?.data.output?.value, Number(node.data.shotNumber) || 1);
+  return scene ? storyboardSceneTextFrom(scene) : "";
+};
+
+const isStoryboardSceneTextNode = (node: CanvasNode, upstream: CanvasNode[]) =>
+  node.data.nodeType === "text"
+  && (node.data.textSourceMode === "storyboard-scene"
+    || (Number(node.data.shotNumber) > 0 && upstream.some((source) => source.data.nodeType === "storyboard")));
+
 export const contextFrom = (upstream: CanvasNode[]) =>
   upstream
     .map((source) => {
@@ -74,7 +88,7 @@ export const contextFrom = (upstream: CanvasNode[]) =>
       }
 
       if (source.data.nodeType === "text") {
-        return `Text direction: ${source.data.textContent ?? source.data.inputText ?? asText(asRecord(value).generatedText)}`;
+        return `Text direction: ${asText(asRecord(value).generatedText) || source.data.textContent || source.data.inputText || ""}`;
       }
 
       if (source.data.nodeType === "prompt") {
@@ -90,8 +104,25 @@ export const contextFrom = (upstream: CanvasNode[]) =>
     .filter(Boolean)
     .join("\n\n");
 
-export const promptFrom = (node: CanvasNode, upstream: CanvasNode[]) =>
-  [ownPromptFrom(node.data), contextFrom(upstream)].filter(Boolean).join("\n\n");
+export const promptFrom = (node: CanvasNode, upstream: CanvasNode[]) => {
+  const ownPrompt = ownPromptFrom(node.data);
+  const storyboardSceneText = isStoryboardSceneTextNode(node, upstream);
+  const isolatesStoryboardScene = node.data.nodeType === "image" || storyboardSceneText;
+  if (!isolatesStoryboardScene) {
+    return [ownPrompt, contextFrom(upstream)].filter(Boolean).join("\n\n");
+  }
+
+  // Scene branches must never receive the complete storyboard as hidden context.
+  const nonStoryboardContext = contextFrom(upstream.filter((source) => source.data.nodeType !== "storyboard"));
+  if (storyboardSceneText) {
+    const editableSceneText = (node.data.textContent ?? node.data.inputText ?? node.data.sourceSceneText ?? "").trim();
+    const matchingScenePrompt = storyboardScenePromptFrom(node, upstream) || node.data.sourceSceneText || "";
+    return [node.data.instruction, editableSceneText || matchingScenePrompt, nonStoryboardContext].filter(Boolean).join("\n\n");
+  }
+
+  const matchingScenePrompt = ownPrompt || nonStoryboardContext ? "" : storyboardScenePromptFrom(node, upstream);
+  return [ownPrompt, nonStoryboardContext, matchingScenePrompt].filter(Boolean).join("\n\n");
+};
 
 const videoPromptReferences = (prompt: string) =>
   prompt.replace(/@(?:image[_\s-]?|图|素材)?(\d+)/gi, (_, index: string) => `<<<image_${Number(index)}>>>`);
@@ -223,11 +254,12 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
   }
 
   if (d.nodeType === "text") {
+    const storyboardSceneText = isStoryboardSceneTextNode(node, upstream);
     return {
       prompt: limitProviderPrompt(prompt),
       model: d.model,
       temperature: d.temperature,
-      upstreamContext: inputs,
+      upstreamContext: storyboardSceneText ? undefined : inputs,
     };
   }
 

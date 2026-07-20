@@ -1,13 +1,18 @@
 import { listAgentSkills, readAgentSkill } from "./skillLoader";
 import { agentWorkflowSkills } from "@/shared/agent/workflowSkills";
 import type { AgentProjectMemory } from "@/shared/agent/projectMemory";
+import type { AgentObservationReport } from "@/shared/agent/agentAutonomy";
 
 const languageInstructionFor = (text: string) =>
   /[\u3400-\u9fff]/.test(text)
     ? "The user writes Chinese. All human-readable values must be Simplified Chinese. JSON keys and enum values stay English."
     : "Preserve the user's language for all human-readable values. JSON keys and enum values stay English.";
 
-export function buildAgentPlannerMessages(userPrompt: string, canvasSummary?: string) {
+export function buildAgentPlannerMessages(
+  userPrompt: string,
+  canvasSummary?: string,
+  repair?: { previousPlan: unknown; feedback: string },
+) {
   return [
     {
       role: "system",
@@ -22,7 +27,53 @@ export function buildAgentPlannerMessages(userPrompt: string, canvasSummary?: st
       content: [
         `User creative request:\n${userPrompt}`,
         canvasSummary ? `Current canvas summary:\n${canvasSummary}` : "Current canvas summary: empty or unavailable.",
+        repair ? `Previous workflow plan:\n${JSON.stringify(repair.previousPlan, null, 2)}` : "",
+        repair ? `Plan quality feedback:\n${repair.feedback}` : "",
         "Create the best initial editable workflow plan.",
+      ].filter(Boolean).join("\n\n"),
+    },
+  ] as Array<{ role: "system" | "user"; content: string }>;
+}
+
+export function buildAgentRequirementMessages({
+  userMessage,
+  pendingRequest,
+  intendedIntent,
+  canvasSummary,
+  conversation,
+}: {
+  userMessage: string;
+  pendingRequest?: string;
+  intendedIntent: "create" | "edit" | "skill";
+  canvasSummary: string;
+  conversation: Array<{ role: "user" | "assistant"; content: string }>;
+}) {
+  const languageSource = [pendingRequest, userMessage, ...conversation.map((item) => item.content)].filter(Boolean).join("\n");
+  return [
+    {
+      role: "system",
+      content: [
+        "You are the Mindverse execution requirement analyst.",
+        languageInstructionFor(languageSource),
+        "Decide whether the request contains enough information to create an editable, executable canvas plan for the intended route.",
+        "Reason semantically from the full conversation, pending request, selected nodes, canvas state, and chosen Skill. Do not use keyword matching.",
+        "Ask only for blocking or critical information whose absence changes the operation target, graph topology, number of deliverables, required source assets, or an explicitly important output constraint.",
+        "Do not ask about optional aesthetics or settings that can use sensible editable defaults. Record those defaults in assumptions instead.",
+        "A selected canvas node is a valid source/target when the canvas summary says it is selected. Do not ask the user to provide it again.",
+        "When this is a follow-up to a pending request, combine the pending request and latest answer into one standalone resolvedRequest.",
+        "Return at most three concise questions. If ready is true, questions must be empty.",
+        "Return JSON only: {\"ready\":true|false,\"resolvedRequest\":\"standalone instruction\",\"missingInformation\":[\"...\"],\"questions\":[\"...\"],\"assumptions\":[\"...\"]}.",
+      ].join("\n\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `Intended route: ${intendedIntent}`,
+        pendingRequest ? `Pending request awaiting details:\n${pendingRequest}` : "Pending request: none",
+        "Conversation so far:",
+        JSON.stringify(conversation.slice(-12), null, 2),
+        canvasSummary,
+        `Latest user message:\n${userMessage}`,
       ].join("\n\n"),
     },
   ] as Array<{ role: "system" | "user"; content: string }>;
@@ -148,6 +199,7 @@ export function buildAgentRouterMessages({
         "You are Mindverse Agent Router. Choose exactly one route for the latest user message.",
         languageInstructionFor(userMessage),
         "Read the available skill descriptions. Route by intent and context, not by shallow keyword matching.",
+        "If Agent memory contains pendingIntent and pendingRequest, decide whether the latest message answers that pending clarification. When it does, set resumePending to true and use the pending intent. When it does not, route the latest request normally.",
         "The canvas summary may include a Selected Nodes section. Treat those nodes as the user's explicit operation targets.",
         "Routes:",
         "- dialogue: brainstorm, ideate, clarify, develop a story, or continue an unfinished ideation conversation.",
@@ -156,7 +208,7 @@ export function buildAgentRouterMessages({
         "- organize: arrange/group/clean up the current canvas.",
         "- skill: call a specialized workflow skill. Use only when the user explicitly asks to generate/build/place that specialized workflow.",
         "Important: If the user says '构思', '不是修改', '只构思', or is adding story details while the last memory intent is dialogue, choose dialogue unless they explicitly request workflow generation.",
-        "Return JSON only: {\"intent\":\"dialogue|create|edit|organize|skill\",\"skillId\":\"fixed-scene-action-video optional\",\"reason\":\"short reason\"}.",
+        "Return JSON only: {\"intent\":\"dialogue|create|edit|organize|skill\",\"skillId\":\"fixed-scene-action-video optional\",\"resumePending\":false,\"reason\":\"short reason\"}.",
         "",
         "Available core skills:",
         coreSkills,
@@ -201,6 +253,43 @@ export function buildFixedSceneSkillMessages(userBrief: string) {
         "User fixed-scene workflow request:",
         userBrief,
         "Compile this into the structured fixed-scene brief.",
+      ].join("\n\n"),
+    },
+  ] as Array<{ role: "system" | "user"; content: string }>;
+}
+
+export function buildAgentVerifierMessages({
+  userMessage,
+  observation,
+  attempt,
+  maxRepairAttempts,
+}: {
+  userMessage: string;
+  observation: AgentObservationReport;
+  attempt: number;
+  maxRepairAttempts: number;
+}) {
+  return [
+    {
+      role: "system",
+      content: [
+        "You are Mindverse Run Verifier.",
+        languageInstructionFor(userMessage),
+        "Judge only from the supplied structured observation. Do not claim to have watched or listened to media.",
+        "Return completed only when executed nodes are terminal, successful, and no reported issue contradicts the request.",
+        "Return repair when a node parameter, graph connection, provider choice, duration, aspect ratio, or retry can plausibly fix the run.",
+        "Return blocked when user input, missing source media, credentials, provider availability, or exhausted repair attempts prevent an automatic fix.",
+        "Never propose deleting or overwriting the user's original source media.",
+        "Return JSON only: {\"status\":\"completed|repair|blocked\",\"summary\":\"...\",\"repairInstruction\":\"required only for repair\"}.",
+      ].join("\n\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `Original user request:\n${userMessage}`,
+        `Repair attempt: ${attempt} of ${maxRepairAttempts}`,
+        "Structured observation:",
+        JSON.stringify(observation, null, 2),
       ].join("\n\n"),
     },
   ] as Array<{ role: "system" | "user"; content: string }>;
