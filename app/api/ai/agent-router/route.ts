@@ -10,6 +10,8 @@ import type { AgentCanvasEditPlan, AgentDialogueMessage } from "@/shared/agent/a
 import type { AgentRouterIntent } from "@/shared/api/aiContracts";
 import type { CanvasNode, WorkflowEdge } from "@/shared/canvas";
 import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
+import type { AgentToolCall } from "@/shared/agent/agentTools";
+import { executeAgentTool } from "@/server/agent/toolRegistry";
 import { stabilizeWorkflowPlanDependencies, workflowPlanQualityIssues } from "@/server/agent/workflowPlanQuality";
 
 type RouterSnapshot = {
@@ -21,7 +23,7 @@ type RouterSnapshot = {
 
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const stringArray = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : [];
-const validIntents: AgentRouterIntent[] = ["dialogue", "create", "edit", "organize", "skill"];
+const validIntents: AgentRouterIntent[] = ["dialogue", "create", "edit", "organize", "skill", "tool"];
 const videoNodeTypes = new Set(["video", "videoEdit", "motion"]);
 
 const customSkillFrom = (value: unknown): ActiveSkillContext | undefined => {
@@ -137,8 +139,27 @@ const isFixedSceneSkillRequest = (value: string, memory?: AgentProjectMemory) =>
   return (explicitActivation && explicitWorkflowAsk) || asksToReusePreferredSkill;
 };
 
+const isImageSearchToolRequest = (value: string) => {
+  const input = value.trim();
+  const asksToSearch = /(?:帮我|请|能否|可以)?\s*(?:找|搜索|搜一下|查找|检索).{0,80}(?:图片|照片|肖像|剧照|素材)|(?:search|find|look\s*up).{0,80}(?:image|photo|portrait|picture)/i.test(input);
+  const asksToGenerate = /(?:生成|创作|画一张|制作).{0,40}(?:图片|图像|照片)|(?:generate|create|draw).{0,40}(?:image|photo|picture)/i.test(input);
+  return asksToSearch && !asksToGenerate;
+};
+
+const imageSearchQueryFrom = (value: string) => value
+  .replace(/(?:帮我|请|能否|可以)?\s*(?:找|搜索|搜一下|查找|检索)(?:一张|一些|几张)?/gi, " ")
+  .replace(/(?:search|find|look\s*up)(?:\s+for)?/gi, " ")
+  .replace(/(?:图片|照片|肖像|剧照|素材|image|photo|portrait|picture)/gi, " ")
+  .replace(/[，。！？,.!?]/g, " ")
+  .replace(/^\s*(?:\u4e00\u5f20|\u4e00\u4e9b|\u51e0\u5f20)\s*/i, " ")
+  .replace(/\s*\u7684\s*$/i, " ")
+  .replace(/\s+/g, " ")
+  .trim()
+  .slice(0, 160) || value.trim().slice(0, 160);
+
 const inferIntent = (message: string, snapshot: RouterSnapshot, selectedCount: number): AgentRouterIntent => {
   const input = message.toLowerCase();
+  if (isImageSearchToolRequest(input)) return "tool";
   const fixedSceneRequest = isFixedSceneSkillRequest(input, snapshot.agentMemory);
   const organizeRequest = includesAnyText(input, [cn.organize, cn.arrange, cn.group]) || includesAnyPattern(input, [/organize|arrange|layout|group/]);
   const notEditRequest = includesAnyPattern(input, [/不是\s*(?:修改|编辑)|不(?:要)?(?:修改|编辑|改)(?:画布|节点)?|只(?:要)?构思|仅(?:构思|讨论)|不要动(?:画布|节点)|not\s+(?:edit|modify|change)/i]);
@@ -365,11 +386,14 @@ export async function POST(request: Request) {
     const conversation = messagesFrom(body.conversation);
     const forced = validIntents.includes(body.forceIntent as AgentRouterIntent) ? body.forceIntent as AgentRouterIntent : undefined;
     let routedSkillId: "fixed-scene-action-video" | undefined;
+    let routedToolCall: AgentToolCall | undefined;
     let resumePending = false;
     let intent: AgentRouterIntent;
     if (forced) {
       intent = forced;
       resumePending = snapshot.agentMemory?.pendingIntent === forced;
+    } else if (snapshot.agentMemory?.pendingIntent && isImageSearchToolRequest(userMessage)) {
+      intent = "tool";
     } else if (snapshot.agentMemory?.pendingIntent && snapshot.agentMemory.pendingRequest) {
       intent = snapshot.agentMemory.pendingIntent;
       resumePending = true;
@@ -386,6 +410,7 @@ export async function POST(request: Request) {
           ? snapshot.agentMemory.pendingIntent
           : routed.intent;
         routedSkillId = routed.skillId;
+        routedToolCall = routed.toolCall;
       } catch (routerError) {
         console.warn("Agent router LLM failed; using heuristic fallback", routerError instanceof Error ? routerError.message : routerError);
         intent = inferIntent(userMessage, snapshot, selectedNodeIds.length);
@@ -400,6 +425,30 @@ export async function POST(request: Request) {
       routedSkillId = undefined;
     }
 
+    if (intent === "tool") {
+      const toolCall = routedToolCall || {
+        name: "image_search" as const,
+        arguments: { query: imageSearchQueryFrom(userMessage), limit: 8 },
+      };
+      const toolResult = await executeAgentTool(toolCall);
+      const zh = /[\u3400-\u9fff]/.test(userMessage);
+      const count = toolResult.results.length;
+      const providerLabel = toolResult.provider === "serpapi-google" ? "Google Images"
+        : toolResult.provider === "serpapi-bing" ? "Bing Images"
+          : toolResult.provider === "google-cse" ? "Google CSE"
+            : "Wikimedia Commons";
+      return NextResponse.json({
+        ok: true,
+        intent: "tool",
+        toolCall,
+        toolResult,
+        resolvedRequest: userMessage,
+        summary: count
+          ? (zh ? `通过 ${providerLabel} 找到了 ${count} 张候选图片，请选择一张作为画布参考素材并确认来源授权。` : `Found ${count} image candidates via ${providerLabel}. Choose one as a canvas reference and verify its usage rights.`)
+          : (zh ? "没有找到合适的公开图片，请换一个关键词再试。" : "No suitable public images were found. Try a different query."),
+      });
+    }
+
     let effectiveUserMessage = userMessage;
     if (intent === "create" || intent === "edit" || intent === "skill") {
       const requirement = await runAgentRequirementLLM({
@@ -408,6 +457,7 @@ export async function POST(request: Request) {
         intendedIntent: intent,
         canvasSummary: [
           routingCanvasSummary(snapshot, selectedNodeIds),
+          agentMemorySummary(snapshot.agentMemory),
           customSkill ? `Selected custom skill: ${customSkill.name}\nUsage: ${customSkill.howToUse}\nExpected output: ${customSkill.expectedOutput}` : "",
         ].filter(Boolean).join("\n\n"),
         conversation,

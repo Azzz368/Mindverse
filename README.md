@@ -43,6 +43,19 @@ The API key is read only by server-side code in `lib/ai` and the Next.js `/api/a
 
 With `AI_PROVIDER=mock`, all nodes use local deterministic mock results and no external request is made. With `AI_PROVIDER=302ai` but without `AI_302_API_KEY`, the affected node shows a clear configuration error instead of crashing the canvas.
 
+## Agent full-web image search
+
+The Agent image-search tool supports Google Images and Bing Images through SerpAPI. Configure one server-only key in `.env.local` or the Render environment:
+
+```dotenv
+AGENT_IMAGE_SEARCH_PROVIDER=serpapi-google
+SERPAPI_API_KEY=********
+AGENT_IMAGE_SEARCH_LANGUAGE=zh-cn
+AGENT_IMAGE_SEARCH_COUNTRY=hk
+```
+
+Use `AGENT_IMAGE_SEARCH_PROVIDER=serpapi-bing` to retrieve Bing Images results through the same SerpAPI account. Existing Google Custom Search JSON API customers can instead choose `google-cse` and configure `GOOGLE_SEARCH_API_KEY` plus `GOOGLE_SEARCH_ENGINE_ID`. `auto` selects SerpAPI Google first, then Google CSE, and finally the key-free Wikimedia fallback. Search keys stay on the server and are never returned to the browser. Full-web candidates can have unknown copyright status; the Agent preserves each source page and asks the user to verify usage rights before publishing.
+
 ## Kling official image-to-video
 
 Use `videoProvider=kling` in a VideoNode, or set `AI_VIDEO_PROVIDER=kling` on the server. Kling image-to-video requires a prompt plus a first-frame image, so connect a completed ImageNode to the VideoNode or set the VideoNode reference image URL. The first frame must be an HTTPS image URL or a JPG/PNG base64 data URL.

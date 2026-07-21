@@ -3,7 +3,8 @@ import type { AgentWorkflowPlan, CanvasPatch } from "@/shared/agent/agentSchema"
 import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/shared/canvas";
 import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
 import { defaultMotionTemplateVariablesJson, getMotionTemplate } from "@/shared/motion/templates";
-import { videoModelPresetIdFromData, videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
+import { videoModelPresetIdFromData } from "@/shared/workflow/videoModelPresets";
+import { targetHandleForNodeConnection } from "@/shared/workflow/connectionHandles";
 import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER, qwenTtsLanguageTypes } from "@/shared/api/qwenContracts";
 import { assertWorkflowPatchMatchesPlan } from "@/server/agent/workflowPlanQuality";
 
@@ -23,19 +24,8 @@ const jsonText = (value: unknown) => {
 const safeId = (value: string) => value.trim().replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "step";
 const hasChinese = (value: string) => /[\u3400-\u9fff]/.test(value);
 const tokenstarMode = (value: string) => value === "kling-reference" || value === "kling-image-to-video" ? "kling-image" : value === "kling-text-to-video" ? "kling-text" : value;
-const voiceTtsTargetHandleForNodeType = (sourceType: NodeType) => sourceType === "voiceClone" ? "voice" : ["prompt", "text", "script", "storyboard"].includes(sourceType) ? "text" : undefined;
 const targetHandleFor = (sourceNode: CanvasNode | undefined, targetNode: CanvasNode | undefined) =>
-  sourceNode && targetNode?.data.nodeType === "image" && ["prompt", "text", "script", "storyboard"].includes(sourceNode.data.nodeType)
-    ? "text"
-    : sourceNode && (targetNode?.data.nodeType === "text" || targetNode?.data.nodeType === "script") && ["prompt", "text", "script", "storyboard"].includes(sourceNode.data.nodeType)
-      ? "input-1"
-    : sourceNode && targetNode?.data.nodeType === "video"
-    ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data)
-    : sourceNode && targetNode?.data.nodeType === "videoEdit" && (sourceNode.data.nodeType === "video" || sourceNode.data.nodeType === "videoEdit" || sourceNode.data.nodeType === "motion" || sourceNode.data.nodeType === "audio" || sourceNode.data.nodeType === "voiceTTS")
-      ? sourceNode.data.nodeType === "audio" || sourceNode.data.nodeType === "voiceTTS" ? "audio" : "video"
-      : sourceNode && targetNode?.data.nodeType === "voiceTTS"
-        ? voiceTtsTargetHandleForNodeType(sourceNode.data.nodeType)
-        : undefined;
+  sourceNode && targetNode ? targetHandleForNodeConnection(sourceNode.data.nodeType, targetNode.data) : undefined;
 const DEFAULT_AGENT_IMAGE_MODEL = "gpt-image-2(tokenstar)";
 const sceneCountFor = (plan: AgentWorkflowPlan, params: Record<string, unknown>) =>
   Math.max(1, Math.min(30, Math.round(plan.sceneCount || number(params.targetShotCount) || number(params.numberOfScenes) || 3)));
