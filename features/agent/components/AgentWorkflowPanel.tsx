@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { requestAgentRouter } from "@/features/agent/services/agentClient";
 import { runAutonomousAgent } from "@/features/agent/services/autonomousAgent";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
-import { agentMemorySummary } from "@/shared/agent/projectMemory";
+import { agentMemorySummary, type AgentReferenceAsset } from "@/shared/agent/projectMemory";
 import { agentWorkflowSkills, buildFixedSceneVideoSkill, type AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 import type {
   AgentCanvasEditPlan,
@@ -213,19 +213,20 @@ export function AgentWorkflowPanel() {
       });
       const memory = useCanvasStore.getState().agentMemory;
       const previousAssets = memory?.referenceAssets || [];
+      const selectedAsset: AgentReferenceAsset = {
+        nodeId,
+        kind: "image",
+        title: query,
+        role: "selected web image reference",
+        searchQuery: query,
+        sourceName: result.sourceName,
+        sourcePageUrl: result.sourcePageUrl,
+      };
       updateAgentMemory({
         lastIntent: "tool",
         referenceAssets: [
           ...previousAssets.filter((asset) => asset.nodeId !== nodeId),
-          {
-            nodeId,
-            kind: "image",
-            title: query,
-            role: "selected web image reference",
-            searchQuery: query,
-            sourceName: result.sourceName,
-            sourcePageUrl: result.sourcePageUrl,
-          },
+          selectedAsset,
         ].slice(-12),
       });
       setSelectedImageResultIds((current) => [...current, result.id]);
