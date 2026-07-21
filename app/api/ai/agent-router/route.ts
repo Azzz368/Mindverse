@@ -131,12 +131,16 @@ const isFixedSceneSkillRequest = (value: string, memory?: AgentProjectMemory) =>
   const explicitActivation = includesAnyText(input, [cn.fixedScene, cn.fourViewA, cn.fourViewB, cn.fourSide, cn.designSheet, cn.nineGridA, cn.nineGridB, cn.nineGridC]) ||
     includesAnyPattern(input, [/character\s*(?:turnaround|sheet)|scene\s*(?:nine|9)[-\s]?grid|fixed[-\s]?scene/i]);
   const explicitWorkflowAsk = includesAnyText(input, [cn.workflow, cn.generate, cn.create, cn.build]) || includesAnyPattern(input, [/workflow|create|generate|build/]);
+  const explicitProductionAsk = includesAnyText(input, [cn.video]) ||
+    includesAnyPattern(input, [/(?:\u5236\u4f5c|\u505a\u4e00\u4e2a|\u4f7f\u7528).{0,16}(?:\u6280\u80fd|skill|\u77ed\u7247|\u89c6\u9891)|\b(?:make|produce|use)\b.{0,24}(?:skill|video|clip)/i]);
   const asksToReusePreferredSkill =
     memory?.preferredWorkflowSkill === "fixed-scene-action-video" &&
-    (explicitWorkflowAsk || includesAnyText(input, [cn.video, cn.continue])) &&
-    !includesAnyText(input, [cn.storyboard]);
+    includesAnyPattern(input, [
+      /(?:\u7ee7\u7eed|\u6cbf\u7528|\u518d\u7528|\u4f7f\u7528).{0,16}(?:\u521a\u624d|\u4e4b\u524d|\u4e0a\u6b21|\u56fa\u5b9a\u573a\u666f|\u6280\u80fd|\u5de5\u4f5c\u6d41|skill)/i,
+      /(?:continue|reuse|use).{0,24}(?:previous|same|fixed[-\s]?scene|skill|workflow)/i,
+    ]);
 
-  return (explicitActivation && explicitWorkflowAsk) || asksToReusePreferredSkill;
+  return (explicitActivation && (explicitWorkflowAsk || explicitProductionAsk)) || asksToReusePreferredSkill;
 };
 
 const isImageSearchToolRequest = (value: string) => {
@@ -388,15 +392,18 @@ export async function POST(request: Request) {
     let routedSkillId: "fixed-scene-action-video" | undefined;
     let routedToolCall: AgentToolCall | undefined;
     let resumePending = false;
+    const pendingRequest = snapshot.agentMemory?.pendingRequest;
+    const rawPendingIntent = snapshot.agentMemory?.pendingIntent;
+    const fallbackWorkflowIntent: AgentRouterIntent = selectedNodeIds.length ? "edit" : "create";
+    const pendingIntent = rawPendingIntent === "skill" && pendingRequest && !isFixedSceneSkillRequest(pendingRequest, snapshot.agentMemory)
+      ? fallbackWorkflowIntent
+      : rawPendingIntent;
     let intent: AgentRouterIntent;
     if (forced) {
       intent = forced;
-      resumePending = snapshot.agentMemory?.pendingIntent === forced;
-    } else if (snapshot.agentMemory?.pendingIntent && isImageSearchToolRequest(userMessage)) {
+      resumePending = pendingIntent === forced;
+    } else if (pendingIntent && isImageSearchToolRequest(userMessage)) {
       intent = "tool";
-    } else if (snapshot.agentMemory?.pendingIntent && snapshot.agentMemory.pendingRequest) {
-      intent = snapshot.agentMemory.pendingIntent;
-      resumePending = true;
     } else {
       try {
         const routed = await runAgentRouterLLM({
@@ -405,16 +412,28 @@ export async function POST(request: Request) {
           memorySummary: agentMemorySummary(snapshot.agentMemory),
           conversation,
         });
-        resumePending = routed.resumePending && Boolean(snapshot.agentMemory?.pendingIntent);
-        intent = resumePending && snapshot.agentMemory?.pendingIntent
-          ? snapshot.agentMemory.pendingIntent
+        resumePending = routed.resumePending && Boolean(pendingIntent && pendingRequest);
+        intent = resumePending && pendingIntent
+          ? pendingIntent
           : routed.intent;
         routedSkillId = routed.skillId;
         routedToolCall = routed.toolCall;
       } catch (routerError) {
         console.warn("Agent router LLM failed; using heuristic fallback", routerError instanceof Error ? routerError.message : routerError);
-        intent = inferIntent(userMessage, snapshot, selectedNodeIds.length);
-        resumePending = snapshot.agentMemory?.pendingIntent === intent;
+        resumePending = Boolean(pendingIntent && pendingRequest);
+        intent = resumePending && pendingIntent ? pendingIntent : inferIntent(userMessage, snapshot, selectedNodeIds.length);
+      }
+    }
+
+    const skillRequestContext = resumePending && pendingRequest
+      ? `${pendingRequest}\n${userMessage}`
+      : userMessage;
+    if (intent === "skill") {
+      if (isFixedSceneSkillRequest(skillRequestContext, snapshot.agentMemory)) {
+        routedSkillId = "fixed-scene-action-video";
+      } else {
+        intent = fallbackWorkflowIntent;
+        routedSkillId = undefined;
       }
     }
 
@@ -485,6 +504,11 @@ export async function POST(request: Request) {
         requirement.resolvedRequest,
         requirement.assumptions.length ? `Editable assumptions:\n${requirement.assumptions.map((item) => `- ${item}`).join("\n")}` : "",
       ].filter(Boolean).join("\n\n");
+    }
+
+    if (intent === "skill" && !isFixedSceneSkillRequest(effectiveUserMessage, snapshot.agentMemory)) {
+      intent = fallbackWorkflowIntent;
+      routedSkillId = undefined;
     }
 
     const guidedUserMessage = userMessageWithCustomSkill(effectiveUserMessage, customSkill);
