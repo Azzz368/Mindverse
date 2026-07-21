@@ -20,6 +20,8 @@ import type { CanvasNode } from "@/shared/canvas";
 import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
 import { ACTIVE_SKILL_KEY } from "@/features/skills/services/skillClient";
 import type { AgentRunEvent } from "@/shared/agent/agentAutonomy";
+import type { AgentImageSearchResult } from "@/shared/agent/agentTools";
+import { archiveRemoteImageUrl } from "@/features/canvas/services/mediaArchiveClient";
 
 type AgentPreview =
   | { intent: "create"; plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }
@@ -42,6 +44,10 @@ type ChatEntry = {
   content: string;
   intent?: AgentRouterIntent;
   response?: AgentDialogueResponse;
+  imageSearch?: {
+    query: string;
+    results: AgentImageSearchResult[];
+  };
 };
 
 const suggestions = [
@@ -87,6 +93,8 @@ export function AgentWorkflowPanel() {
   const [customSkill, setCustomSkill] = useState<ActiveSkillContext | null>(null);
   const [autonomousEnabled, setAutonomousEnabled] = useState(false);
   const [autonomousEvents, setAutonomousEvents] = useState<AgentRunEvent[]>([]);
+  const [selectingImageId, setSelectingImageId] = useState<string | null>(null);
+  const [selectedImageResultIds, setSelectedImageResultIds] = useState<string[]>([]);
   const autonomousControllerRef = useRef<AbortController | null>(null);
 
   const nodes = useCanvasStore((state) => state.nodes);
@@ -165,6 +173,74 @@ export function AgentWorkflowPanel() {
     });
   };
 
+  const selectImageSearchResult = async (result: AgentImageSearchResult, query: string) => {
+    if (selectingImageId || selectedImageResultIds.includes(result.id)) return;
+    setSelectingImageId(result.id);
+    setLocalError(null);
+    let canvasImageUrl = result.thumbnailUrl;
+    let archived = false;
+    const archiveCandidates = [...new Set([result.imageUrl, result.thumbnailUrl].filter(Boolean))];
+    for (const candidate of archiveCandidates) {
+      try {
+        canvasImageUrl = await archiveRemoteImageUrl(candidate, "agent-web-image-search");
+        archived = true;
+        break;
+      } catch {
+        // Try the provider thumbnail when the source site blocks direct image downloads.
+      }
+    }
+    try {
+      const store = useCanvasStore.getState();
+      const position = {
+        x: store.nodes.length ? Math.max(...store.nodes.map((node) => node.position.x)) + 420 : 80,
+        y: store.nodes.length ? Math.min(...store.nodes.map((node) => node.position.y)) : 80,
+      };
+      store.addMediaNode(canvasImageUrl, position);
+      const nodeId = useCanvasStore.getState().selectedNodeId;
+      if (!nodeId) throw new Error("Reference node was not created.");
+      const notes = [
+        `Agent image search: ${query}`,
+        `Source: ${result.sourceName}`,
+        result.creator ? `Creator: ${result.creator}` : "",
+        result.license ? `License: ${result.license}` : "",
+        result.licenseUrl ? `License page: ${result.licenseUrl}` : "",
+        `Source page: ${result.sourcePageUrl}`,
+        archived ? "Archived to Mindverse media storage." : "Using the original public image URL.",
+      ].filter(Boolean).join("\n");
+      useCanvasStore.getState().updateNodeData(nodeId, {
+        title: `Reference* ${query}`,
+        notes,
+      });
+      const memory = useCanvasStore.getState().agentMemory;
+      const previousAssets = memory?.referenceAssets || [];
+      updateAgentMemory({
+        lastIntent: "tool",
+        referenceAssets: [
+          ...previousAssets.filter((asset) => asset.nodeId !== nodeId),
+          {
+            nodeId,
+            kind: "image",
+            title: query,
+            role: "selected web image reference",
+            searchQuery: query,
+            sourceName: result.sourceName,
+            sourcePageUrl: result.sourcePageUrl,
+          },
+        ].slice(-12),
+      });
+      setSelectedImageResultIds((current) => [...current, result.id]);
+      setChat((current) => [
+        ...current,
+        { role: "user", content: `我选择了图片“${result.title}”作为“${query}”的参考素材。画布节点 ID：${nodeId}。` },
+        { role: "assistant", content: `已将“${query}”加入画布并选中。现在可以继续描述如何使用这张人物参考图，例如生成 10 秒短片。`, intent: "tool" },
+      ]);
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "无法将图片加入画布。");
+    } finally {
+      setSelectingImageId(null);
+    }
+  };
+
   const runUnifiedAgent = async (forceIntent?: AgentRouterIntent, messageOverride?: string) => {
     const message = (messageOverride ?? input).trim();
     if (!message || busy) return;
@@ -189,7 +265,7 @@ export function AgentWorkflowPanel() {
       });
       const resolvedRequest = payload.resolvedRequest || message;
 
-      if (autonomousEnabled && payload.intent !== "dialogue") {
+      if (autonomousEnabled && ["create", "edit", "organize", "skill"].includes(payload.intent)) {
         updateAgentMemory({ storyBrief: resolvedRequest, lastIntent: payload.intent, pendingIntent: undefined, pendingRequest: undefined, pendingQuestions: undefined });
         const result = await runAutonomousAgent({
           userMessage: resolvedRequest,
@@ -204,7 +280,18 @@ export function AgentWorkflowPanel() {
         return;
       }
 
-      if (payload.intent === "skill" && payload.skillId) {
+      if (payload.intent === "tool" && payload.toolResult?.name === "image_search") {
+        updateAgentMemory({ lastIntent: "tool" });
+        setChat([...nextChat, {
+          role: "assistant",
+          content: payload.summary || "请选择一张图片作为参考素材。",
+          intent: "tool",
+          imageSearch: {
+            query: payload.toolResult.query,
+            results: payload.toolResult.results,
+          },
+        }]);
+      } else if (payload.intent === "skill" && payload.skillId) {
         const brief = payload.skillBrief || message;
         setChat([...nextChat, { role: "assistant", content: payload.summary || "已选择专用工作流技能。", intent: payload.intent }]);
         previewWorkflowSkill(payload.skillId, brief, payload.summary);
@@ -411,12 +498,40 @@ export function AgentWorkflowPanel() {
               ) : null}
               {item.response?.brief ? (
                 <div className="mt-3 flex gap-2">
-                  <Button type="button" disabled={busy} onClick={() => void runUnifiedAgent("create", item.response?.brief)} className="rounded-full border-[#111827] bg-[#111827] px-3 py-1 text-[11px] text-white hover:border-[#263244] hover:bg-[#263244]">
+                  <Button type="button" disabled={busy} onClick={() => void runUnifiedAgent(nodes.length ? "edit" : "create", item.response?.brief)} className="rounded-full border-[#111827] bg-[#111827] px-3 py-1 text-[11px] text-white hover:border-[#263244] hover:bg-[#263244]">
                     生成工作流
                   </Button>
                   <Button type="button" disabled={busy} onClick={() => useWorkflowSkill("fixed-scene-action-video", item.response?.brief || item.content)} className="rounded-full px-3 py-1 text-[11px]">
                     固定场景 Skill
                   </Button>
+                </div>
+              ) : null}
+              {item.imageSearch ? (
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  {item.imageSearch.results.map((result) => {
+                    const selectedResult = selectedImageResultIds.includes(result.id);
+                    const selecting = selectingImageId === result.id;
+                    return (
+                      <div key={result.id} className="min-w-0 overflow-hidden border-t border-[#e7ebf1] pt-2">
+                        <div className="relative aspect-[4/3] overflow-hidden rounded-md bg-[#eef1f5]">
+                          <img src={result.thumbnailUrl} alt={result.title} className="h-full w-full object-cover" loading="lazy" />
+                        </div>
+                        <p className="mt-2 truncate text-[11px] font-semibold text-[#111827]" title={result.title}>{result.title}</p>
+                        <p className="mt-0.5 truncate text-[10px] text-[#7b8794]">{[result.creator || result.sourceName, result.license || "授权状态未知"].filter(Boolean).join(" · ")}</p>
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            disabled={Boolean(selectingImageId) || selectedResult}
+                            onClick={() => void selectImageSearchResult(result, item.imageSearch!.query)}
+                            className="rounded-md bg-[#111827] px-2.5 py-1.5 text-[10px] font-semibold text-white transition hover:bg-[#2f3746] disabled:cursor-default disabled:opacity-50"
+                          >
+                            {selectedResult ? "已加入" : selecting ? "处理中..." : "使用"}
+                          </button>
+                          <a href={result.sourcePageUrl} target="_blank" rel="noreferrer" className="text-[10px] font-semibold text-[#5f6b7a] hover:text-[#111827]">来源</a>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : null}
             </div>

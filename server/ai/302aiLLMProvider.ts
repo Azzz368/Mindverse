@@ -7,6 +7,7 @@ import type { AgentRouterIntent } from "@/shared/api/aiContracts";
 import type { AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 import { validateAgentVerificationDecision, type AgentObservationReport, type AgentVerificationDecision } from "@/shared/agent/agentAutonomy";
 import { validateAgentRequirementDecision, type AgentRequirementDecision } from "@/shared/agent/agentRequirements";
+import type { AgentToolCall } from "@/shared/agent/agentTools";
 
 type ChatResponse = {
   choices?: Array<{ message?: { content?: string }; delta?: { content?: string } }>;
@@ -16,7 +17,7 @@ const cleanJson = (value: string) => value.trim().replace(/^```(?:json)?\s*/i, "
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const textArray = (value: unknown) => Array.isArray(value) ? value.map(text).filter(Boolean) : [];
-const routerIntents: AgentRouterIntent[] = ["dialogue", "create", "edit", "organize", "skill"];
+const routerIntents: AgentRouterIntent[] = ["dialogue", "create", "edit", "organize", "skill", "tool"];
 const workflowSkillIds: AgentWorkflowSkillId[] = ["fixed-scene-action-video"];
 
 const compiledFixedSceneBriefFrom = (value: unknown, fallback: string) => {
@@ -170,7 +171,7 @@ export async function runAgentRouterLLM({
   memorySummary?: string;
   conversation: AgentDialogueMessage[];
   agentMemory?: AgentProjectMemory;
-}): Promise<{ intent: AgentRouterIntent; skillId?: AgentWorkflowSkillId; resumePending: boolean; reason?: string }> {
+}): Promise<{ intent: AgentRouterIntent; skillId?: AgentWorkflowSkillId; toolCall?: AgentToolCall; resumePending: boolean; reason?: string }> {
   const raw = await requestChatCompletion<ChatResponse>({
     provider: agentProvider(),
     body: {
@@ -185,7 +186,21 @@ export async function runAgentRouterLLM({
   const parsed = object(JSON.parse(cleanJson(content)));
   const intent = routerIntents.includes(parsed.intent as AgentRouterIntent) ? parsed.intent as AgentRouterIntent : "dialogue";
   const skillId = workflowSkillIds.includes(parsed.skillId as AgentWorkflowSkillId) ? parsed.skillId as AgentWorkflowSkillId : undefined;
-  return { intent, skillId: intent === "skill" ? skillId || "fixed-scene-action-video" : undefined, resumePending: parsed.resumePending === true, reason: text(parsed.reason) || undefined };
+  const nestedToolCall = object(parsed.toolCall);
+  const toolName = text(parsed.toolName) || text(nestedToolCall.name);
+  const directToolArguments = object(parsed.toolArguments);
+  const toolArguments = Object.keys(directToolArguments).length ? directToolArguments : object(nestedToolCall.arguments);
+  const toolQuery = text(toolArguments.query).slice(0, 160);
+  const toolCall: AgentToolCall | undefined = intent === "tool" && toolName === "image_search" && toolQuery
+    ? { name: "image_search", arguments: { query: toolQuery, limit: Math.max(1, Math.min(12, Number(toolArguments.limit) || 8)) } }
+    : undefined;
+  return {
+    intent,
+    skillId: intent === "skill" ? skillId || "fixed-scene-action-video" : undefined,
+    toolCall,
+    resumePending: parsed.resumePending === true,
+    reason: text(parsed.reason) || undefined,
+  };
 }
 
 export async function runFixedSceneSkillLLM({ userBrief }: { userBrief: string }): Promise<string> {

@@ -46,6 +46,7 @@ Rules:
 - In storyboard workflows, video steps should depend on the relevant explicit `image` steps or reference image nodes. Do not connect script or storyboard nodes directly into video nodes. A pure text-to-video step may instead depend on an editable `prompt` or `text` step.
 - When there are matching independent scene images and video clips, connect each video to its corresponding image explicitly, for example `image-scene-1 -> video-scene-1`, `image-scene-2 -> video-scene-2`.
 - A TokenStar video with an image dependency must use an image-capable mode such as `asset-video`, `kling-image`, or `kling-omni`; never use `text-to-video` for a video that depends on an image.
+- Treat `reference` nodes as image sources for connection compatibility. A reference-to-image edge must target a `ref-image-*` input, and a reference-to-video edge requires an image-capable video mode.
 - An assembly `motion` or `videoEdit` step must explicitly depend on every clip it assembles. The final output must explicitly depend on the final assembly step.
 - Preserve requested deliverables exactly. If the user requests three independently generated clips, return three video steps; if the user requests one video assembled from several clips, return the clip video steps plus one videoEdit or motion assembly step. The compiler will not merge or reinterpret steps after planning.
 - TokenStar video modes: text-to-video, asset-video, kling-text, kling-image, kling-omni.

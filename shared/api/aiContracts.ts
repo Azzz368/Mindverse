@@ -13,6 +13,7 @@ import type { AgentProjectMemory } from "@/shared/agent/projectMemory";
 import type { CanvasNode, NodeType, WorkflowEdge } from "@/shared/canvas";
 import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
 import type { AgentObserveResponse } from "@/shared/agent/agentAutonomy";
+import type { AgentToolCall, AgentToolResult } from "@/shared/agent/agentTools";
 
 export type CanvasSnapshotPayload = { version: 1; projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; agentMemory?: AgentProjectMemory };
 
@@ -37,7 +38,7 @@ export type AgentOrganizeResponse = { ok: true; organizePlan?: AgentCanvasOrgani
 export type AgentDialogueRequest = { userMessage: string; conversation: AgentDialogueMessage[] };
 export type AgentDialogueApiResponse = { ok: true; response?: AgentDialogueResponse };
 
-export type AgentRouterIntent = "dialogue" | "create" | "edit" | "organize" | "skill";
+export type AgentRouterIntent = "dialogue" | "create" | "edit" | "organize" | "skill" | "tool";
 export type AgentRouterRequest = {
   userMessage: string;
   canvasSnapshot: CanvasSnapshotPayload;
@@ -57,8 +58,10 @@ export type AgentRouterResponse = {
   patch?: CanvasPatch | CanvasEditPatch;
   skillId?: AgentWorkflowSkillId;
   skillBrief?: string;
+  toolCall?: AgentToolCall;
+  toolResult?: AgentToolResult;
   requiresClarification?: boolean;
-  pendingIntent?: Exclude<AgentRouterIntent, "dialogue" | "organize">;
+  pendingIntent?: Exclude<AgentRouterIntent, "dialogue" | "organize" | "tool">;
   pendingRequest?: string;
   missingInformation?: string[];
   resolvedRequest?: string;

@@ -2,7 +2,8 @@ import { makeNode } from "@/shared/templates/templates";
 import type { AgentCanvasEditPlan, AgentEditOperation, CanvasEditPatch } from "@/shared/agent/agentSchema";
 import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/shared/canvas";
 import { defaultMotionTemplateVariablesJson, getMotionTemplate } from "@/shared/motion/templates";
-import { videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
+import { targetHandleForNodeConnection } from "@/shared/workflow/connectionHandles";
+import { videoModelPatch } from "@/shared/workflow/videoModelPresets";
 import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER } from "@/shared/api/qwenContracts";
 
 const forbiddenPatchKeys = new Set([
@@ -152,7 +153,6 @@ const makeRevisionNode = (target: CanvasNode, dataPatch: Partial<CanvasNodeData>
   }));
 };
 
-const voiceTtsTargetHandleForNodeType = (sourceType: NodeType) => sourceType === "voiceClone" ? "voice" : ["prompt", "text", "script", "storyboard"].includes(sourceType) ? "text" : undefined;
 const addEdgeIfNew = (edges: WorkflowEdge[], source: string, target: string, existingEdgeIds: Set<string>, warnings: string[], nodeById?: Map<string, CanvasNode>) => {
   if (source === target) {
     warnings.push(`Skipped self connection on ${source}.`);
@@ -163,13 +163,9 @@ const addEdgeIfNew = (edges: WorkflowEdge[], source: string, target: string, exi
   existingEdgeIds.add(id);
   const sourceNode = nodeById?.get(source);
   const targetNode = nodeById?.get(target);
-  const targetHandle = sourceNode && targetNode?.data.nodeType === "video"
-    ? videoTargetHandleForNodeType(sourceNode.data.nodeType, targetNode.data)
-    : sourceNode && targetNode?.data.nodeType === "videoEdit" && (sourceNode.data.nodeType === "video" || sourceNode.data.nodeType === "videoEdit" || sourceNode.data.nodeType === "motion" || sourceNode.data.nodeType === "audio" || sourceNode.data.nodeType === "voiceTTS")
-      ? sourceNode.data.nodeType === "audio" || sourceNode.data.nodeType === "voiceTTS" ? "audio" : "video"
-      : sourceNode && targetNode?.data.nodeType === "voiceTTS"
-        ? voiceTtsTargetHandleForNodeType(sourceNode.data.nodeType)
-        : undefined;
+  const targetHandle = sourceNode && targetNode
+    ? targetHandleForNodeConnection(sourceNode.data.nodeType, targetNode.data)
+    : undefined;
   edges.push({ id, source, target, ...(targetHandle ? { targetHandle } : {}) });
 };
 
@@ -294,10 +290,16 @@ export function compileCanvasEditPlanToPatch({
         x: base.x + (operation.positionHint?.column || 0) * 320,
         y: base.y + (operation.positionHint?.row || 0) * 180,
       };
-      const node = makeEditableNode(operation.nodeType, position, patchFromParams(operation));
+      const sources = resolveNodeIds(operation.dependsOn || (operation.sourceNodeId ? [operation.sourceNodeId] : undefined), nodeById, createdByOperation);
+      let node = makeEditableNode(operation.nodeType, position, patchFromParams(operation));
+      const imageSource = sources
+        .map((sourceId) => nodeById.get(sourceId))
+        .find((source) => source && (source.data.nodeType === "image" || source.data.nodeType === "reference"));
+      if (operation.nodeType === "video" && imageSource && !targetHandleForNodeConnection(imageSource.data.nodeType, node.data)) {
+        node = { ...node, data: { ...node.data, ...videoModelPatch("seedance-2.0-assets") } };
+      }
       registerCreated(operation.id, [node]);
-      resolveNodeIds(operation.dependsOn || (operation.sourceNodeId ? [operation.sourceNodeId] : undefined), nodeById, createdByOperation)
-        .forEach((source) => addEdgeIfNew(createEdges, source, node.id, edgeIds, warnings, nodeById));
+      sources.forEach((source) => addEdgeIfNew(createEdges, source, node.id, edgeIds, warnings, nodeById));
       return;
     }
 

@@ -7,7 +7,8 @@ import { pollTaskRemote, requestImageRevision, runNodeRemote } from "@/features/
 import { requestAgentEdit, requestAgentOrganize, requestAgentPlan } from "@/features/agent/services/agentClient";
 import { buildTemplate, makeNode, type Template } from "@/shared/templates/templates";
 import { promptsFromStoryboard, storyboardSceneNumber, storyboardScenesFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
-import { videoModelPatch, videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
+import { videoModelPatch } from "@/shared/workflow/videoModelPresets";
+import { targetHandleForNodeConnection } from "@/shared/workflow/connectionHandles";
 import type { AgentCanvasEditPlan, AgentCanvasOrganizePlan, AgentWorkflowPlan, CanvasEditPatch, CanvasPatch } from "@/shared/agent/agentSchema";
 import type { CanvasNode, CanvasNodeData, CanvasSnapshot, ImageAnnotation, NodeOutput, NodeType, WorkflowEdge } from "@/shared/canvas";
 import { asRecord, asText } from "@/features/canvas/domain/values";
@@ -66,14 +67,8 @@ const pollProviderFor = (node: CanvasNode, value: Record<string, unknown>) =>
 const videoProviderFrom = (value: string | undefined): CanvasNodeData["videoProvider"] | undefined =>
   value === "mock" || value === "302ai" || value === "302-sora2" || value === "tokenstar" || value === "kling" ? value : undefined;
 const restoreStatuses = (nodes: CanvasNode[]): CanvasNode[] => nodes.map((node) => { if (node.data.status !== "running") return node; const polling = ["pending", "running"].includes(asText(asRecord(node.data.output?.value).status)); const status: CanvasNodeData["status"] = polling ? "waiting" : "idle"; return { ...node, data: { ...node.data, status } }; });
-const voiceTtsTargetHandleForNodeType = (sourceType: NodeType) => sourceType === "voiceClone" ? "voice" : ["prompt", "text", "script", "storyboard"].includes(sourceType) ? "text" : undefined;
-const targetHandleForConnection = (source: CanvasNode, target: CanvasNode) =>
-  target.data.nodeType === "image" && ["prompt", "text", "script", "storyboard"].includes(source.data.nodeType) ? "text"
-    : (target.data.nodeType === "text" || target.data.nodeType === "script") && ["prompt", "text", "script", "storyboard"].includes(source.data.nodeType) ? "input-1"
-    : target.data.nodeType === "video" ? videoTargetHandleForNodeType(source.data.nodeType, target.data)
-    : target.data.nodeType === "videoEdit" && (source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion" || source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS") ? source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS" ? "audio" : "video"
-    : target.data.nodeType === "voiceTTS" ? voiceTtsTargetHandleForNodeType(source.data.nodeType)
-    : undefined;
+const targetHandleForConnection = (source: CanvasNode, target: CanvasNode, preferredHandle?: string | null) =>
+  targetHandleForNodeConnection(source.data.nodeType, target.data, preferredHandle);
 const edgeFor = (source: CanvasNode, target: CanvasNode): WorkflowEdge => {
   const targetHandle = targetHandleForConnection(source, target);
   return { id: `edge-${source.id}-${target.id}`, source: source.id, target: target.id, ...(targetHandle ? { targetHandle } : {}) };
@@ -84,7 +79,7 @@ const withVideoTargetHandles = (nodes: CanvasNode[], edges: WorkflowEdge[]): Wor
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
     if (!source || !target || !["text", "script", "image", "video", "videoEdit", "voiceTTS"].includes(target.data.nodeType)) return [edge];
-    const targetHandle = targetHandleForConnection(source, target);
+    const targetHandle = targetHandleForConnection(source, target, edge.targetHandle);
     return targetHandle ? [{ ...edge, targetHandle }] : [];
   });
 };
@@ -353,7 +348,36 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const nextChanges = changes.filter((change) => change.type !== "select");
     return nextChanges.length ? { nodes: applyNodeChanges(nextChanges, state.nodes) as CanvasNode[] } : {};
   }), onEdgesChange: (changes) => set((state) => ({ edges: applyEdgeChanges(changes, state.edges) })),
-  onConnect: (connection) => set((state) => { const source = state.nodes.find((node) => node.id === connection.source); const target = state.nodes.find((node) => node.id === connection.target); const targetHandle = connection.targetHandle || (source && target ? targetHandleForConnection(source, target) : undefined); return { edges: addEdge({ ...connection, targetHandle, id: `edge-${crypto.randomUUID()}` }, state.edges) }; }),
+  onConnect: (connection) => set((state) => {
+    const source = state.nodes.find((node) => node.id === connection.source);
+    let target = state.nodes.find((node) => node.id === connection.target);
+    let nodes = state.nodes;
+    let switchedVideoInput = false;
+
+    if (
+      source
+      && target?.data.nodeType === "video"
+      && (source.data.nodeType === "image" || source.data.nodeType === "reference")
+      && !targetHandleForConnection(source, target)
+    ) {
+      const nextTarget: CanvasNode = {
+        ...target,
+        data: { ...target.data, ...videoModelPatch("seedance-2.0-assets") },
+      };
+      nodes = state.nodes.map((node) => node.id === target?.id ? nextTarget : node);
+      target = nextTarget;
+      switchedVideoInput = true;
+    }
+
+    const targetHandle = source && target
+      ? targetHandleForConnection(source, target, connection.targetHandle)
+      : connection.targetHandle || undefined;
+    return {
+      nodes,
+      edges: addEdge({ ...connection, targetHandle, id: `edge-${crypto.randomUUID()}` }, state.edges),
+      ...(switchedVideoInput ? { agentMessage: "视频节点已切换为支持图片素材的 Seedance Assets 模式。" } : {}),
+    };
+  }),
   addNode: (type) => { const node = makeNode(type, { x: 160 + (get().nodes.length % 4) * 55, y: 120 + (get().nodes.length % 5) * 60 }); set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id })); },
   updateNodeData: (id, patch) => set((state) => {
     const nodes = state.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, ...patch } } : node);

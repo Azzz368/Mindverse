@@ -1,4 +1,4 @@
-import { postForm } from "@/shared/api/client";
+import { postForm, postJson } from "@/shared/api/client";
 import type { ArchiveMediaResponse } from "@/shared/api/storageContracts";
 
 export async function archiveImageFile(file: File): Promise<string> {
@@ -6,6 +6,17 @@ export async function archiveImageFile(file: File): Promise<string> {
   form.append("mediaType", "image");
   form.append("file", file);
   const payload = await postForm<ArchiveMediaResponse>("/api/storage/archive", form, "Image archive failed.");
+  const cdnUrl = payload.output?.cdnUrl;
+  if (typeof cdnUrl !== "string") throw new Error("Image archive failed.");
+  return cdnUrl;
+}
+
+export async function archiveRemoteImageUrl(url: string, sourceProvider = "agent-image-search"): Promise<string> {
+  const payload = await postJson<ArchiveMediaResponse>("/api/storage/archive", {
+    url,
+    mediaType: "image",
+    sourceProvider,
+  }, "Image archive failed.");
   const cdnUrl = payload.output?.cdnUrl;
   if (typeof cdnUrl !== "string") throw new Error("Image archive failed.");
   return cdnUrl;

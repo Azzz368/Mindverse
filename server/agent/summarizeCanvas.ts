@@ -26,6 +26,7 @@ const importantFields = (node: CanvasNode) => {
   if (data.nodeType === "videoEdit") fields.push(`preserveAudio: ${data.preserveAudio !== false}`);
   if (data.storyBrief) fields.push(`storyBrief: ${short(data.storyBrief)}`);
   if (data.instruction) fields.push(`instruction: ${short(data.instruction)}`);
+  if (data.nodeType === "reference" && data.notes) fields.push(`notes: ${short(data.notes, 320)}`);
   if (data.model) fields.push(`model: ${short(data.model, 80)}`);
   if (data.videoProvider) fields.push(`videoProvider: ${data.videoProvider}`);
   if (data.tokenstarMode) fields.push(`tokenstarMode: ${data.tokenstarMode}`);

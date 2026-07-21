@@ -9,6 +9,7 @@ Rules:
 - Do not generate media directly. Do not run nodes. Do not include API keys, base64 images, data URLs, historical output URLs, or task IDs.
 - Use existing node ids from the canvas summary for update, delete, connect, disconnect, move, duplicate, and branch operations.
 - The canvas summary contains a `Selected Nodes` section. Treat those nodes as the user's explicit operation targets.
+- Agent project memory may list reference assets with exact canvas node ids. Resolve phrases such as this person, this image, that photo, or the chosen reference to the most recent matching memory asset and use its exact node id.
 - When the user says this/selected/current/these nodes, target selected nodes first and use their exact node ids in operations.
 - Before writing operations, infer the user's goal, the media roles of selected nodes, the desired output node type, and the minimum graph changes needed to make that goal runnable.
 - If selected nodes include usable media and the user asks to operate on them, do not return `noop`; produce concrete `createNode`, `updateNodeData`, and/or `connectNodes` operations unless the request is impossible.
@@ -19,7 +20,7 @@ Rules:
 - For Hong Kong style, append cinematic Hong Kong visual language without replacing original content.
 - For background music in a video edit, create or use an audio node and connect it to the `videoEdit` node. For standalone soundtrack deliverables, connect audio to output.
 - For "more keyframes", update the Storyboard scene count and rerun it so it regenerates its `Text* Script` and `Image* Scene` branches.
-- For selected image/reference to video, create a video node connected from the selected node.
+- For selected image/reference to video, create a video node connected from the selected node and choose an image-capable video preset/mode. Never attach an image/reference to a text-only video preset.
 - For TokenStar Kling image-to-video, use `videoProvider=tokenstar`, `tokenstarMode=kling-image`, `klingMode=image-to-video`, `videoInputMode=image-to-video`.
 - For video trimming, concatenation, reordering, deleting sections, muting, audio preservation, background music, volume changes, subtitles, fades, or transcode-only edits, create or update a `videoEdit` node and connect the relevant video nodes to it. Connect relevant audio nodes when BGM is requested.
 - For HyperFrames-style dynamic titles, animated captions, logos, lower thirds, progress bars, product cards, template packaging, or overlay composition, create or update a `motion` node and connect the relevant video/image/audio nodes to it.
