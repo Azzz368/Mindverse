@@ -159,7 +159,6 @@ export function AgentWorkflowPanel() {
 
   const previewWorkflowSkill = (skillId: AgentWorkflowSkillId, brief: string, summary?: string) => {
     const skill = buildFixedSceneVideoSkill(brief);
-    rememberSkill(skillId, brief);
     setPreview({
       intent: "skill",
       skillId,
@@ -267,7 +266,14 @@ export function AgentWorkflowPanel() {
       const resolvedRequest = payload.resolvedRequest || message;
 
       if (autonomousEnabled && ["create", "edit", "organize", "skill"].includes(payload.intent)) {
-        updateAgentMemory({ storyBrief: resolvedRequest, lastIntent: payload.intent, pendingIntent: undefined, pendingRequest: undefined, pendingQuestions: undefined });
+        updateAgentMemory({
+          storyBrief: resolvedRequest,
+          lastIntent: payload.intent,
+          preferredWorkflowSkill: payload.intent === "skill" ? payload.skillId : undefined,
+          pendingIntent: undefined,
+          pendingRequest: undefined,
+          pendingQuestions: undefined,
+        });
         const result = await runAutonomousAgent({
           userMessage: resolvedRequest,
           response: payload,
@@ -323,6 +329,7 @@ export function AgentWorkflowPanel() {
           storyBrief: resolvedRequest,
           selectedDirection: payload.plan.title,
           lastIntent: "create",
+          preferredWorkflowSkill: undefined,
           pendingIntent: undefined,
           pendingRequest: undefined,
           pendingQuestions: undefined,
@@ -330,7 +337,7 @@ export function AgentWorkflowPanel() {
         setPreview({ intent: "create", plan: payload.plan, patch: payload.patch as CanvasPatch, summary: payload.summary || "Workflow plan prepared." });
         setChat([...nextChat, { role: "assistant", content: payload.summary || "已生成工作流计划。", intent: payload.intent }]);
       } else if (payload.intent === "edit" && payload.editPlan && payload.patch) {
-        updateAgentMemory({ storyBrief: resolvedRequest, lastIntent: "edit", pendingIntent: undefined, pendingRequest: undefined, pendingQuestions: undefined });
+        updateAgentMemory({ storyBrief: resolvedRequest, lastIntent: "edit", preferredWorkflowSkill: undefined, pendingIntent: undefined, pendingRequest: undefined, pendingQuestions: undefined });
         setPreview({ intent: "edit", editPlan: payload.editPlan, patch: payload.patch as CanvasEditPatch, summary: payload.summary || "Canvas edit plan prepared." });
         setChat([...nextChat, { role: "assistant", content: payload.summary || "已生成画布修改计划。", intent: payload.intent }]);
       } else if (payload.intent === "organize" && payload.organizePlan && payload.patch) {
@@ -353,13 +360,17 @@ export function AgentWorkflowPanel() {
   const applyPreview = () => {
     if (!preview) return;
     if (preview.intent === "create") applyAgentPatch(preview.patch);
-    else if (preview.intent === "skill") void runAgentSkill(preview.skillId, preview.brief);
+    else if (preview.intent === "skill") {
+      rememberSkill(preview.skillId, preview.brief);
+      void runAgentSkill(preview.skillId, preview.brief);
+    }
     else applyAgentEditPatch({ ...preview.patch, selectedNodeIds: preview.patch.selectedNodeIds?.length ? preview.patch.selectedNodeIds : selectedNodeIds });
     setLocalError(null);
   };
 
   const choosePlacement = () => {
     if (preview?.intent === "skill") {
+      rememberSkill(preview.skillId, preview.brief);
       void runAgentSkill(preview.skillId, preview.brief);
       setOpen(false);
       return;

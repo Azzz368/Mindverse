@@ -196,7 +196,7 @@ export async function runAgentRouterLLM({
     : undefined;
   return {
     intent,
-    skillId: intent === "skill" ? skillId || "fixed-scene-action-video" : undefined,
+    skillId: intent === "skill" ? skillId : undefined,
     toolCall,
     resumePending: parsed.resumePending === true,
     reason: text(parsed.reason) || undefined,
