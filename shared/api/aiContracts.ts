@@ -12,7 +12,7 @@ import type { AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 import type { AgentProjectMemory } from "@/shared/agent/projectMemory";
 import type { CanvasNode, NodeType, WorkflowEdge } from "@/shared/canvas";
 import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
-import type { AgentObserveResponse } from "@/shared/agent/agentAutonomy";
+import type { AgentObserveResponse, AgentRunExecutionMode, AgentRunRecord, AgentRunTrace, AgentRunUpdate } from "@/shared/agent/agentAutonomy";
 import type { AgentToolCall, AgentToolResult } from "@/shared/agent/agentTools";
 
 export type CanvasSnapshotPayload = { version: 1; projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; agentMemory?: AgentProjectMemory };
@@ -46,10 +46,14 @@ export type AgentRouterRequest = {
   conversation?: AgentDialogueMessage[];
   forceIntent?: AgentRouterIntent;
   customSkill?: ActiveSkillContext;
+  resumeRunId?: string;
+  executionMode?: AgentRunExecutionMode;
+  workflowId?: string;
 };
 export type AgentRouterResponse = {
   ok: true;
   intent: AgentRouterIntent;
+  agentRun?: AgentRunTrace;
   summary?: string;
   response?: AgentDialogueResponse;
   plan?: AgentWorkflowPlan;
@@ -76,3 +80,7 @@ export type AgentObserveRequest = {
 };
 
 export type AgentObserveApiResponse = AgentObserveResponse;
+
+export type AgentRunApiResponse = { ok: true; run: AgentRunRecord };
+export type AgentRunListApiResponse = { ok: true; runs: Array<Pick<AgentRunRecord, "id" | "status" | "executionMode" | "updatedAt">> };
+export type AgentRunUpdateRequest = AgentRunUpdate | { action: "cancel" | "resume" };

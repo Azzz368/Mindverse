@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { requestAgentRouter } from "@/features/agent/services/agentClient";
+import { cancelAgentRun, getAgentRun, requestAgentRouter, resumeAgentRun, updateAgentRun } from "@/features/agent/services/agentClient";
 import { runAutonomousAgent } from "@/features/agent/services/autonomousAgent";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { agentMemorySummary, type AgentReferenceAsset } from "@/shared/agent/projectMemory";
@@ -15,13 +15,14 @@ import type {
   CanvasEditPatch,
   CanvasPatch,
 } from "@/shared/agent/agentSchema";
-import type { AgentRouterIntent } from "@/shared/api/aiContracts";
+import type { AgentRouterIntent, AgentRouterResponse } from "@/shared/api/aiContracts";
 import type { CanvasNode } from "@/shared/canvas";
 import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
 import { ACTIVE_SKILL_KEY } from "@/features/skills/services/skillClient";
-import type { AgentRunEvent } from "@/shared/agent/agentAutonomy";
+import type { AgentRunEvent, AgentRunStatus, AgentRunTrace } from "@/shared/agent/agentAutonomy";
 import type { AgentImageSearchResult } from "@/shared/agent/agentTools";
 import { archiveRemoteImageUrl } from "@/features/canvas/services/mediaArchiveClient";
+import { apiErrorPayload } from "@/shared/api/client";
 
 type AgentPreview =
   | { intent: "create"; plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }
@@ -65,6 +66,8 @@ const fixedSceneConstraints = [
   "Avoid storyboard-only workflow for fixed-scene video requests.",
 ];
 
+const LAST_AGENT_RUN_KEY = "mindverse:last-agent-run-id";
+
 const valueRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
@@ -93,6 +96,8 @@ export function AgentWorkflowPanel() {
   const [customSkill, setCustomSkill] = useState<ActiveSkillContext | null>(null);
   const [autonomousEnabled, setAutonomousEnabled] = useState(false);
   const [autonomousEvents, setAutonomousEvents] = useState<AgentRunEvent[]>([]);
+  const [agentRunId, setAgentRunId] = useState<string | null>(null);
+  const [agentRunStatus, setAgentRunStatus] = useState<AgentRunStatus | null>(null);
   const [selectingImageId, setSelectingImageId] = useState<string | null>(null);
   const [selectedImageResultIds, setSelectedImageResultIds] = useState<string[]>([]);
   const autonomousControllerRef = useRef<AbortController | null>(null);
@@ -139,6 +144,41 @@ export function AgentWorkflowPanel() {
       window.localStorage.removeItem(ACTIVE_SKILL_KEY);
     }
   }, []);
+
+  useEffect(() => {
+    const runId = window.localStorage.getItem(LAST_AGENT_RUN_KEY);
+    if (!runId) return;
+    let active = true;
+    void getAgentRun(runId).then(({ run }) => {
+      if (!active) return;
+      setAgentRunId(run.id);
+      setAgentRunStatus(run.status);
+      setAutonomousEvents(run.events.slice(-24));
+    }).catch(() => window.localStorage.removeItem(LAST_AGENT_RUN_KEY));
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (agentRunId) window.localStorage.setItem(LAST_AGENT_RUN_KEY, agentRunId);
+  }, [agentRunId]);
+
+  useEffect(() => {
+    if (!agentRunId || busy || agentRunStatus !== "running") return;
+    let active = true;
+    const refresh = () => {
+      void getAgentRun(agentRunId).then(({ run }) => {
+        if (!active) return;
+        setAgentRunStatus(run.status);
+        setAutonomousEvents(run.events.slice(-24));
+      }).catch(() => undefined);
+    };
+    const timer = window.setInterval(refresh, 3000);
+    refresh();
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [agentRunId, agentRunStatus, busy]);
 
   const clearCustomSkill = () => {
     window.localStorage.removeItem(ACTIVE_SKILL_KEY);
@@ -244,6 +284,7 @@ export function AgentWorkflowPanel() {
   const runUnifiedAgent = async (forceIntent?: AgentRouterIntent, messageOverride?: string) => {
     const message = (messageOverride ?? input).trim();
     if (!message || busy) return;
+    const resumeRunId = agentRunStatus === "awaiting_user" ? agentRunId || undefined : undefined;
     setBusy(true);
     setLocalError(null);
     setPreview(null);
@@ -252,7 +293,9 @@ export function AgentWorkflowPanel() {
     setInput("");
     const autonomousController = autonomousEnabled ? new AbortController() : null;
     autonomousControllerRef.current = autonomousController;
-    if (autonomousEnabled) setAutonomousEvents([]);
+    setAutonomousEvents([]);
+    setAgentRunId(null);
+    setAgentRunStatus("running");
 
     try {
       const payload = await requestAgentRouter({
@@ -262,7 +305,13 @@ export function AgentWorkflowPanel() {
         conversation: chat.map((item) => ({ role: item.role, content: item.content })),
         forceIntent,
         customSkill: customSkill || undefined,
+        resumeRunId,
+        executionMode: "browser",
       });
+      const planningEvents = payload.agentRun?.events || [];
+      setAgentRunId(payload.agentRun?.id || null);
+      setAgentRunStatus(payload.agentRun?.status || null);
+      setAutonomousEvents(planningEvents.slice(-24));
       const resolvedRequest = payload.resolvedRequest || message;
 
       if (autonomousEnabled && ["create", "edit", "organize", "skill"].includes(payload.intent)) {
@@ -274,14 +323,21 @@ export function AgentWorkflowPanel() {
           pendingRequest: undefined,
           pendingQuestions: undefined,
         });
+        setAgentRunStatus("running");
         const result = await runAutonomousAgent({
           userMessage: resolvedRequest,
           response: payload,
           selectedNodeIds,
+          runId: payload.agentRun?.id,
+          initialEvents: planningEvents,
           signal: autonomousController?.signal,
           maxRepairAttempts: 2,
           onEvent: (event) => setAutonomousEvents((current) => [...current, event].slice(-24)),
+          persistUpdate: payload.agentRun?.id
+            ? (update) => updateAgentRun(payload.agentRun!.id, update)
+            : undefined,
         });
+        setAgentRunStatus(result.status);
         setChat([...nextChat, { role: "assistant", content: result.summary, intent: payload.intent }]);
         if (result.status === "blocked") setLocalError(result.summary);
         return;
@@ -349,10 +405,70 @@ export function AgentWorkflowPanel() {
       }
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "Agent request failed.";
+      const failedRun = apiErrorPayload<{ agentRun?: AgentRunTrace }>(error)?.agentRun;
+      if (failedRun) {
+        setAgentRunId(failedRun.id);
+        setAgentRunStatus(failedRun.status);
+        setAutonomousEvents(failedRun.events.slice(-24));
+      } else {
+        setAgentRunStatus("blocked");
+      }
       setLocalError(messageText);
       setChat([...nextChat, { role: "assistant", content: messageText }]);
     } finally {
       if (autonomousControllerRef.current === autonomousController) autonomousControllerRef.current = null;
+      setBusy(false);
+    }
+  };
+
+  const stopAgentRun = async () => {
+    autonomousControllerRef.current?.abort();
+    if (!agentRunId) return;
+    setAgentRunStatus("cancelled");
+    try {
+      const { run } = await cancelAgentRun(agentRunId);
+      setAutonomousEvents(run.events.slice(-24));
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "Unable to cancel the Agent run.");
+    }
+  };
+
+  const resumePersistedRun = async () => {
+    if (!agentRunId || busy) return;
+    setBusy(true);
+    setLocalError(null);
+    const controller = new AbortController();
+    autonomousControllerRef.current = controller;
+    try {
+      const { run } = await getAgentRun(agentRunId);
+      if (run.executionMode !== "browser") throw new Error("This Agent run is assigned to a server worker.");
+      if (!run.checkpoint?.planResponse) throw new Error("This Agent run does not have a resumable plan checkpoint.");
+      const response = run.checkpoint.planResponse as unknown as AgentRouterResponse;
+      if (response.ok !== true || !response.intent) throw new Error("The stored Agent plan is incomplete.");
+      const resumed = await resumeAgentRun(agentRunId);
+      setAgentRunStatus(resumed.run.status);
+      setAutonomousEvents(resumed.run.events.slice(-24));
+      const result = await runAutonomousAgent({
+        userMessage: run.request?.userMessage || "Resume the stored Agent run.",
+        response,
+        selectedNodeIds: run.checkpoint.selectedNodeIds,
+        runId: run.id,
+        initialEvents: run.events,
+        resumeCheckpoint: run.checkpoint,
+        signal: controller.signal,
+        maxRepairAttempts: 2,
+        onEvent: (event) => setAutonomousEvents((current) => [...current, event].slice(-24)),
+        persistUpdate: (update) => updateAgentRun(run.id, update),
+      });
+      setAgentRunStatus(result.status);
+      setChat((current) => [...current, { role: "assistant", content: result.summary, intent: response.intent }]);
+      if (result.status === "blocked") setLocalError(result.summary);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to resume the Agent run.";
+      setAgentRunStatus("blocked");
+      setLocalError(message);
+    } finally {
+      if (autonomousControllerRef.current === controller) autonomousControllerRef.current = null;
       setBusy(false);
     }
   };
@@ -365,6 +481,8 @@ export function AgentWorkflowPanel() {
       void runAgentSkill(preview.skillId, preview.brief);
     }
     else applyAgentEditPatch({ ...preview.patch, selectedNodeIds: preview.patch.selectedNodeIds?.length ? preview.patch.selectedNodeIds : selectedNodeIds });
+    setAgentRunStatus("completed");
+    if (agentRunId) void updateAgentRun(agentRunId, { status: "completed", currentPhase: "completed", summary: "The approved canvas plan was applied." });
     setLocalError(null);
   };
 
@@ -579,7 +697,7 @@ export function AgentWorkflowPanel() {
             {busy && autonomousEnabled && (
               <button
                 type="button"
-                onClick={() => autonomousControllerRef.current?.abort()}
+                onClick={() => void stopAgentRun()}
                 className="px-2 py-1 text-[11px] font-semibold text-rose-600 hover:text-rose-700"
               >
                 停止
@@ -601,12 +719,44 @@ export function AgentWorkflowPanel() {
 
         {autonomousEvents.length > 0 && (
           <div className="max-h-44 overflow-y-auto rounded-xl border border-[#dce2ea] bg-white px-3 py-2 shadow-sm">
-            <div className="mb-1 text-[11px] font-semibold text-[#111827]">执行记录</div>
+            <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-semibold text-[#111827]">
+              <span>Agent Run</span>
+              <div className="flex items-center gap-2">
+                {!busy && agentRunId && agentRunStatus && ["ready", "running"].includes(agentRunStatus) && (
+                  <button
+                    type="button"
+                    onClick={() => void stopAgentRun()}
+                    className="font-sans text-[10px] font-semibold text-rose-600 hover:text-rose-700"
+                  >
+                    Cancel
+                  </button>
+                )}
+                {!busy && agentRunId && agentRunStatus && ["ready", "running", "blocked", "cancelled"].includes(agentRunStatus) && (
+                  <button
+                    type="button"
+                    onClick={() => void resumePersistedRun()}
+                    className="font-sans text-[10px] font-semibold text-sky-700 hover:text-sky-800"
+                  >
+                    Resume
+                  </button>
+                )}
+                <span className="font-mono text-[10px] font-normal text-[#7b8794]">
+                  {agentRunId ? agentRunId.slice(0, 8) : "local"} · {agentRunStatus || "running"}
+                </span>
+              </div>
+            </div>
             <div className="space-y-1">
               {autonomousEvents.slice(-10).map((event) => (
                 <div key={event.id} className="flex gap-2 text-[11px] leading-4 text-[#5f6b7a]">
                   <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${event.phase === "blocked" ? "bg-rose-500" : event.phase === "completed" ? "bg-emerald-500" : event.phase === "repairing" ? "bg-amber-500" : "bg-sky-500"}`} />
-                  <span><strong className="font-semibold text-[#374151]">{event.phase}</strong> {event.message}</span>
+                  <span>
+                    <strong className="font-semibold text-[#374151]">{event.phase}</strong> {event.message}
+                    {(event.kind || event.durationMs !== undefined) && (
+                      <span className="ml-1 text-[10px] text-[#9aa4b2]">
+                        {[event.kind, event.durationMs !== undefined ? `${event.durationMs}ms` : ""].filter(Boolean).join(" · ")}
+                      </span>
+                    )}
+                  </span>
                 </div>
               ))}
             </div>

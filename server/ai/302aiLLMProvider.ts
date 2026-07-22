@@ -7,7 +7,7 @@ import type { AgentRouterIntent } from "@/shared/api/aiContracts";
 import type { AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 import { validateAgentVerificationDecision, type AgentObservationReport, type AgentVerificationDecision } from "@/shared/agent/agentAutonomy";
 import { validateAgentRequirementDecision, type AgentRequirementDecision } from "@/shared/agent/agentRequirements";
-import type { AgentToolCall } from "@/shared/agent/agentTools";
+import { validateAgentToolCall, type AgentToolCall } from "@/shared/agent/agentTools";
 
 type ChatResponse = {
   choices?: Array<{ message?: { content?: string }; delta?: { content?: string } }>;
@@ -190,9 +190,8 @@ export async function runAgentRouterLLM({
   const toolName = text(parsed.toolName) || text(nestedToolCall.name);
   const directToolArguments = object(parsed.toolArguments);
   const toolArguments = Object.keys(directToolArguments).length ? directToolArguments : object(nestedToolCall.arguments);
-  const toolQuery = text(toolArguments.query).slice(0, 160);
-  const toolCall: AgentToolCall | undefined = intent === "tool" && toolName === "image_search" && toolQuery
-    ? { name: "image_search", arguments: { query: toolQuery, limit: Math.max(1, Math.min(12, Number(toolArguments.limit) || 8)) } }
+  const toolCall: AgentToolCall | undefined = intent === "tool"
+    ? validateAgentToolCall({ name: toolName, arguments: toolArguments })
     : undefined;
   return {
     intent,

@@ -2,7 +2,7 @@
 
 import { requestAgentObserve } from "./agentClient";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
-import type { AgentRunEvent, AgentRunPhase } from "@/shared/agent/agentAutonomy";
+import type { AgentRunCheckpoint, AgentRunEvent, AgentRunPhase, AgentRunStatus, AgentRunUpdate } from "@/shared/agent/agentAutonomy";
 import type { AgentRouterResponse, CanvasSnapshotPayload } from "@/shared/api/aiContracts";
 import type { CanvasEditPatch, CanvasPatch } from "@/shared/agent/agentSchema";
 import type { CanvasNode, WorkflowEdge } from "@/shared/canvas";
@@ -19,16 +19,22 @@ type AutonomousAgentInput = {
   userMessage: string;
   response: AgentRouterResponse;
   selectedNodeIds: string[];
+  runId?: string;
+  initialEvents?: AgentRunEvent[];
+  resumeCheckpoint?: AgentRunCheckpoint;
   signal?: AbortSignal;
   maxRepairAttempts?: number;
   onEvent?: (event: AgentRunEvent) => void;
+  persistUpdate?: (update: AgentRunUpdate) => Promise<unknown>;
 };
 
 const terminalStatuses = new Set(["success", "error"]);
 
-const makeEvent = (phase: AgentRunPhase, message: string, nodeId?: string, attempt?: number): AgentRunEvent => ({
+const makeEvent = (runId: string | undefined, phase: AgentRunPhase, message: string, nodeId?: string, attempt?: number): AgentRunEvent => ({
   id: crypto.randomUUID(),
+  runId,
   phase,
+  kind: nodeId ? "node" : phase === "blocked" ? "error" : "stage",
   message,
   createdAt: new Date().toISOString(),
   nodeId,
@@ -121,6 +127,13 @@ const patchSeeds = (patch: CanvasEditPatch | undefined, beforeIds: Set<string>) 
   ]);
 };
 
+const plannedSeedIds = (response: AgentRouterResponse) => {
+  const patch = response.patch;
+  if (!patch) return [];
+  if ("nodes" in patch) return patch.nodes.map((node) => node.id);
+  return [...patch.createNodes.map((node) => node.id), ...patch.updateNodes.map((node) => node.id)];
+};
+
 const defaultPlacement = (nodes: CanvasNode[]) => ({
   x: nodes.length ? Math.max(...nodes.map((node) => node.position.x)) + 420 : 80,
   y: nodes.length ? Math.min(...nodes.map((node) => node.position.y)) : 80,
@@ -141,7 +154,9 @@ const applyInitialResponse = async (response: AgentRouterResponse, selectedNodeI
     if (!pending) throw new Error("所选 Skill 没有生成可执行的画布工作流。");
     useCanvasStore.getState().placeAgentPatch(defaultPlacement(useCanvasStore.getState().nodes));
   }
-  return patchSeeds(editPatch, beforeIds);
+  const seeds = patchSeeds(editPatch, beforeIds);
+  if (seeds.size) return seeds;
+  return new Set(plannedSeedIds(response));
 };
 
 const applyRepairPatch = (patch: CanvasEditPatch | undefined, fallbackIds: string[]) => {
@@ -157,14 +172,47 @@ const failedNodeIds = (ids: Iterable<string>) => {
 };
 
 export async function runAutonomousAgent(input: AutonomousAgentInput): Promise<AutonomousAgentResult> {
-  const events: AgentRunEvent[] = [];
-  const executed = new Set<string>();
-  const completedThisRun = new Set<string>();
+  const events: AgentRunEvent[] = [...(input.initialEvents || [])];
+  const executed = new Set<string>(input.resumeCheckpoint?.executedNodeIds || []);
+  const completedThisRun = new Set<string>(
+    (input.resumeCheckpoint?.executedNodeIds || []).filter((nodeId) =>
+      useCanvasStore.getState().nodes.some((node) => node.id === nodeId && node.data.status === "success"),
+    ),
+  );
   const maxRepairAttempts = Math.max(0, Math.min(3, input.maxRepairAttempts ?? 2));
+  const startingAttempt = Math.max(0, Math.min(maxRepairAttempts, input.resumeCheckpoint?.repairAttempts || 0));
+  const persist = (update: AgentRunUpdate) => {
+    if (!input.persistUpdate) return;
+    void input.persistUpdate(update).catch(() => undefined);
+  };
+  const checkpoint = (repairAttempts: number) => persist({
+    checkpoint: {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      canvasSnapshot: snapshot(),
+      selectedNodeIds: input.selectedNodeIds,
+      executedNodeIds: [...executed],
+      repairAttempts,
+      planResponse: input.response as unknown as Record<string, unknown>,
+    },
+  });
   const emit = (phase: AgentRunPhase, message: string, nodeId?: string, attempt?: number) => {
-    const event = makeEvent(phase, message, nodeId, attempt);
+    const event = makeEvent(input.runId, phase, message, nodeId, attempt);
     events.push(event);
     input.onEvent?.(event);
+    const terminalStatus: AgentRunStatus | undefined = phase === "completed"
+      ? "completed"
+      : phase === "blocked"
+        ? "blocked"
+        : phase === "cancelled"
+          ? "cancelled"
+          : undefined;
+    persist({
+      events: [event],
+      currentPhase: phase,
+      status: terminalStatus || "running",
+      summary: terminalStatus ? message : undefined,
+    });
   };
   const cancelled = () => {
     if (!input.signal?.aborted) return false;
@@ -175,13 +223,14 @@ export async function runAutonomousAgent(input: AutonomousAgentInput): Promise<A
   try {
     emit("applying", "正在把 Agent 计划应用到画布。");
     let seeds = await applyInitialResponse(input.response, input.selectedNodeIds);
+    checkpoint(input.resumeCheckpoint?.repairAttempts || 0);
     if (input.response.intent === "organize") {
       emit("completed", "画布整理已应用，不需要运行媒体节点。");
       return { status: "completed", summary: "画布整理已完成。", events, executedNodeIds: [], repairAttempts: 0 };
     }
     if (!seeds.size) throw new Error("Agent 计划没有创建或更新可执行节点。");
 
-    for (let attempt = 0; attempt <= maxRepairAttempts; attempt += 1) {
+    for (let attempt = startingAttempt; attempt <= maxRepairAttempts; attempt += 1) {
       if (cancelled()) return { status: "cancelled", summary: "自主执行已取消。", events, executedNodeIds: [...executed], repairAttempts: attempt };
       const executedThisAttempt = new Set<string>();
       const stateBeforeRun = useCanvasStore.getState();
@@ -206,6 +255,7 @@ export async function runAutonomousAgent(input: AutonomousAgentInput): Promise<A
             executed.add(latest.id);
             executedThisAttempt.add(latest.id);
             emit("executing", `跳过 ${latest.data.title}，因为上游 ${failedDependency.data.title} 执行失败。`, latest.id, attempt);
+            checkpoint(attempt);
             progressed = true;
             continue;
           }
@@ -226,6 +276,7 @@ export async function runAutonomousAgent(input: AutonomousAgentInput): Promise<A
             const dynamicIds = afterMaterialize.nodes.filter((node) => !beforeMaterialize.has(node.id)).map((node) => node.id);
             descendantsOf(dynamicIds, afterMaterialize.edges).forEach((id) => runTargets.add(id));
           }
+          checkpoint(attempt);
           progressed = true;
         }
       }
@@ -251,6 +302,7 @@ export async function runAutonomousAgent(input: AutonomousAgentInput): Promise<A
       const retryIds = failedNodeIds(executedThisAttempt);
       seeds = applyRepairPatch(observation.repairPatch, retryIds);
       descendantsOf(seeds, useCanvasStore.getState().edges).forEach((id) => completedThisRun.delete(id));
+      checkpoint(attempt + 1);
       if (!seeds.size) {
         const summary = "Agent 请求修复，但没有生成可执行修改或可重试节点。";
         emit("blocked", summary, undefined, attempt + 1);

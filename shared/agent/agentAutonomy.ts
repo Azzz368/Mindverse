@@ -1,7 +1,14 @@
 import type { CanvasEditPatch } from "./agentSchema";
+import type { CanvasSnapshot } from "../canvas";
 
 export type AgentRunPhase =
+  | "received"
+  | "routing"
+  | "clarifying"
   | "planning"
+  | "tooling"
+  | "validating"
+  | "awaiting_user"
   | "applying"
   | "executing"
   | "observing"
@@ -10,13 +17,76 @@ export type AgentRunPhase =
   | "blocked"
   | "cancelled";
 
+export type AgentRunStatus = "running" | "awaiting_user" | "ready" | "completed" | "blocked" | "cancelled";
+
+export type AgentRunEventKind = "stage" | "decision" | "model" | "tool" | "validation" | "node" | "error";
+
+export type AgentRunMetadataValue = string | number | boolean | null;
+
 export type AgentRunEvent = {
   id: string;
+  runId?: string;
   phase: AgentRunPhase;
+  kind?: AgentRunEventKind;
   message: string;
   createdAt: string;
   nodeId?: string;
   attempt?: number;
+  durationMs?: number;
+  metadata?: Record<string, AgentRunMetadataValue>;
+};
+
+export type AgentRunTrace = {
+  id: string;
+  status: AgentRunStatus;
+  currentPhase: AgentRunPhase;
+  startedAt: string;
+  updatedAt: string;
+  intent?: string;
+  summary?: string;
+  events: AgentRunEvent[];
+};
+
+export type AgentRunExecutionMode = "browser" | "worker";
+
+export type AgentRunCheckpoint = {
+  version: 1;
+  savedAt: string;
+  canvasSnapshot?: CanvasSnapshot;
+  selectedNodeIds: string[];
+  executedNodeIds: string[];
+  repairAttempts: number;
+  planResponse?: Record<string, unknown>;
+};
+
+export type AgentRunLease = {
+  workerId: string;
+  acquiredAt: string;
+  heartbeatAt: string;
+  expiresAt: string;
+};
+
+export type AgentRunRecord = AgentRunTrace & {
+  schemaVersion: 1;
+  revision: number;
+  executionMode: AgentRunExecutionMode;
+  request?: {
+    userMessage: string;
+    selectedNodeIds: string[];
+    workflowId?: string;
+  };
+  checkpoint?: AgentRunCheckpoint;
+  lease?: AgentRunLease;
+  cancelRequestedAt?: string;
+  resumeRequestedAt?: string;
+};
+
+export type AgentRunUpdate = {
+  events?: AgentRunEvent[];
+  status?: AgentRunStatus;
+  currentPhase?: AgentRunPhase;
+  summary?: string;
+  checkpoint?: AgentRunCheckpoint;
 };
 
 export type AgentObservedNode = {

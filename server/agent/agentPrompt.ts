@@ -2,6 +2,7 @@ import { listAgentSkills, readAgentSkill } from "./skillLoader";
 import { agentWorkflowSkills } from "@/shared/agent/workflowSkills";
 import type { AgentProjectMemory } from "@/shared/agent/projectMemory";
 import type { AgentObservationReport } from "@/shared/agent/agentAutonomy";
+import { agentToolCatalogForPrompt } from "@/shared/agent/agentTools";
 
 const languageInstructionFor = (text: string) =>
   /[\u3400-\u9fff]/.test(text)
@@ -224,7 +225,7 @@ export function buildAgentRouterMessages({
         workflowSkills,
         "",
         "Available tools:",
-        "- image_search: search the configured full-web image provider (Google Images or Bing Images, with Wikimedia fallback) and return source-linked candidates for the user to choose from.",
+        agentToolCatalogForPrompt(),
       ].join("\n\n"),
     },
     {

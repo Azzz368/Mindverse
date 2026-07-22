@@ -13,6 +13,9 @@ import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
 import type { AgentToolCall } from "@/shared/agent/agentTools";
 import { executeAgentTool } from "@/server/agent/toolRegistry";
 import { stabilizeWorkflowPlanDependencies, workflowPlanQualityIssues } from "@/server/agent/workflowPlanQuality";
+import { createAgentRunRecorder } from "@/server/agent/agentRunRecorder";
+import { getAgentRun, persistAgentRunTrace } from "@/server/storage/agentRunStorage";
+import type { AgentRunCheckpoint, AgentRunExecutionMode } from "@/shared/agent/agentAutonomy";
 
 type RouterSnapshot = {
   projectName: string;
@@ -372,6 +375,30 @@ const buildShortVideoHyperframesEditPlan = (message: string, snapshot: RouterSna
 };
 
 export async function POST(request: Request) {
+  let run = createAgentRunRecorder();
+  let executionMode: AgentRunExecutionMode = "browser";
+  let runRequest: { userMessage: string; selectedNodeIds: string[]; workflowId?: string } | undefined;
+  let checkpointSnapshot: RouterSnapshot | undefined;
+  let checkpointSelectedNodeIds: string[] = [];
+  const respond = async (payload: Record<string, unknown>, init?: ResponseInit) => {
+    const trace = run.snapshot();
+    const hasExecutablePlan = payload.ok === true && ["create", "edit", "organize", "skill"].includes(String(payload.intent || ""));
+    const checkpoint: AgentRunCheckpoint | undefined = checkpointSnapshot ? {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      canvasSnapshot: { version: 1, ...checkpointSnapshot },
+      selectedNodeIds: checkpointSelectedNodeIds,
+      executedNodeIds: [],
+      repairAttempts: 0,
+      planResponse: hasExecutablePlan ? payload : undefined,
+    } : undefined;
+    try {
+      await persistAgentRunTrace(trace, { executionMode, request: runRequest, checkpoint });
+    } catch (storageError) {
+      console.warn("Unable to persist Agent run checkpoint.", storageError instanceof Error ? storageError.message : storageError);
+    }
+    return NextResponse.json({ ...payload, agentRun: trace }, init);
+  };
   try {
     const body = await request.json() as {
       userMessage?: unknown;
@@ -380,12 +407,37 @@ export async function POST(request: Request) {
       conversation?: unknown;
       forceIntent?: unknown;
       customSkill?: unknown;
+      resumeRunId?: unknown;
+      executionMode?: unknown;
+      workflowId?: unknown;
     };
     const userMessage = text(body.userMessage);
-    if (!userMessage) return NextResponse.json({ ok: false, error: { message: "userMessage is required." } }, { status: 400 });
+    const resumeRunId = text(body.resumeRunId);
+    if (resumeRunId) {
+      const existingRun = await getAgentRun(resumeRunId);
+      if (existingRun) {
+        run = createAgentRunRecorder(existingRun);
+        run.add("received", "Resumed the existing Agent run with new user input.", { kind: "decision" });
+      }
+    }
+    if (!userMessage) {
+      run.finish("blocked", "blocked", "The Agent request did not include a user message.");
+      return respond({ ok: false, error: { message: "userMessage is required." } }, { status: 400 });
+    }
+    run.add("received", "Received the user request and canvas context.", {
+      metadata: { messageLength: userMessage.length },
+    });
 
     const snapshot = snapshotFrom(body.canvasSnapshot);
     const selectedNodeIds = stringArray(body.selectedNodeIds);
+    executionMode = body.executionMode === "worker" ? "worker" : "browser";
+    checkpointSnapshot = snapshot;
+    checkpointSelectedNodeIds = selectedNodeIds;
+    runRequest = {
+      userMessage,
+      selectedNodeIds,
+      workflowId: text(body.workflowId) || undefined,
+    };
     const customSkill = customSkillFrom(body.customSkill);
     const conversation = messagesFrom(body.conversation);
     const forced = validIntents.includes(body.forceIntent as AgentRouterIntent) ? body.forceIntent as AgentRouterIntent : undefined;
@@ -398,14 +450,22 @@ export async function POST(request: Request) {
     const pendingIntent = rawPendingIntent === "skill" && pendingRequest && !isFixedSceneSkillRequest(pendingRequest, snapshot.agentMemory)
       ? fallbackWorkflowIntent
       : rawPendingIntent;
+    run.add("routing", "Determining the next Agent route from the conversation, memory, selection, and canvas state.", {
+      kind: "model",
+      metadata: { selectedNodes: selectedNodeIds.length, canvasNodes: snapshot.nodes.length, hasPendingRequest: Boolean(pendingRequest) },
+    });
     let intent: AgentRouterIntent;
+    let routeReason: string | undefined;
     if (forced) {
       intent = forced;
       resumePending = pendingIntent === forced;
+      routeReason = "The route was explicitly selected by the user interface.";
     } else if (pendingIntent && isImageSearchToolRequest(userMessage)) {
       intent = "tool";
+      routeReason = "An image search tool request temporarily interrupts the pending workflow.";
     } else {
       try {
+        const routedAt = Date.now();
         const routed = await runAgentRouterLLM({
           userMessage,
           canvasSummary: `${routingCanvasSummary(snapshot, selectedNodeIds)}${customSkill ? `\n\nSelected custom skill: ${customSkill.name}\n${customSkill.tagline}` : ""}`,
@@ -418,10 +478,14 @@ export async function POST(request: Request) {
           : routed.intent;
         routedSkillId = routed.skillId;
         routedToolCall = routed.toolCall;
+        routeReason = routed.reason;
+        run.add("routing", "Router model completed.", { kind: "model", durationMs: Date.now() - routedAt });
       } catch (routerError) {
         console.warn("Agent router LLM failed; using heuristic fallback", routerError instanceof Error ? routerError.message : routerError);
         resumePending = Boolean(pendingIntent && pendingRequest);
         intent = resumePending && pendingIntent ? pendingIntent : inferIntent(userMessage, snapshot, selectedNodeIds.length);
+        routeReason = "The router model failed, so the deterministic fallback selected the route.";
+        run.add("routing", routeReason, { kind: "validation" });
       }
     }
 
@@ -443,12 +507,18 @@ export async function POST(request: Request) {
       intent = snapshot.nodes.length ? "edit" : "create";
       routedSkillId = undefined;
     }
+    run.setIntent(intent, routeReason);
 
     if (intent === "tool") {
       const toolCall = routedToolCall || {
         name: "image_search" as const,
         arguments: { query: imageSearchQueryFrom(userMessage), limit: 8 },
       };
+      const toolStartedAt = Date.now();
+      run.add("tooling", `Calling tool ${toolCall.name}.`, {
+        kind: "tool",
+        metadata: { tool: toolCall.name, risk: "read" },
+      });
       const toolResult = await executeAgentTool(toolCall);
       const zh = /[\u3400-\u9fff]/.test(userMessage);
       const count = toolResult.results.length;
@@ -456,7 +526,16 @@ export async function POST(request: Request) {
         : toolResult.provider === "serpapi-bing" ? "Bing Images"
           : toolResult.provider === "google-cse" ? "Google CSE"
             : "Wikimedia Commons";
-      return NextResponse.json({
+      const toolSummary = count
+        ? `Tool ${toolCall.name} returned ${count} candidates via ${providerLabel}.`
+        : `Tool ${toolCall.name} returned no candidates via ${providerLabel}.`;
+      run.add("tooling", toolSummary, {
+        kind: "tool",
+        durationMs: Date.now() - toolStartedAt,
+        metadata: { tool: toolCall.name, provider: toolResult.provider, resultCount: count },
+      });
+      run.finish("awaiting_user", "awaiting_user", "Waiting for the user to choose a reference image.");
+      return respond({
         ok: true,
         intent: "tool",
         toolCall,
@@ -470,6 +549,8 @@ export async function POST(request: Request) {
 
     let effectiveUserMessage = userMessage;
     if (intent === "create" || intent === "edit" || intent === "skill") {
+      const requirementStartedAt = Date.now();
+      run.add("clarifying", "Checking whether critical execution information is missing.", { kind: "model" });
       const requirement = await runAgentRequirementLLM({
         userMessage,
         pendingRequest: resumePending ? snapshot.agentMemory?.pendingRequest : undefined,
@@ -481,10 +562,16 @@ export async function POST(request: Request) {
         ].filter(Boolean).join("\n\n"),
         conversation,
       });
+      run.add("clarifying", requirement.ready ? "The request is executable." : "Critical information is still missing.", {
+        kind: "validation",
+        durationMs: Date.now() - requirementStartedAt,
+        metadata: { ready: requirement.ready, missingCount: requirement.missingInformation.length, assumptionCount: requirement.assumptions.length },
+      });
       if (!requirement.ready) {
         const zh = /[\u3400-\u9fff]/.test([snapshot.agentMemory?.pendingRequest, userMessage].filter(Boolean).join("\n"));
         const message = requirement.questions.map((question, index) => `${index + 1}. ${question}`).join("\n");
-        return NextResponse.json({
+        run.finish("awaiting_user", "awaiting_user", "Waiting for the user to answer the blocking clarification questions.");
+        return respond({
           ok: true,
           intent: "dialogue",
           requiresClarification: true,
@@ -509,14 +596,18 @@ export async function POST(request: Request) {
     if (intent === "skill" && !isFixedSceneSkillRequest(effectiveUserMessage, snapshot.agentMemory)) {
       intent = fallbackWorkflowIntent;
       routedSkillId = undefined;
+      run.setIntent(intent, "The resolved request does not explicitly activate the fixed-scene workflow Skill.");
     }
 
     const guidedUserMessage = userMessageWithCustomSkill(effectiveUserMessage, customSkill);
 
     if (intent === "edit" && !customSkill && isShortVideoHyperframesEditRequest(effectiveUserMessage, snapshot, selectedNodeIds)) {
+      run.add("planning", "Building the Codex and HyperFrames canvas edit plan.", { kind: "model" });
       const editPlan = buildShortVideoHyperframesEditPlan(effectiveUserMessage, snapshot, selectedNodeIds);
       const patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds });
-      return NextResponse.json({
+      run.add("validating", "Compiled the edit plan into an executable canvas patch.", { kind: "validation", metadata: { createdNodes: patch.createNodes.length, createdEdges: patch.createEdges.length } });
+      run.finish("ready", "validating", "The canvas edit plan is ready to apply.");
+      return respond({
         ok: true,
         intent: "edit",
         editPlan,
@@ -527,8 +618,12 @@ export async function POST(request: Request) {
     }
 
     if (intent === "skill") {
+      const skillStartedAt = Date.now();
+      run.add("planning", "Compiling the selected workflow Skill.", { kind: "model", metadata: { skill: routedSkillId || "fixed-scene-action-video" } });
       const skillBrief = await runFixedSceneSkillLLM({ userBrief: skillBriefFrom(effectiveUserMessage, snapshot.agentMemory) });
-      return NextResponse.json({
+      run.add("validating", "The workflow Skill returned a structured brief.", { kind: "validation", durationMs: Date.now() - skillStartedAt });
+      run.finish("ready", "validating", "The workflow Skill is ready to apply.");
+      return respond({
         ok: true,
         intent,
         skillId: routedSkillId || "fixed-scene-action-video",
@@ -539,15 +634,26 @@ export async function POST(request: Request) {
     }
 
     if (intent === "dialogue") {
+      const dialogueStartedAt = Date.now();
+      run.add("planning", "Developing a conversational response.", { kind: "model" });
       const response = await runAgentDialogueLLM({ userMessage: guidedUserMessage, conversation });
-      return NextResponse.json({ ok: true, intent, response, summary: response.title });
+      run.add("planning", "Dialogue model completed.", { kind: "model", durationMs: Date.now() - dialogueStartedAt });
+      run.finish("completed", "completed", response.title);
+      return respond({ ok: true, intent, response, summary: response.title });
     }
 
     if (intent === "organize") {
-      if (!snapshot.nodes.length) return NextResponse.json({ ok: false, error: { message: "Canvas must include at least one node before organizing." } }, { status: 400 });
+      if (!snapshot.nodes.length) {
+        run.finish("blocked", "blocked", "Canvas organization requires at least one node.");
+        return respond({ ok: false, error: { message: "Canvas must include at least one node before organizing." } }, { status: 400 });
+      }
+      const organizeStartedAt = Date.now();
+      run.add("planning", "Planning a deterministic canvas organization patch.", { kind: "model" });
       const organizePlan = await runAgentOrganizeLLM({ userInstruction: guidedUserMessage, canvasSummary: canvasSummaryWithMemory(snapshot, selectedNodeIds) });
       const patch = compileCanvasOrganizePlanToPatch({ organizePlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges });
-      return NextResponse.json({
+      run.add("validating", "Compiled and validated the canvas organization patch.", { kind: "validation", durationMs: Date.now() - organizeStartedAt, metadata: { updatedNodes: patch.updateNodes.length } });
+      run.finish("ready", "validating", "The canvas organization plan is ready to apply.");
+      return respond({
         ok: true,
         intent,
         organizePlan,
@@ -559,9 +665,12 @@ export async function POST(request: Request) {
 
     if (intent === "edit" && snapshot.nodes.length) {
       const editCanvasSummary = canvasSummaryWithMemory(snapshot, selectedNodeIds);
+      const editStartedAt = Date.now();
+      run.add("planning", "Planning changes against the existing canvas graph.", { kind: "model" });
       let editPlan = await runAgentEditLLM({ userInstruction: guidedUserMessage, canvasSummary: editCanvasSummary });
       let patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds });
       if (patchNeedsRepair(patch, selectedNodeIds)) {
+        run.add("validating", "The first edit plan was incomplete; requesting one structured repair.", { kind: "validation", metadata: { warningCount: (patch.warnings || []).length } });
         editPlan = await runAgentEditLLM({
           userInstruction: guidedUserMessage,
           canvasSummary: editCanvasSummary,
@@ -578,7 +687,9 @@ export async function POST(request: Request) {
         });
         patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds });
       }
-      return NextResponse.json({
+      run.add("validating", "Compiled the edit plan into a canvas patch.", { kind: "validation", durationMs: Date.now() - editStartedAt, metadata: { createdNodes: patch.createNodes.length, updatedNodes: patch.updateNodes.length, createdEdges: patch.createEdges.length, warningCount: (patch.warnings || []).length } });
+      run.finish("ready", "validating", "The canvas edit plan is ready to apply.");
+      return respond({
         ok: true,
         intent,
         editPlan,
@@ -588,9 +699,12 @@ export async function POST(request: Request) {
       });
     }
 
+    const planStartedAt = Date.now();
+    run.add("planning", "Planning a new editable canvas workflow.", { kind: "model" });
     let plan = stabilizeWorkflowPlanDependencies(await runAgentPlannerLLM({ userPrompt: guidedUserMessage, canvasSummary: plannerSummary(snapshot) }));
     let qualityIssues = workflowPlanQualityIssues(plan);
     if (qualityIssues.length) {
+      run.add("validating", "The first workflow plan failed graph quality checks; requesting one repair.", { kind: "validation", metadata: { issueCount: qualityIssues.length } });
       plan = stabilizeWorkflowPlanDependencies(await runAgentPlannerLLM({
         userPrompt: guidedUserMessage,
         canvasSummary: plannerSummary(snapshot),
@@ -601,7 +715,9 @@ export async function POST(request: Request) {
     }
     if (qualityIssues.length) throw new Error(`Agent planner returned an incomplete workflow template: ${qualityIssues.join(" ")}`);
     const patch = compileWorkflowPlanToCanvas(plan);
-    return NextResponse.json({
+    run.add("validating", "Validated workflow dependencies and compiled the canvas patch.", { kind: "validation", durationMs: Date.now() - planStartedAt, metadata: { stepCount: plan.steps.length, edgeCount: patch.edges.length } });
+    run.finish("ready", "validating", "The new workflow is ready to apply.");
+    return respond({
       ok: true,
       intent: "create",
       plan,
@@ -611,6 +727,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const normalized = normalizeAIError(error);
-    return NextResponse.json({ ok: false, error: { message: normalized.message } }, { status: normalized.status >= 400 && normalized.status < 600 ? normalized.status : 500 });
+    run.finish("blocked", "blocked", normalized.message);
+    return respond({ ok: false, error: { message: normalized.message } }, { status: normalized.status >= 400 && normalized.status < 600 ? normalized.status : 500 });
   }
 }
