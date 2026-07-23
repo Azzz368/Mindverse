@@ -57,7 +57,7 @@ const requireRunId = (runId: string) => {
 
 async function withLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
   const previous = locks.get(key) || Promise.resolve();
-  let release = () => undefined;
+  let release: () => void = () => undefined;
   const current = new Promise<void>((resolve) => { release = resolve; });
   const queued = previous.then(() => current);
   locks.set(key, queued);
@@ -175,6 +175,7 @@ export async function persistAgentRunTrace(trace: AgentRunTrace, options: Persis
         ...existing?.checkpoint,
         ...options.checkpoint,
         planResponse: options.checkpoint.planResponse || existing?.checkpoint?.planResponse,
+        retrieval: options.checkpoint.retrieval || existing?.checkpoint?.retrieval,
       } : existing?.checkpoint,
       lease: existing?.lease,
       cancelRequestedAt: existing?.cancelRequestedAt,
@@ -198,7 +199,12 @@ export async function updateAgentRun(runIdValue: string, update: AgentRunUpdate)
       summary: update.summary ?? existing.summary,
       updatedAt,
       events: mergeEvents(existing.events, update.events || []),
-      checkpoint: update.checkpoint || existing.checkpoint,
+      checkpoint: update.checkpoint ? {
+        ...existing.checkpoint,
+        ...update.checkpoint,
+        planResponse: update.checkpoint.planResponse || existing.checkpoint?.planResponse,
+        retrieval: update.checkpoint.retrieval || existing.checkpoint?.retrieval,
+      } : existing.checkpoint,
     };
     return saveRecord(record);
   });

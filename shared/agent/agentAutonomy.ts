@@ -1,5 +1,6 @@
 import type { CanvasEditPatch } from "./agentSchema";
 import type { CanvasSnapshot } from "../canvas";
+import type { CapabilityRetrievalRequest } from "./capabilityTypes";
 
 export type AgentRunPhase =
   | "received"
@@ -57,6 +58,16 @@ export type AgentRunCheckpoint = {
   executedNodeIds: string[];
   repairAttempts: number;
   planResponse?: Record<string, unknown>;
+  retrieval?: AgentRunRetrievalTrace;
+};
+
+export type AgentRunRetrievalTrace = {
+  query: CapabilityRetrievalRequest;
+  retrievalMode: "catalog" | "postgres-hybrid";
+  candidateIds: string[];
+  selectedCapabilityIds: string[];
+  evidenceIds: string[];
+  generatedAt: string;
 };
 
 export type AgentRunLease = {

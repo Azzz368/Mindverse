@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { validateAgentPlan } from "@/shared/agent/agentSchema";
 import { compileWorkflowPlanToCanvas } from "@/server/agent/compileWorkflowPlan";
 import { normalizeAIError } from "@/server/ai/errors";
-import { runAgentPlannerLLM } from "@/server/ai/302aiLLMProvider";
-import { stabilizeWorkflowPlanDependencies, workflowPlanQualityIssues } from "@/server/agent/workflowPlanQuality";
+import { runAgentPlannerLLM, runAgentRouterLLM } from "@/server/ai/302aiLLMProvider";
+import { retrieveCapabilities } from "@/server/agent/capabilities/capabilityRetriever";
+import { approvalRequiredStepIds, bindPlanCapabilities, capabilityPlanGraphIssues, capabilityPlanIssues } from "@/server/agent/capabilities/capabilityValidator";
 
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 
@@ -21,16 +22,32 @@ export async function POST(request: Request) {
     const userPrompt = text(body.userPrompt);
     if (!userPrompt) return NextResponse.json({ ok: false, error: { message: "userPrompt is required." } }, { status: 400 });
     const canvasSummary = summarizeCanvas(body.canvasSnapshot);
-    let plan = stabilizeWorkflowPlanDependencies(validateAgentPlan(await runAgentPlannerLLM({ userPrompt, canvasSummary })));
-    let qualityIssues = workflowPlanQualityIssues(plan);
+    const routed = await runAgentRouterLLM({ userMessage: userPrompt, canvasSummary: canvasSummary || "Canvas: empty", conversation: [], selectedNodeIds: [] });
+    const semanticRoute = { ...routed, route: "plan" as const, operation: "create_workflow" as const, targetNodeIds: [] };
+    const evidenceBundle = await retrieveCapabilities({
+      query: semanticRoute.objective,
+      domains: ["capability", "workflow", "repair"],
+      requiredCapabilities: semanticRoute.requiredCapabilities,
+      filters: {
+        duration: Number.isFinite(Number(semanticRoute.constraints.duration)) ? Number(semanticRoute.constraints.duration) : undefined,
+        aspectRatio: typeof semanticRoute.constraints.aspectRatio === "string" ? semanticRoute.constraints.aspectRatio : undefined,
+        tenantId: "shared",
+        availability: ["available"],
+      },
+      limit: 10,
+    });
+    let plan = bindPlanCapabilities(validateAgentPlan(await runAgentPlannerLLM({ userPrompt, canvasSummary, semanticRoute, evidenceBundle })), evidenceBundle);
+    let qualityIssues = [...capabilityPlanGraphIssues(plan, evidenceBundle), ...capabilityPlanIssues(plan, evidenceBundle)];
     if (qualityIssues.length) {
-      plan = stabilizeWorkflowPlanDependencies(validateAgentPlan(await runAgentPlannerLLM({
+      plan = bindPlanCapabilities(validateAgentPlan(await runAgentPlannerLLM({
         userPrompt,
         canvasSummary,
+        semanticRoute,
+        evidenceBundle,
         previousPlan: plan,
         repairFeedback: qualityIssues.join("\n"),
-      })));
-      qualityIssues = workflowPlanQualityIssues(plan);
+      })), evidenceBundle);
+      qualityIssues = [...capabilityPlanGraphIssues(plan, evidenceBundle), ...capabilityPlanIssues(plan, evidenceBundle)];
     }
     if (qualityIssues.length) throw new Error(`Agent planner returned an incomplete workflow template: ${qualityIssues.join(" ")}`);
     const patch = compileWorkflowPlanToCanvas(plan);
@@ -38,6 +55,9 @@ export async function POST(request: Request) {
       ok: true,
       plan,
       patch,
+      semanticRoute,
+      evidenceBundle,
+      approvalRequiredStepIds: approvalRequiredStepIds(plan, evidenceBundle),
       summary: `${plan.title}: ${plan.steps.length} editable steps prepared.`,
     });
   } catch (error) {

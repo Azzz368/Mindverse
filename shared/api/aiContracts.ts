@@ -14,6 +14,7 @@ import type { CanvasNode, NodeType, WorkflowEdge } from "@/shared/canvas";
 import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
 import type { AgentObserveResponse, AgentRunExecutionMode, AgentRunRecord, AgentRunTrace, AgentRunUpdate } from "@/shared/agent/agentAutonomy";
 import type { AgentToolCall, AgentToolResult } from "@/shared/agent/agentTools";
+import type { AgentSemanticRoute, CapabilityEvidenceBundle } from "@/shared/agent/capabilityTypes";
 
 export type CanvasSnapshotPayload = { version: 1; projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; agentMemory?: AgentProjectMemory };
 
@@ -27,10 +28,10 @@ export type EditImageRequest = { sourceImageUrl: string; prompt: string; size?: 
 export type EditImageResponse = { ok: true; output?: unknown };
 
 export type AgentPlanRequest = { userPrompt: string; canvasSnapshot: CanvasSnapshotPayload; mode: "create" | "edit" };
-export type AgentPlanResponse = { ok: true; plan?: AgentWorkflowPlan; patch?: CanvasPatch; summary?: string };
+export type AgentPlanResponse = { ok: true; plan?: AgentWorkflowPlan; patch?: CanvasPatch; semanticRoute?: AgentSemanticRoute; evidenceBundle?: CapabilityEvidenceBundle; approvalRequiredStepIds?: string[]; summary?: string };
 
 export type AgentEditRequest = { userInstruction: string; canvasSnapshot: CanvasSnapshotPayload; selectedNodeIds: string[] };
-export type AgentEditResponse = { ok: true; editPlan?: AgentCanvasEditPlan; patch?: CanvasEditPatch; summary?: string };
+export type AgentEditResponse = { ok: true; editPlan?: AgentCanvasEditPlan; patch?: CanvasEditPatch; semanticRoute?: AgentSemanticRoute; evidenceBundle?: CapabilityEvidenceBundle; approvalRequiredStepIds?: string[]; summary?: string };
 
 export type AgentOrganizeRequest = AgentEditRequest;
 export type AgentOrganizeResponse = { ok: true; organizePlan?: AgentCanvasOrganizePlan; patch?: CanvasEditPatch; summary?: string };
@@ -53,6 +54,9 @@ export type AgentRouterRequest = {
 export type AgentRouterResponse = {
   ok: true;
   intent: AgentRouterIntent;
+  semanticRoute?: AgentSemanticRoute;
+  evidenceBundle?: CapabilityEvidenceBundle;
+  approvalRequiredStepIds?: string[];
   agentRun?: AgentRunTrace;
   summary?: string;
   response?: AgentDialogueResponse;

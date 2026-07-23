@@ -4,7 +4,11 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { deleteBunnyFile, getJsonFromBunny, uploadJsonToBunny } from "./bunnyClient";
+import { agentMemorySummary } from "@/shared/agent/projectMemory";
 import type { CanvasSnapshot } from "@/shared/canvas";
+import { indexProjectMemory } from "@/server/rag/sources/projectSource";
+import { indexSuccessfulWorkflow } from "@/server/rag/sources/workflowSource";
+import { deactivateRagDocument } from "@/server/rag/documentIngestion";
 
 export type WorkflowSummary = { id: string; name: string; createdAt: string; updatedAt: string };
 export type StoredWorkflow = WorkflowSummary & CanvasSnapshot;
@@ -21,6 +25,33 @@ const localPath = (remotePath: string) => path.join(localStorageRoot(), ...remot
 const legacyLocalStorageRoot = () => path.join(process.cwd(), ".mindverse-local");
 const legacyLocalPath = (remotePath: string) => path.join(legacyLocalStorageRoot(), ...remotePath.split("/"));
 const canUseLocalFallback = () => process.env.WORKFLOW_STORAGE_PROVIDER === "local" || process.env.NODE_ENV !== "production";
+const executableNodeTypes = new Set([
+  "script", "storyboard", "storyboardImage", "image", "video", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "output",
+]);
+
+const isSuccessfulWorkflowSnapshot = (snapshot: CanvasSnapshot) => {
+  const executableNodes = snapshot.nodes.filter((node) => executableNodeTypes.has(node.data.nodeType));
+  return executableNodes.length > 0 && executableNodes.every((node) => node.data.status === "success" && Boolean(node.data.output));
+};
+
+async function indexWorkflowKnowledge(workflowId: string, workflow: StoredWorkflow) {
+  try {
+    const memory = agentMemorySummary(workflow.agentMemory);
+    if (memory) {
+      await indexProjectMemory({
+        projectId: workflowId,
+        title: `${workflow.name} project memory`,
+        content: `# ${workflow.name}\n\n${memory}`,
+        metadata: { workflowId, memoryUpdatedAt: workflow.agentMemory?.updatedAt },
+      });
+    }
+    if (isSuccessfulWorkflowSnapshot(workflow)) {
+      await indexSuccessfulWorkflow({ workflowId, snapshot: workflow, projectId: workflowId });
+    }
+  } catch (error) {
+    console.warn("Workflow saved, but RAG indexing failed.", error instanceof Error ? error.message : error);
+  }
+}
 
 export const isValidAccessCode = (value: unknown) => typeof value === "string" && value.trim() === ACCESS_CODE;
 
@@ -129,10 +160,12 @@ export async function getWorkflow(accessCodeValue: unknown, workflowId: string) 
 
 export async function saveWorkflow(accessCodeValue: unknown, workflowId: string, snapshot: CanvasSnapshot, nameValue?: unknown) {
   const accessCode = requireAccessCode(accessCodeValue);
-  return withLocalFallback(
+  const workflow = await withLocalFallback(
     async () => saveWorkflowTo("bunny", accessCode, workflowId, snapshot, nameValue),
     async () => saveWorkflowTo("local", accessCode, workflowId, snapshot, nameValue),
   );
+  await indexWorkflowKnowledge(workflowId, workflow);
+  return workflow;
 }
 
 export async function renameWorkflow(accessCodeValue: unknown, workflowId: string, nameValue: unknown) {
@@ -157,6 +190,14 @@ export async function deleteWorkflow(accessCodeValue: unknown, workflowId: strin
       await writeLocalIndex(accessCode, index.workflows.filter((item) => item.id !== workflowId));
     },
   );
+  try {
+    await Promise.all([
+      deactivateRagDocument("successful_workflow", workflowId, undefined, workflowId),
+      deactivateRagDocument("project_memory", workflowId, undefined, workflowId),
+    ]);
+  } catch (error) {
+    console.warn("Workflow deleted, but its RAG documents could not be deactivated.", error instanceof Error ? error.message : error);
+  }
 }
 
 async function saveWorkflowTo(storage: "bunny" | "local", accessCode: string, workflowId: string, snapshot: CanvasSnapshot, nameValue?: unknown) {

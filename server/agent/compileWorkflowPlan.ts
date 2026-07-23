@@ -7,6 +7,7 @@ import { videoModelPresetIdFromData } from "@/shared/workflow/videoModelPresets"
 import { targetHandleForNodeConnection } from "@/shared/workflow/connectionHandles";
 import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER, qwenTtsLanguageTypes } from "@/shared/api/qwenContracts";
 import { assertWorkflowPatchMatchesPlan } from "@/server/agent/workflowPlanQuality";
+import { nodeParamsForCapability } from "@/server/agent/capabilities/capabilityCatalog";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
@@ -30,7 +31,7 @@ const DEFAULT_AGENT_IMAGE_MODEL = "gpt-image-2(tokenstar)";
 const sceneCountFor = (plan: AgentWorkflowPlan, params: Record<string, unknown>) =>
   Math.max(1, Math.min(30, Math.round(plan.sceneCount || number(params.targetShotCount) || number(params.numberOfScenes) || 3)));
 const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][number], upstreamKinds: NodeType[]): Partial<CanvasNodeData> => {
-  const params = object(step.params);
+  const params = { ...nodeParamsForCapability(step.providerCapabilityId), ...object(step.params) };
   const stepPrompt = step.prompt?.trim() || "";
   const prompt = stepPrompt || plan.userPrompt;
   const aspectRatio = text(params.aspectRatio) || plan.aspectRatio || "16:9";
@@ -185,50 +186,6 @@ function buildDependencyMap(steps: AgentWorkflowPlan["steps"]) {
   const map = new Map<string, string[]>();
   steps.forEach((step) => {
     const explicit = (step.dependsOn || []).filter((id) => byId.has(id) && id !== step.id);
-    if (step.kind === "voiceTTS") {
-      const explicitVoiceTtsDependencies = explicit.filter((id) => {
-        const kind = byId.get(id)?.kind;
-        return kind === "voiceClone" || kind === "text" || kind === "prompt" || kind === "script" || kind === "storyboard";
-      });
-      if (explicitVoiceTtsDependencies.length) {
-        map.set(step.id, explicitVoiceTtsDependencies);
-        return;
-      }
-    }
-
-    if (step.kind === "video") {
-      const explicitMediaDependencies = explicit.filter((id) => {
-        const kind = byId.get(id)?.kind;
-        return kind === "prompt" || kind === "text" || kind === "image" || kind === "reference" || kind === "video" || kind === "audio" || kind === "voiceTTS";
-      });
-      if (explicitMediaDependencies.length) {
-        map.set(step.id, explicitMediaDependencies);
-        return;
-      }
-    }
-
-    if (step.kind === "videoEdit") {
-      const explicitEditDependencies = explicit.filter((id) => {
-        const kind = byId.get(id)?.kind;
-        return kind === "video" || kind === "videoEdit" || kind === "audio" || kind === "voiceTTS";
-      });
-      if (explicitEditDependencies.length) {
-        map.set(step.id, explicitEditDependencies);
-        return;
-      }
-    }
-
-    if (step.kind === "motion") {
-      const explicitMotionDependencies = explicit.filter((id) => {
-        const kind = byId.get(id)?.kind;
-        return kind === "video" || kind === "videoEdit" || kind === "image" || kind === "reference" || kind === "audio" || kind === "voiceTTS";
-      });
-      if (explicitMotionDependencies.length) {
-        map.set(step.id, explicitMotionDependencies);
-        return;
-      }
-    }
-
     map.set(step.id, explicit);
   });
   return map;

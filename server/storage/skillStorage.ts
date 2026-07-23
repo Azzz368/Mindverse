@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { deleteBunnyFile, getJsonFromBunny, uploadJsonToBunny } from "./bunnyClient";
 import { isValidAccessCode } from "./workflowStorage";
+import { deactivateSkillDocument, indexSkillDocument } from "@/server/rag/sources/skillSource";
 import type { CanvasNode, CanvasSnapshot } from "@/shared/canvas";
 import {
   skillCategories,
@@ -177,7 +178,7 @@ export async function createSkill(accessCodeValue: unknown, draftValue: unknown)
     updatedAt: now,
   };
   const summary = summaryFrom(skill);
-  return withLocalFallback(
+  const stored = await withLocalFallback(
     async () => {
       const index = await readRemoteIndex(accessCode);
       await uploadJsonToBunny(skillPath(accessCode, skill.id), skill);
@@ -191,6 +192,12 @@ export async function createSkill(accessCodeValue: unknown, draftValue: unknown)
       return skill;
     },
   );
+  try {
+    await indexSkillDocument(stored, "shared");
+  } catch (error) {
+    console.warn("Skill was saved but RAG indexing failed.", error instanceof Error ? error.message : error);
+  }
+  return stored;
 }
 
 export async function getSkill(accessCodeValue: unknown, skillId: string) {
@@ -210,10 +217,16 @@ export async function getSkill(accessCodeValue: unknown, skillId: string) {
 export async function updateSkill(accessCodeValue: unknown, skillId: string, draftValue: unknown) {
   const accessCode = requireAccessCode(accessCodeValue);
   const draft = normalizeDraft(draftValue);
-  return withLocalFallback(
+  const stored = await withLocalFallback(
     async () => updateSkillIn("bunny", accessCode, skillId, draft),
     async () => updateSkillIn("local", accessCode, skillId, draft),
   );
+  try {
+    await indexSkillDocument(stored, "shared");
+  } catch (error) {
+    console.warn("Skill was updated but RAG indexing failed.", error instanceof Error ? error.message : error);
+  }
+  return stored;
 }
 
 async function updateSkillIn(storage: "bunny" | "local", accessCode: string, skillId: string, draft: SkillDraft) {
@@ -224,7 +237,7 @@ async function updateSkillIn(storage: "bunny" | "local", accessCode: string, ski
     ...existing,
     ...draft,
     id: skillId,
-    version: 1,
+    version: Math.max(1, Number(existing.version) || 1) + 1,
     visibility: draft.visibility || existing.visibility,
     hasCanvasTemplate: Boolean(draft.canvasTemplate?.nodes.length),
     nodeCount: draft.canvasTemplate?.nodes.length || 0,
@@ -256,4 +269,24 @@ export async function deleteSkill(accessCodeValue: unknown, skillId: string) {
       await uploadLocalJson(indexPath(accessCode), { skills: index.skills.filter((item) => item.id !== skillId) });
     },
   );
+  try {
+    await deactivateSkillDocument(skillId, "shared");
+  } catch (error) {
+    console.warn("Skill was deleted but its RAG document could not be deactivated.", error instanceof Error ? error.message : error);
+  }
+}
+
+export async function backfillSkillRagDocuments(accessCodeValue: unknown) {
+  const accessCode = requireAccessCode(accessCodeValue);
+  const { skills } = await listSkills(accessCode);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(4, skills.length) }, async () => {
+    while (cursor < skills.length) {
+      const summary = skills[cursor++];
+      const skill = await getSkill(accessCode, summary.id);
+      if (skill) await indexSkillDocument(skill, "shared");
+    }
+  });
+  await Promise.all(workers);
+  return skills.length;
 }

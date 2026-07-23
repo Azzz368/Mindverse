@@ -30,7 +30,7 @@ export type SkillDraft = {
 };
 
 export type StoredSkill = SkillSummary & {
-  version: 1;
+  version: number;
   skillMd: string;
   usageScenario: string;
   howToUse: string;

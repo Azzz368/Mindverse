@@ -101,3 +101,9 @@ After an ImageNode has a result, select **Annotate & Refine** below its preview.
 Use **Generate revision** to create a new ImageNode beside the original. The source image is never changed. Annotation metadata, the source image reference, and the revision instruction are included in saved canvases and JSON exports.
 
 The mock provider creates a local revision preview. Real 302.AI image revision deliberately remains unavailable until a confirmed image-edit endpoint is configured; the new revision node will show a clear error instead of silently using a text-to-image replacement.
+
+## Capability retrieval and RAG
+
+The Agent uses a unified semantic route and capability-plan protocol: Router → Capability Retriever → Planner → deterministic validator → canvas compiler. Skills, Tools, configured models, and runtimes share one executable capability catalog; Planner steps cite `providerCapabilityId` and `evidenceIds` instead of inventing providers.
+
+Render Postgres + pgvector is optional but recommended for durable hybrid retrieval across capability, project, repair, and successful-workflow knowledge. Configure the `DATABASE_*` and `RAG_*` values from `.env.example`, then run `npm run rag:migrate`. Local development falls back to the deterministic catalog when Postgres or Embeddings are unavailable. See [`docs/CAPABILITY_RAG.md`](docs/CAPABILITY_RAG.md).

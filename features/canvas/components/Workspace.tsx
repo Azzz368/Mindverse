@@ -131,7 +131,7 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
           <CreativeCanvas />
         </div>
         <BottomRunBar />
-        <AgentWorkflowPanel />
+        <AgentWorkflowPanel workflowId={workflowId} />
       </main>
     </ReactFlowProvider>
   );

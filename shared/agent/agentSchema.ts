@@ -1,4 +1,12 @@
 import type { CanvasNode, NodeType, WorkflowEdge } from "@/shared/canvas";
+import {
+  capabilityForNodeKind,
+  mediaRoles,
+  nodeKindForCapability,
+  type AgentPlanInput,
+  type AgentRouteOperation,
+  type AgentSemanticRoute,
+} from "@/shared/agent/capabilityTypes";
 
 export type AgentWorkflowGoal =
   | "story_to_video"
@@ -12,6 +20,7 @@ export type AgentStepKind = NodeType;
 export type AgentWorkflowPlan = {
   title: string;
   description?: string;
+  objective?: string;
   goal: AgentWorkflowGoal;
   userPrompt: string;
   style?: string;
@@ -20,12 +29,17 @@ export type AgentWorkflowPlan = {
   includeAudio?: boolean;
   videoProvider?: "tokenstar" | "kling" | "302ai" | "302-sora2";
   steps: AgentWorkflowStep[];
+  successCriteria?: string[] | Record<string, unknown>;
   warnings?: string[];
 };
 
 export type AgentWorkflowStep = {
   id: string;
   kind: AgentStepKind;
+  capability: string;
+  providerCapabilityId?: string;
+  evidenceIds?: string[];
+  inputs?: AgentPlanInput[];
   label: string;
   purpose?: string;
   prompt?: string;
@@ -65,6 +79,10 @@ export type AgentCanvasEditIntent =
 export type AgentEditOperation = {
   id: string;
   type: AgentEditOperationType;
+  capability?: string;
+  providerCapabilityId?: string;
+  evidenceIds?: string[];
+  inputs?: AgentPlanInput[];
   reason?: string;
   targetNodeId?: string;
   targetEdgeId?: string;
@@ -161,6 +179,23 @@ const object = (value: unknown): Record<string, unknown> => value && typeof valu
 const text = (value: unknown, fallback = "") => typeof value === "string" ? value.trim() : fallback;
 const stringArray = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : undefined;
 const params = (value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+const planInputs = (value: unknown): AgentPlanInput[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const inputs: AgentPlanInput[] = [];
+  value.forEach((item) => {
+    const raw = object(item);
+    const source = raw.source === "canvas_node" || raw.source === "step_output" || raw.source === "user_input" ? raw.source : undefined;
+    const role = mediaRoles.includes(raw.role as AgentPlanInput["role"]) ? raw.role as AgentPlanInput["role"] : undefined;
+    if (!source || !role) return;
+    const nodeId = text(raw.nodeId) || undefined;
+    const stepId = text(raw.stepId) || undefined;
+    if (source === "canvas_node" && !nodeId) return;
+    if (source === "step_output" && !stepId) return;
+    const key = text(raw.key) || undefined;
+    inputs.push({ source, role, ...(nodeId ? { nodeId } : {}), ...(stepId ? { stepId } : {}), ...(key ? { key } : {}) });
+  });
+  return inputs.length ? inputs : undefined;
+};
 
 const safeId = (value: string, fallback: string) => {
   const id = value.trim().replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -199,7 +234,9 @@ export function validateAgentPlan(value: unknown): AgentWorkflowPlan {
   const steps: AgentWorkflowStep[] = [];
   if (Array.isArray(raw.steps)) raw.steps.forEach((item, index) => {
     const step = object(item);
-    const kind = kinds.includes(step.kind as AgentStepKind) ? step.kind as AgentStepKind : undefined;
+    const rawKind = kinds.includes(step.kind as AgentStepKind) ? step.kind as AgentStepKind : undefined;
+    const capability = text(step.capability) || (rawKind ? capabilityForNodeKind(rawKind) : "");
+    const kind = nodeKindForCapability(capability) || rawKind;
     if (!kind) return;
     let id = safeId(text(step.id), `${kind}-${index + 1}`);
     if (seen.has(id)) id = `${id}-${index + 1}`;
@@ -207,6 +244,10 @@ export function validateAgentPlan(value: unknown): AgentWorkflowPlan {
     steps.push({
       id,
       kind,
+      capability: capability || capabilityForNodeKind(kind),
+      providerCapabilityId: text(step.providerCapabilityId) || undefined,
+      evidenceIds: stringArray(step.evidenceIds),
+      inputs: planInputs(step.inputs),
       label: text(step.label, fallbackLabel(kind, index, zh)),
       purpose: text(step.purpose) || undefined,
       prompt: text(step.prompt) || undefined,
@@ -219,11 +260,19 @@ export function validateAgentPlan(value: unknown): AgentWorkflowPlan {
   const ids = new Set(steps.map((step) => step.id));
   const normalizedSteps = steps.map((step) => ({
     ...step,
-    dependsOn: step.dependsOn?.filter((id) => ids.has(id) && id !== step.id),
+    inputs: step.inputs?.filter((input) => input.source !== "step_output" || (Boolean(input.stepId) && ids.has(input.stepId!) && input.stepId !== step.id)),
+    dependsOn: [...new Set([
+      ...(step.dependsOn || []),
+      ...(step.inputs || []).filter((input) => input.source === "step_output").map((input) => input.stepId || ""),
+    ].filter((id) => ids.has(id) && id !== step.id))],
   }));
+  const successCriteria = Array.isArray(raw.successCriteria)
+    ? stringArray(raw.successCriteria)
+    : params(raw.successCriteria);
   return {
     title,
     description: text(raw.description) || undefined,
+    objective: text(raw.objective) || text(raw.description) || title,
     goal,
     userPrompt,
     style: text(raw.style) || undefined,
@@ -232,7 +281,35 @@ export function validateAgentPlan(value: unknown): AgentWorkflowPlan {
     includeAudio: typeof raw.includeAudio === "boolean" ? raw.includeAudio : false,
     videoProvider,
     steps: normalizedSteps,
+    successCriteria,
     warnings: stringArray(raw.warnings) || [],
+  };
+}
+
+const routeOperations: AgentRouteOperation[] = ["create_workflow", "transform_media", "generate_media", "organize_canvas", "retrieve_reference", "develop_idea", "custom"];
+
+export function validateAgentSemanticRoute(value: unknown, fallbackObjective: string, selectedNodeIds: string[] = []): AgentSemanticRoute {
+  const raw = object(value);
+  const route = raw.route === "plan" || raw.route === "clarify" || raw.route === "dialogue" || raw.route === "tool" || raw.route === "organize"
+    ? raw.route
+    : "dialogue";
+  const operation = routeOperations.includes(raw.operation as AgentRouteOperation) ? raw.operation as AgentRouteOperation : "custom";
+  const confidenceValue = Number(raw.confidence);
+  return {
+    route,
+    operation,
+    objective: text(raw.objective) || fallbackObjective,
+    targetNodeIds: stringArray(raw.targetNodeIds) || selectedNodeIds,
+    requiredCapabilities: stringArray(raw.requiredCapabilities) || [],
+    constraints: params(raw.constraints) || {},
+    successCriteria: stringArray(raw.successCriteria) || [],
+    missingInformation: stringArray(raw.missingInformation) || [],
+    questions: stringArray(raw.questions) || [],
+    confidence: Number.isFinite(confidenceValue) ? Math.max(0, Math.min(1, confidenceValue)) : 0.5,
+    resumePending: raw.resumePending === true,
+    reason: text(raw.reason) || undefined,
+    toolName: text(raw.toolName) || text(object(raw.toolCall).name) || undefined,
+    toolArguments: params(raw.toolArguments) || params(object(raw.toolCall).arguments),
   };
 }
 
@@ -251,6 +328,10 @@ export function validateAgentCanvasEditPlan(value: unknown): AgentCanvasEditPlan
     operations.push({
       id: safeId(text(op.id), `op-${index + 1}`),
       type,
+      capability: text(op.capability) || undefined,
+      providerCapabilityId: text(op.providerCapabilityId) || undefined,
+      evidenceIds: stringArray(op.evidenceIds),
+      inputs: planInputs(op.inputs),
       reason: text(op.reason) || undefined,
       targetNodeId: text(op.targetNodeId) || undefined,
       targetEdgeId: text(op.targetEdgeId) || undefined,

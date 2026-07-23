@@ -85,7 +85,7 @@ const selectedNodeMeta = (node: CanvasNode) => {
   return [node.data.nodeType, node.data.status, ...media].join(" · ");
 };
 
-export function AgentWorkflowPanel() {
+export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -307,6 +307,7 @@ export function AgentWorkflowPanel() {
         customSkill: customSkill || undefined,
         resumeRunId,
         executionMode: "browser",
+        workflowId,
       });
       const planningEvents = payload.agentRun?.events || [];
       setAgentRunId(payload.agentRun?.id || null);
@@ -314,7 +315,8 @@ export function AgentWorkflowPanel() {
       setAutonomousEvents(planningEvents.slice(-24));
       const resolvedRequest = payload.resolvedRequest || message;
 
-      if (autonomousEnabled && ["create", "edit", "organize", "skill"].includes(payload.intent)) {
+      const requiresCapabilityApproval = Boolean(payload.approvalRequiredStepIds?.length);
+      if (autonomousEnabled && !requiresCapabilityApproval && ["create", "edit", "organize", "skill"].includes(payload.intent)) {
         updateAgentMemory({
           storyBrief: resolvedRequest,
           lastIntent: payload.intent,
