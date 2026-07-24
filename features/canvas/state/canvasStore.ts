@@ -7,7 +7,7 @@ import { pollTaskRemote, requestImageRevision, runNodeRemote } from "@/features/
 import { requestAgentEdit, requestAgentOrganize, requestAgentPlan } from "@/features/agent/services/agentClient";
 import { buildTemplate, makeNode, type Template } from "@/shared/templates/templates";
 import { promptsFromStoryboard, storyboardSceneNumber, storyboardScenesFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
-import { videoModelPatch } from "@/shared/workflow/videoModelPresets";
+import { DEFAULT_VIDEO_MODEL_PRESET_ID, videoModelPatch } from "@/shared/workflow/videoModelPresets";
 import { targetHandleForNodeConnection } from "@/shared/workflow/connectionHandles";
 import type { AgentCanvasEditPlan, AgentCanvasOrganizePlan, AgentWorkflowPlan, CanvasEditPatch, CanvasPatch } from "@/shared/agent/agentSchema";
 import type { CanvasNode, CanvasNodeData, CanvasSnapshot, ImageAnnotation, NodeOutput, NodeType, WorkflowEdge } from "@/shared/canvas";
@@ -362,7 +362,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     ) {
       const nextTarget: CanvasNode = {
         ...target,
-        data: { ...target.data, ...videoModelPatch("seedance-2.0-assets") },
+        data: { ...target.data, ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID) },
       };
       nodes = state.nodes.map((node) => node.id === target?.id ? nextTarget : node);
       target = nextTarget;
@@ -636,7 +636,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       aspectRatio: "16:9",
       referenceImageUrl: "",
       fps: "",
-      ...videoModelPatch("seedance-2.0-assets"),
+      ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID),
       duration: 10,
       resolution: "480p",
       referenceImageAssetUrl: "",
@@ -650,7 +650,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       aspectRatio: "16:9",
       referenceImageUrl: "",
       fps: "",
-      ...videoModelPatch("seedance-2.0-assets"),
+      ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID),
       duration: 10,
       resolution: "480p",
       referenceImageAssetUrl: "",

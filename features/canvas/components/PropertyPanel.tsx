@@ -7,6 +7,7 @@ import { useLang } from "@/components/providers/LangProvider";
 import { ImeInput, ImeTextarea } from "./ImeTextFields";
 import { motionTemplateIds } from "@/shared/motion/templates";
 import { videoAspectRatioForPreset, videoAspectRatiosForPreset, videoModelPresetIdFromData } from "@/shared/workflow/videoModelPresets";
+import { MAX_STORYBOARD_SCENE_COUNT, clampStoryboardSceneCount } from "@/shared/workflow/storyPipeline";
 import type { CanvasNodeData } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
@@ -22,7 +23,7 @@ function buildFields(t: Strings): Record<string, Field[]> {
     image: [{ key: "title", label: t.fieldTitle }, { key: "prompt", label: t.fieldImagePrompt, kind: "textarea" }, { key: "model", label: t.fieldModelNote, kind: "select", options: ["gpt-image-2(tokenstar)", "nano banana(tokenstar)"] }, { key: "aspectRatio", label: t.fieldAspectRatio, kind: "select", options: ["16:9", "21:9", "9:16", "3:2", "1:1"] }, { key: "resolution", label: t.fieldResolution, kind: "select", options: ["1K", "2K", "4K"] }, { key: "size", label: t.fieldSize, kind: "select", options: ["1024x1024", "1536x1024", "1024x1536", "2048x2048", "auto"] }],
     video: [{ key: "title", label: t.fieldTitle }, { key: "videoProvider", label: t.fieldVideoProvider, kind: "select", options: ["kling", "302ai", "tokenstar"] }, { key: "prompt", label: t.fieldMotionPrompt, kind: "textarea" }, { key: "referenceImageUrl", label: t.fieldFirstFrameUrl }, { key: "model", label: t.fieldModelKlingNote }, { key: "klingMode", label: t.fieldKlingMode, kind: "select", options: ["image-to-video", "reference-image", "text-to-video", "omni"] }, { key: "klingElementId", label: t.fieldKlingElementId }, { key: "referenceVideoUrl", label: t.fieldReferenceVideoUrl }, { key: "tokenstarMode", label: t.fieldTokenstarMode, kind: "select", options: ["text-to-video", "asset-video", "kling-image", "kling-text", "kling-omni"] }, { key: "referenceImageAssetUrl", label: t.fieldImageAssetUrl, kind: "textarea" }, { key: "referenceVideoAssetUrl", label: t.fieldVideoAssetUrl, kind: "textarea" }, { key: "referenceAudioAssetUrl", label: t.fieldAudioAssetUrl, kind: "textarea" }, { key: "videoInputMode", label: t.field302Mode, kind: "select", options: ["text-to-video", "image-to-video"] }, { key: "duration", label: t.fieldDuration, kind: "number" }, { key: "resolution", label: t.fieldResolution }, { key: "fps", label: t.fieldFps }, { key: "aspectRatio", label: t.fieldAspectRatio, kind: "select", options: ["16:9", "9:16", "1:1"] }, { key: "generateAudio", label: t.fieldGenerateAudio, kind: "select", options: ["true", "false"] }],
     videoEdit: [{ key: "title", label: t.fieldTitle }, { key: "editPlan", label: "Edit plan JSON", kind: "textarea" }, { key: "prompt", label: "Notes", kind: "textarea" }, { key: "preserveAudio", label: "Preserve audio", kind: "select", options: ["true", "false"] }, { key: "originalVolume", label: "Original volume", kind: "number" }, { key: "backgroundVolume", label: "BGM volume", kind: "number" }, { key: "fadeIn", label: "Fade in seconds", kind: "number" }, { key: "fadeOut", label: "Fade out seconds", kind: "number" }, { key: "resolution", label: t.fieldResolution, kind: "select", options: ["480p", "720p", "1080p"] }, { key: "fps", label: t.fieldFps }, { key: "aspectRatio", label: t.fieldAspectRatio, kind: "select", options: ["16:9", "9:16", "1:1"] }],
-    motion: [{ key: "title", label: t.fieldTitle }, { key: "templateId", label: "Template", kind: "select", options: ["", ...motionTemplateIds] }, { key: "motionVariablesJson", label: "Motion variables JSON", kind: "textarea" }, { key: "compositionJson", label: "Composition JSON fallback", kind: "textarea" }, { key: "prompt", label: "Motion prompt", kind: "textarea" }],
+    motion: [{ key: "title", label: t.fieldTitle }, { key: "motionMode", label: "Execution mode", kind: "select", options: ["codex-hyperframes", "template"] }, { key: "prompt", label: "Codex / motion instruction", kind: "textarea" }, { key: "codexInstruction", label: "Codex instruction override (optional)", kind: "textarea" }, { key: "templateId", label: "Template", kind: "select", options: ["", ...motionTemplateIds] }, { key: "motionVariablesJson", label: "Motion variables JSON", kind: "textarea" }, { key: "compositionJson", label: "Composition JSON fallback", kind: "textarea" }],
     audio: [{ key: "title", label: t.fieldTitle }, { key: "prompt", label: t.fieldAudioPrompt, kind: "textarea" }, { key: "model", label: t.fieldModel }, { key: "voice", label: t.fieldVoice }, { key: "emotion", label: t.fieldEmotion }, { key: "volume", label: t.fieldVolume, kind: "number" }, { key: "duration", label: t.fieldDurationSec, kind: "number" }],
     voiceClone: [{ key: "title", label: t.fieldTitle }, { key: "preferredName", label: "Preferred name" }, { key: "language", label: "Language", kind: "select", options: ["zh", "en", "de", "it", "pt", "es", "ja", "ko", "fr", "ru"] }, { key: "transcript", label: "Transcript", kind: "textarea" }, { key: "voice", label: "Voice ID" }, { key: "targetModel", label: "Target model" }],
     voiceTTS: [{ key: "title", label: t.fieldTitle }, { key: "ttsText", label: "Text", kind: "textarea" }, { key: "voice", label: "Voice ID" }, { key: "targetModel", label: "Target model" }, { key: "languageType", label: "Language type", kind: "select", options: ["Auto", "Chinese", "English", "German", "Italian", "Portuguese", "Spanish", "Japanese", "Korean", "French", "Russian"] }],
@@ -80,8 +81,10 @@ export function PropertyPanel() {
 
   const change = (key: keyof CanvasNodeData, value: string) =>
     updateNodeData(node.id, {
-      [key]: key === "duration" || key === "numberOfScenes" || key === "targetShotCount" || key === "temperature" || key === "volume" || key === "originalVolume" || key === "backgroundVolume" || key === "fadeIn" || key === "fadeOut"
-        ? Number(value) : key === "generateAudio" || key === "preserveAudio" ? value === "true" : value,
+      [key]: key === "numberOfScenes" || key === "targetShotCount"
+        ? clampStoryboardSceneCount(value)
+        : key === "duration" || key === "temperature" || key === "volume" || key === "originalVolume" || key === "backgroundVolume" || key === "fadeIn" || key === "fadeOut"
+          ? Number(value) : key === "generateAudio" || key === "preserveAudio" ? value === "true" : value,
     });
   const uploadImageReference = (file: File | undefined) => {
     if (!file) return;
@@ -96,16 +99,24 @@ export function PropertyPanel() {
     ? (node.data.output?.value as { prompts: unknown[] }).prompts : [];
   const videoPresetId = videoModelPresetIdFromData(node.data);
   const videoAspectRatios = videoAspectRatiosForPreset(videoPresetId);
+  const motionMode = node.data.motionMode || "codex-hyperframes";
+  const visibleFields = fields[node.data.nodeType]?.filter((field) => {
+    if (node.data.nodeType !== "motion") return true;
+    if (motionMode === "codex-hyperframes") return field.key !== "templateId" && field.key !== "motionVariablesJson";
+    return field.key !== "codexInstruction";
+  });
 
   return (
     <aside className="w-72 shrink-0 overflow-y-auto border-l border-[#e7eaf0] bg-white p-4 dark:border-slate-800 dark:bg-[#0c1622]">
       <p className="text-xs font-semibold uppercase tracking-[.16em] text-[#939393] dark:text-slate-500">{t.inspector}</p>
       <div className="mt-4 space-y-4">
-        {fields[node.data.nodeType]?.map((field) => {
+        {visibleFields?.map((field) => {
           const options = node.data.nodeType === "video" && field.key === "aspectRatio" ? videoAspectRatios : field.options;
           const value = node.data.nodeType === "video" && field.key === "aspectRatio"
             ? videoAspectRatioForPreset(videoPresetId, node.data.aspectRatio)
-            : String(node.data[field.key] ?? "");
+            : node.data.nodeType === "motion" && field.key === "motionMode"
+              ? motionMode
+              : String(node.data[field.key] ?? "");
           return (
           <label className="block" key={field.key}>
             <span className="mb-1.5 block text-xs text-[#676f7b] dark:text-slate-400">{field.label}</span>
@@ -116,7 +127,13 @@ export function PropertyPanel() {
                 {options?.map((option) => <option key={option}>{option || t.serverDefault}</option>)}
               </Select>
             ) : field.kind === "number" ? (
-              <Input type="number" value={String(node.data[field.key] ?? "")} onChange={(event) => change(field.key, event.target.value)} />
+              <Input
+                type="number"
+                min={field.key === "numberOfScenes" || field.key === "targetShotCount" ? 1 : undefined}
+                max={field.key === "numberOfScenes" || field.key === "targetShotCount" ? MAX_STORYBOARD_SCENE_COUNT : undefined}
+                value={String(node.data[field.key] ?? "")}
+                onChange={(event) => change(field.key, event.target.value)}
+              />
             ) : (
               <ImeInput className={imeInputClass} type="text" value={String(node.data[field.key] ?? "")} onValueChange={(value) => change(field.key, value)} />
             )}
@@ -124,6 +141,13 @@ export function PropertyPanel() {
           );
         })}
       </div>
+      {node.data.nodeType === "motion" && (
+        <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-[11px] leading-5 text-blue-800 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200">
+          {motionMode === "codex-hyperframes"
+            ? "Codex mode localizes and edits every connected video, image and audio asset before HyperFrames renders the result."
+            : "Template mode is deterministic and may use only the first connected visual. Choose Codex mode for multi-asset editing."}
+        </div>
+      )}
       {node.data.nodeType === "image" && (
         <div className="mt-5 rounded-lg border border-[#e7eaf0] bg-[#f7f9fc] p-3 dark:border-slate-800 dark:bg-slate-900/40">
           <p className="text-xs font-semibold text-[#404040] dark:text-slate-200">图生图参考图</p>

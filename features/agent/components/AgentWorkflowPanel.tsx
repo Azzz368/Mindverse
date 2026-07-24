@@ -20,6 +20,7 @@ import type { CanvasNode } from "@/shared/canvas";
 import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
 import { ACTIVE_SKILL_KEY } from "@/features/skills/services/skillClient";
 import type { AgentRunEvent, AgentRunStatus, AgentRunTrace } from "@/shared/agent/agentAutonomy";
+import type { AgentSkillUsage } from "@/shared/agent/capabilityTypes";
 import type { AgentImageSearchResult } from "@/shared/agent/agentTools";
 import { archiveRemoteImageUrl } from "@/features/canvas/services/mediaArchiveClient";
 import { apiErrorPayload } from "@/shared/api/client";
@@ -68,6 +69,35 @@ const fixedSceneConstraints = [
 
 const LAST_AGENT_RUN_KEY = "mindverse:last-agent-run-id";
 
+const skillUsageLabel = (source: AgentSkillUsage["source"]) =>
+  source === "active" ? "已启用" : source === "rag" ? "RAG 检索" : "内置目录";
+
+const skillUsageClassName = (source: AgentSkillUsage["source"]) =>
+  source === "active"
+    ? "border-violet-200 bg-violet-50 text-violet-700"
+    : source === "rag"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : "border-sky-200 bg-sky-50 text-sky-700";
+
+const skillUsageList = (value: unknown): AgentSkillUsage[] => {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const raw = item as Record<string, unknown>;
+    const id = typeof raw.id === "string" ? raw.id.trim() : "";
+    const name = typeof raw.name === "string" ? raw.name.trim() : "";
+    const source = raw.source === "active" || raw.source === "rag" || raw.source === "catalog" ? raw.source : "rag";
+    if (!id || !name) return [];
+    return [{
+      id,
+      name,
+      source,
+      evidenceIds: Array.isArray(raw.evidenceIds) ? raw.evidenceIds.filter((id): id is string => typeof id === "string") : [],
+      supports: Array.isArray(raw.supports) ? raw.supports.filter((capability): capability is string => typeof capability === "string") : [],
+    }];
+  });
+};
+
 const valueRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
@@ -98,6 +128,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
   const [autonomousEvents, setAutonomousEvents] = useState<AgentRunEvent[]>([]);
   const [agentRunId, setAgentRunId] = useState<string | null>(null);
   const [agentRunStatus, setAgentRunStatus] = useState<AgentRunStatus | null>(null);
+  const [usedSkills, setUsedSkills] = useState<AgentSkillUsage[]>([]);
   const [selectingImageId, setSelectingImageId] = useState<string | null>(null);
   const [selectedImageResultIds, setSelectedImageResultIds] = useState<string[]>([]);
   const autonomousControllerRef = useRef<AbortController | null>(null);
@@ -124,10 +155,13 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
   const addStoryChainNode = useCanvasStore((state) => state.addStoryChainNode);
 
   const workflowSkills = Object.values(agentWorkflowSkills);
-  const selectedNodeIds = useMemo(
-    () => [...new Set([...nodes.filter((node) => node.selected).map((node) => node.id), ...(selectedNodeId ? [selectedNodeId] : [])])],
-    [nodes, selectedNodeId],
-  );
+  const selectedNodeIds = useMemo(() => {
+    const existingIds = new Set(nodes.map((node) => node.id));
+    return [...new Set([
+      ...nodes.filter((node) => node.selected).map((node) => node.id),
+      ...(selectedNodeId && existingIds.has(selectedNodeId) ? [selectedNodeId] : []),
+    ])];
+  }, [nodes, selectedNodeId]);
   const selectedNodes = useMemo(
     () => selectedNodeIds.map((id) => nodes.find((node) => node.id === id)).filter((node): node is CanvasNode => Boolean(node)),
     [nodes, selectedNodeIds],
@@ -154,6 +188,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
       setAgentRunId(run.id);
       setAgentRunStatus(run.status);
       setAutonomousEvents(run.events.slice(-24));
+      setUsedSkills(skillUsageList(run.checkpoint?.skillUsage));
     }).catch(() => window.localStorage.removeItem(LAST_AGENT_RUN_KEY));
     return () => { active = false; };
   }, []);
@@ -170,6 +205,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
         if (!active) return;
         setAgentRunStatus(run.status);
         setAutonomousEvents(run.events.slice(-24));
+        setUsedSkills(skillUsageList(run.checkpoint?.skillUsage));
       }).catch(() => undefined);
     };
     const timer = window.setInterval(refresh, 3000);
@@ -294,6 +330,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
     const autonomousController = autonomousEnabled ? new AbortController() : null;
     autonomousControllerRef.current = autonomousController;
     setAutonomousEvents([]);
+    setUsedSkills([]);
     setAgentRunId(null);
     setAgentRunStatus("running");
 
@@ -313,6 +350,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
       setAgentRunId(payload.agentRun?.id || null);
       setAgentRunStatus(payload.agentRun?.status || null);
       setAutonomousEvents(planningEvents.slice(-24));
+      setUsedSkills(skillUsageList(payload.skillUsage));
       const resolvedRequest = payload.resolvedRequest || message;
 
       const requiresCapabilityApproval = Boolean(payload.approvalRequiredStepIds?.length);
@@ -718,6 +756,24 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
             </button>
           </div>
         </div>
+
+        {usedSkills.length > 0 && (
+          <div className="rounded-xl border border-[#dce2ea] bg-white px-3 py-2 shadow-sm">
+            <div className="mb-2 text-[11px] font-semibold text-[#111827]">本次已使用的 Skill</div>
+            <div className="flex flex-wrap gap-1.5">
+              {usedSkills.map((skill) => (
+                <span
+                  key={skill.id}
+                  title={skill.supports.length ? `能力：${skill.supports.join(", ")}` : undefined}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold ${skillUsageClassName(skill.source)}`}
+                >
+                  <span>{skill.name}</span>
+                  <span className="font-normal opacity-75">{skillUsageLabel(skill.source)}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {autonomousEvents.length > 0 && (
           <div className="max-h-44 overflow-y-auto rounded-xl border border-[#dce2ea] bg-white px-3 py-2 shadow-sm">

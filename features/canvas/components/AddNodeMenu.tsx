@@ -5,7 +5,7 @@ import { useLang } from "@/components/providers/LangProvider";
 import { imagePromptPresets } from "@/shared/workflow/imagePromptPresets";
 import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
 import { defaultMotionTemplateVariablesJson } from "@/shared/motion/templates";
-import { videoModelPatch } from "@/shared/workflow/videoModelPresets";
+import { DEFAULT_VIDEO_MODEL_PRESET_ID, videoModelPatch } from "@/shared/workflow/videoModelPresets";
 import type { CanvasNodeData, NodeType } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
@@ -19,11 +19,11 @@ const ALL_CATEGORIES = ["New nodes", "Recently used", "Video", "Image", "Audio",
 
 const getTools = (t: Strings) => [
   { id: "upload-video", type: "upload_video", cat: "Video", title: "Upload Video", desc: "Use a local video file as editable canvas footage", iconSrc: "/icons/1.png" },
-  { id: "seedance-2.0", type: "video", cat: "Video", title: "Seedance 2.0", desc: t.toolDescSeedance, iconSrc: "/icons/1.png", data: { title: "Seedance 2.0", ...videoModelPatch("seedance-2.0") } },
+  { id: DEFAULT_VIDEO_MODEL_PRESET_ID, type: "video", cat: "Video", title: "Seedance Asset Fast", desc: t.toolDescSeedance, iconSrc: "/icons/1.png", data: { title: "Seedance Asset Fast", ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID) } },
   { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: t.toolDescGen45, iconSrc: "/icons/1.png", data: { title: "Gen-4.5", ...videoModelPatch("gen-4.5") } },
   { id: "kling-v3-omni", type: "video", cat: "Video", title: "Kling v3 Omni", desc: "TokenStar multi-reference image/element/video generation", iconSrc: "/icons/1.png", data: { title: "Kling v3 Omni", ...videoModelPatch("kling-v3-omni-tokenstar") } },
 { id: "video-edit", type: "videoEdit", cat: "Video", title: "Video Edit", desc: "FFmpeg trim, concat, audio, subtitles and transcode", iconSrc: "/icons/1.png", data: { title: "Video Edit", editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" } },
-  { id: "motion-compose", type: "motion", cat: "Video", title: "HyperFrames Motion", desc: "Structured motion composition for titles, captions, logos and overlays", iconSrc: "/icons/1.png", data: { title: "Motion* HyperFrames Composition", prompt: "Create a clean motion graphics package", templateId: "basic-title", motionVariablesJson: defaultMotionTemplateVariablesJson("basic-title"), compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")) } },
+  { id: "motion-compose", type: "motion", cat: "Video", title: "Codex + HyperFrames", desc: "Use Codex to edit all connected video, image and audio assets as a HyperFrames composition", iconSrc: "/icons/1.png", data: { title: "Motion* Codex + HyperFrames", prompt: "Use all connected media to create a polished HyperFrames edit.", motionMode: "codex-hyperframes", templateId: "basic-title", motionVariablesJson: defaultMotionTemplateVariablesJson("basic-title"), compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")) } },
   { id: "gpt-image-2-tokenstar", type: "image", cat: "Image", title: "GPT Image 2 (TokenStar)", desc: "TokenStar GPT Image 2 text/image generation", iconSrc: "/icons/2.png", data: { title: "GPT Image 2 (TokenStar)", model: "gpt-image-2(tokenstar)", size: "2048x2048" } },
   ...Object.entries(imagePromptPresets).map(([id, preset]) => ({
     id: `gpt-image-2-tokenstar-${id}`,

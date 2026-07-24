@@ -10,6 +10,7 @@ import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
 import { motionTemplateIds } from "@/shared/motion/templates";
 import { videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
+import { DEFAULT_STORYBOARD_SCENE_COUNT, clampStoryboardSceneCount } from "@/shared/workflow/storyPipeline";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
@@ -101,7 +102,7 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
         <label className={wrap}><span className={lbl}>标题</span>{textInput("title", data.title)}</label>
         {data.nodeType === "prompt" && <><label className={wrap}><span className={lbl}>提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>排除</span>{textArea("negativePrompt", data.negativePrompt, 2)}</label><label className={wrap}><span className={lbl}>风格</span>{textInput("style", data.style)}</label><label className={wrap}><span className={lbl}>宽高比</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}>{["1:1","16:9","9:16","4:5"].map(o=><option key={o}>{o}</option>)}</select></label></>}
         {data.nodeType === "text" && <><label className={wrap}><span className={lbl}>指令</span>{textArea("instruction", data.instruction, 3)}</label><label className={wrap}><span className={lbl}>起始文本</span>{textArea("inputText", data.inputText, 2)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>温度</span><input className={inp} type="number" step="0.1" min="0" max="2" value={data.temperature ?? 0.7} onChange={e => set({ temperature: Number(e.target.value) })} /></label></>}
-        {data.nodeType === "script" && <><label className={wrap}><span className={lbl}>创意概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>语调</span>{textInput("scriptTone", data.scriptTone)}</label><label className={wrap}><span className={lbl}>目标场景数</span><select className={sel} value={String(data.numberOfScenes ?? 3)} onChange={e => set({ numberOfScenes: Number(e.target.value) })}>{[1,2,3,4,5,6,8,10,12].map(n=><option key={n}>{n}</option>)}</select></label></>}
+        {data.nodeType === "script" && <><label className={wrap}><span className={lbl}>创意概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>语调</span>{textInput("scriptTone", data.scriptTone)}</label><label className={wrap}><span className={lbl}>目标场景数</span><select className={sel} value={String(clampStoryboardSceneCount(data.numberOfScenes))} onChange={e => set({ numberOfScenes: clampStoryboardSceneCount(e.target.value) })}>{[1,2,3].map(n=><option key={n}>{n}</option>)}</select></label></>}
         {data.nodeType === "image" && <><label className={wrap}><span className={lbl}>图像提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>尺寸</span><select className={sel} value={data.size ?? "1024x1024"} onChange={e => set({ size: e.target.value })}>{["1024x1024","1536x1024","1024x1536","auto"].map(o=><option key={o}>{o}</option>)}</select></label></>}
         {data.nodeType === "video" && <>
           <label className={wrap}><span className={lbl}>模型</span><select className={sel} value={activeVideoModel} onChange={e => set(videoModelSelectionPatch(e.target.value as VideoModelPresetId, data.aspectRatio))}>{videoModelOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
@@ -134,7 +135,7 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
           <label className={wrap}><span className={lbl}>Motion prompt</span>{textArea("prompt", data.prompt, 3)}</label>
         </>}
         {data.nodeType === "audio" && <><label className={wrap}><span className={lbl}>音频提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>音色</span>{textInput("voice", data.voice)}</label><label className={wrap}><span className={lbl}>情绪</span>{textInput("emotion", data.emotion)}</label><label className={wrap}><span className={lbl}>时长（秒）</span><select className={sel} value={String(data.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}><option value="">默认</option>{[5,10,15,20,30,60].map(n=><option key={n} value={n}>{n}s</option>)}</select></label></>}
-        {data.nodeType === "storyboard" && <><label className={wrap}><span className={lbl}>故事概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>目标镜头数</span><select className={sel} value={String(data.targetShotCount ?? data.numberOfScenes ?? 3)} onChange={e => set({ targetShotCount: Number(e.target.value) })}>{[1,2,3,4,5,6,8,10,12,16,20,24,30].map(n=><option key={n}>{n}</option>)}</select></label></>}
+        {data.nodeType === "storyboard" && <><label className={wrap}><span className={lbl}>故事概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>目标镜头数</span><select className={sel} value={String(clampStoryboardSceneCount(data.targetShotCount ?? data.numberOfScenes))} onChange={e => set({ targetShotCount: clampStoryboardSceneCount(e.target.value) })}>{[1,2,3].map(n=><option key={n}>{n}</option>)}</select></label></>}
         {data.nodeType === "storyboardImage" && <><label className={wrap}><span className={lbl}>宽高比</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}>{["16:9","9:16","1:1"].map(o=><option key={o}>{o}</option>)}</select></label><label className={wrap}><span className={lbl}>排除</span>{textArea("negativePrompt", data.negativePrompt, 2)}</label></>}
         {data.nodeType === "reference" && <label className={wrap}><span className={lbl}>备注</span>{textArea("notes", data.notes, 4)}</label>}
         {data.nodeType === "output" && <label className={wrap}><span className={lbl}>交付格式</span><select className={sel} value={data.format ?? "Creative package"} onChange={e => set({ format: e.target.value })}>{["Creative package","Storyboard package","Campaign brief","Production sheet","JSON"].map(o=><option key={o}>{o}</option>)}</select></label>}
@@ -448,9 +449,9 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
               onChange={(v) => updateNodeData(id, { model: String(v) })}
             />
             <PillDropdown
-              value={isScript ? data.numberOfScenes || 3 : data.wordCount || 200}
-              options={(isScript ? [3, 4, 5, 6, 7, 8] : [100, 200, 500, 1000]).map((n) => ({ value: n, label: isScript ? `${n} scene` : `${n} words` }))}
-              onChange={(v) => updateNodeData(id, isScript ? { numberOfScenes: Number(v) } : { wordCount: Number(v) })}
+              value={isScript ? clampStoryboardSceneCount(data.numberOfScenes) : data.wordCount || 200}
+              options={(isScript ? [1, 2, 3] : [100, 200, 500, 1000]).map((n) => ({ value: n, label: isScript ? `${n} scene` : `${n} words` }))}
+              onChange={(v) => updateNodeData(id, isScript ? { numberOfScenes: clampStoryboardSceneCount(v) } : { wordCount: Number(v) })}
             />
             <button type="button" title="语音输入（即将支持）" className="nodrag grid h-9 w-9 place-items-center rounded-full bg-[#f0f1f3] text-[#404040] dark:bg-slate-800 dark:text-slate-300">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
@@ -485,7 +486,7 @@ function StoryboardPlaceholderIcon() {
 function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
-  const sceneCount = data.targetShotCount ?? data.numberOfScenes ?? 3;
+  const sceneCount = clampStoryboardSceneCount(data.targetShotCount ?? data.numberOfScenes ?? DEFAULT_STORYBOARD_SCENE_COUNT);
   const scenes = Array.isArray(data.output?.value) ? data.output.value.map(record) : [];
 
   return (
@@ -546,8 +547,8 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
             />
             <PillDropdown
               value={sceneCount}
-              options={[3, 4, 5, 6, 7, 8].map((value) => ({ value, label: `${value} scene` }))}
-              onChange={(value) => { const count = Number(value); updateNodeData(id, { numberOfScenes: count, targetShotCount: count }); }}
+              options={[1, 2, 3].map((value) => ({ value, label: `${value} scene` }))}
+              onChange={(value) => { const count = clampStoryboardSceneCount(value); updateNodeData(id, { numberOfScenes: count, targetShotCount: count }); }}
             />
           </div>
           <button
@@ -830,7 +831,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const renderHandle = (label: string, handleId: string, borderColorClass: string, bgColorClass: string, connectedBgColorClass: string) => {
     const isConnected = connectedHandles.has(handleId);
     return (
-       <div className="flex items-center justify-end gap-3" style={{ width: "125px" }}>
+       <div key={handleId} className="flex items-center justify-end gap-3" style={{ width: "125px" }}>
          <span className={`whitespace-nowrap font-bold text-[14px] text-[#030303] dark:text-slate-200 transition-opacity duration-300 ${selected ? "opacity-100" : "opacity-0"}`}>
            {label}
          </span>

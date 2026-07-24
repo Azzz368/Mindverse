@@ -1,8 +1,10 @@
 import "server-only";
 
 import type { AgentWorkflowPlan } from "@/shared/agent/agentSchema";
-import type { CapabilityCandidate, CapabilityEvidenceBundle, MediaRole } from "@/shared/agent/capabilityTypes";
+import { capabilityForNodeKind, type CapabilityCandidate, type CapabilityEvidenceBundle, type MediaRole } from "@/shared/agent/capabilityTypes";
 import type { CanvasNode } from "@/shared/canvas";
+import { DEFAULT_VIDEO_MODEL_PRESET_ID } from "@/shared/workflow/videoModelPresets";
+import { MAX_STORYBOARD_SCENE_COUNT } from "@/shared/workflow/storyPipeline";
 
 const roleFamily = (role: MediaRole) => role.includes("image") ? "image"
   : role.includes("video") ? "video"
@@ -55,6 +57,20 @@ const executableCandidateForStep = (
   && !constraintIssues(candidate, step.params || {}, (step.inputs || []).map((input) => input.role)).length,
 );
 
+const executableCandidateSupports = (candidate: CapabilityCandidate, capability: string) =>
+  (candidate.kind === "model" || candidate.kind === "runtime")
+  && candidate.availability === "available"
+  && candidate.supports.includes(capability);
+
+const normalizeInputsForCandidate = (
+  inputs: AgentWorkflowPlan["steps"][number]["inputs"],
+  candidate: CapabilityCandidate,
+) => (inputs || []).map((input) => {
+  if (acceptsRole(candidate, input.role)) return input;
+  const compatibleRole = candidate.accepts.find((accepted) => roleFamily(accepted) === roleFamily(input.role));
+  return compatibleRole ? { ...input, role: compatibleRole } : input;
+});
+
 const inputRolesForCanvasNode = (node: CanvasNode, stepCapability: string): MediaRole[] => {
   switch (node.data.nodeType) {
     case "prompt": return ["prompt", "source_text", "story_brief"];
@@ -97,16 +113,38 @@ export function bindPlanCapabilities(plan: AgentWorkflowPlan, bundle: Capability
   return {
     ...plan,
     steps: plan.steps.map((step) => {
+      const hasExecutorForRequestedCapability = bundle.capabilities.some((candidate) => executableCandidateSupports(candidate, step.capability));
+      const fallbackCapability = capabilityForNodeKind(step.kind);
+      const capability = hasExecutorForRequestedCapability || !fallbackCapability ? step.capability : fallbackCapability;
+      const normalizedStep = { ...step, capability };
       const explicit = step.providerCapabilityId
         ? bundle.capabilities.find((candidate) => candidate.id === step.providerCapabilityId)
         : undefined;
-      const selected = executableCandidateForStep(explicit, step)
-        ? explicit
-        : bundle.capabilities.find((candidate) => executableCandidateForStep(candidate, step));
+      const preferredId = capability === "text_to_video"
+        ? "model:video:seedance-2.0"
+        : /video_generation|image_to_video|multi_reference_video/.test(capability)
+          ? `model:video:${DEFAULT_VIDEO_MODEL_PRESET_ID}`
+          : undefined;
+      const preferred = preferredId
+        ? bundle.capabilities.find((candidate) => candidate.id === preferredId)
+        : undefined;
+      const candidates = [explicit, preferred, ...bundle.capabilities]
+        .filter((candidate): candidate is CapabilityCandidate => Boolean(candidate))
+        .filter((candidate, index, list) => list.findIndex((item) => item.id === candidate.id) === index);
+      let selectedEntry: { candidate: CapabilityCandidate; step: AgentWorkflowPlan["steps"][number] } | undefined;
+      for (const candidate of candidates) {
+        const candidateStep = { ...normalizedStep, inputs: normalizeInputsForCandidate(normalizedStep.inputs, candidate) };
+        if (executableCandidateForStep(candidate, candidateStep)) {
+          selectedEntry = { candidate, step: candidateStep };
+          break;
+        }
+      }
+      const selected = selectedEntry?.candidate;
+      const boundStep = selectedEntry?.step || normalizedStep;
       const citedEvidenceIds = step.evidenceIds || [];
       const evidenceMatchesSelected = Boolean(selected && citedEvidenceIds.some((id) => selected.evidenceIds.includes(id)));
       return {
-        ...step,
+        ...boundStep,
         providerCapabilityId: selected?.id,
         evidenceIds: selected
           ? (evidenceMatchesSelected ? citedEvidenceIds : selected.evidenceIds)
@@ -191,6 +229,13 @@ export function capabilityPlanGraphIssues(plan: AgentWorkflowPlan, bundle: Capab
   const steps = new Map(plan.steps.map((step) => [step.id, step]));
   const candidates = new Map(bundle.capabilities.map((candidate) => [candidate.id, candidate]));
   const state = new Map<string, "visiting" | "visited">();
+  const storyboardImageShots = plan.steps
+    .filter((step) => step.kind === "image")
+    .map((step) => Number(step.params?.shotNumber))
+    .filter((shotNumber) => Number.isFinite(shotNumber) && shotNumber > 0);
+  if (storyboardImageShots.some((shotNumber) => shotNumber > MAX_STORYBOARD_SCENE_COUNT) || new Set(storyboardImageShots).size > MAX_STORYBOARD_SCENE_COUNT) {
+    issues.push(`Capability plan exceeds the ${MAX_STORYBOARD_SCENE_COUNT}-scene storyboard limit.`);
+  }
 
   const visit = (stepId: string, path: string[]) => {
     const current = state.get(stepId);

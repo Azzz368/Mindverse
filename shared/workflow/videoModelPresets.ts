@@ -9,6 +9,8 @@ export type VideoModelPresetId =
   | "kling-v3-text-tokenstar"
   | "sora-2";
 
+export const DEFAULT_VIDEO_MODEL_PRESET_ID: VideoModelPresetId = "seedance-asset-fast";
+
 export type VideoModelPatch = {
   videoModelPreset: VideoModelPresetId;
   videoProvider: "302ai" | "302-sora2" | "tokenstar" | "kling";
@@ -131,7 +133,10 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
   },
 };
 
-export const videoModelOptions = Object.values(videoModelPresets);
+export const videoModelOptions = [
+  videoModelPresets[DEFAULT_VIDEO_MODEL_PRESET_ID],
+  ...Object.values(videoModelPresets).filter((preset) => preset.id !== DEFAULT_VIDEO_MODEL_PRESET_ID),
+];
 
 export const videoModelPatch = (id: VideoModelPresetId): VideoModelPatch => ({ ...videoModelPresets[id].patch });
 
@@ -186,9 +191,10 @@ export const videoModelPresetIdFromData = (data: {
   if (data.videoProvider === "302ai" && data.model === "gen-4.5") return "gen-4.5";
   if (data.videoProvider === "kling") return "kling-v2.6";
   if (data.videoProvider === "tokenstar" && data.tokenstarMode === "asset-video" && ["seedance-asset-fast", "seedance-2.0-asset-fast"].includes(data.model || "")) return "seedance-asset-fast";
-  if (data.videoProvider === "tokenstar" && data.tokenstarMode === "asset-video") return "seedance-2.0-assets";
+  if (data.videoProvider === "tokenstar" && data.tokenstarMode === "asset-video" && data.model === "seedance-2.0-asset") return "seedance-2.0-assets";
+  if (data.videoProvider === "tokenstar" && data.tokenstarMode === "asset-video") return DEFAULT_VIDEO_MODEL_PRESET_ID;
   if (data.videoProvider === "tokenstar" && data.tokenstarMode === "kling-omni") return "kling-v3-omni-tokenstar";
   if (data.videoProvider === "tokenstar" && data.tokenstarMode === "kling-text") return "kling-v3-text-tokenstar";
   if (data.videoProvider === "tokenstar" && (data.tokenstarMode === "kling-image" || data.klingMode === "image-to-video")) return "kling-v3-tokenstar";
-  return "seedance-2.0";
+  return DEFAULT_VIDEO_MODEL_PRESET_ID;
 };

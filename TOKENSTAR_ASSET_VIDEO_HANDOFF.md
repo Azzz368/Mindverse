@@ -86,7 +86,7 @@ Authorization: Bearer <raw TokenStar Virtual API Key>
 
 ```json
 {
-  "model": "seedance-2.0-asset",
+  "model": "seedance-2.0-asset-fast",
   "content": [
     { "type": "text", "text": "@图1 中的人物走在阳光明媚的街道上，电影质感" },
     {
@@ -118,7 +118,7 @@ Authorization: Bearer <raw TokenStar Virtual API Key>
 AI_VIDEO_PROVIDER=tokenstar
 TOKENSTAR_API_ORIGIN=https://api.tokenstar.world
 TOKENSTAR_VIDEO_MODEL=seedance-2.0-fast
-TOKENSTAR_VIDEO_ASSET_MODEL=seedance-2.0-asset
+TOKENSTAR_VIDEO_ASSET_MODEL=seedance-2.0-asset-fast
 TOKENSTAR_DEFAULT_RATIO=16:9
 TOKENSTAR_DEFAULT_DURATION=8
 TOKENSTAR_DEFAULT_RESOLUTION=720p
@@ -130,9 +130,9 @@ TOKENSTAR_ASSET_MAX_POLL_ATTEMPTS=20
 
 ### 模型配置注意事项
 
-- 已确认的资产视频请求模型是 `seedance-2.0-asset`。
-- 当前源码 fallback、`.env.example` 与前端 preset 应统一使用已确认模型 `seedance-2.0-asset`；不要假设 `seedance-2.0-asset-fast` 在当前账号或接口下可用。
-- 本轮未读取 `.env.local`，因此不能据此判断真实运行配置。
+- 当前默认的资产视频请求模型是 `seedance-2.0-asset-fast`。
+- 源码 fallback、`.env.example`、前端 preset 与 Agent 默认能力均统一使用 `seedance-2.0-asset-fast`。
+- 本地与 Render 若显式设置 `TOKENSTAR_VIDEO_ASSET_MODEL`，也应同步为 `seedance-2.0-asset-fast`。
 
 ## 4. 代码地图
 

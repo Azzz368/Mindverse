@@ -2,7 +2,7 @@ import { asRecord, asText } from "./values";
 import { DEFAULT_QWEN_VOICE_MODEL, qwenTtsLanguageTypes } from "@/shared/api/qwenContracts";
 import { imagePromptWithPreset } from "@/shared/workflow/imagePromptPresets";
 import { videoAspectRatioForPreset, videoInputPortsForPreset, videoModelPatch, videoModelPresetIdFromData, type VideoInputPortKind } from "@/shared/workflow/videoModelPresets";
-import { storyboardSceneFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
+import { clampStoryboardSceneCount, storyboardSceneFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation, WorkflowEdge } from "@/shared/canvas";
 
 const MAX_PROVIDER_PROMPT_LENGTH = 2400;
@@ -248,7 +248,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
     return {
       storyBrief: limitProviderPrompt(prompt),
       scriptTone: d.scriptTone,
-      numberOfScenes: d.numberOfScenes ?? 3,
+      numberOfScenes: clampStoryboardSceneCount(d.numberOfScenes),
       model: d.model,
     };
   }
@@ -357,6 +357,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
   }
 
   if (d.nodeType === "motion") {
+    const motionMode = d.motionMode || "codex-hyperframes";
     const referenceVideoUrls = upstream
       .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoEdit")
       .map(videoUrlFrom)
@@ -374,8 +375,8 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       compositionJson: d.compositionJson,
       templateId: d.templateId,
       motionVariablesJson: d.motionVariablesJson,
-      motionMode: d.motionMode,
-      codexInstruction: d.codexInstruction,
+      motionMode,
+      codexInstruction: motionMode === "codex-hyperframes" ? d.codexInstruction || d.prompt : undefined,
       referenceVideoUrls,
       referenceImageUrls,
       referenceAudioUrls,
@@ -423,7 +424,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
 
   return {
     storyBrief: limitProviderPrompt(prompt),
-    numberOfScenes: Math.max(1, Math.min(30, d.targetShotCount ?? d.numberOfScenes ?? 6)),
+    numberOfScenes: clampStoryboardSceneCount(d.targetShotCount ?? d.numberOfScenes),
     model: d.model,
   };
 };

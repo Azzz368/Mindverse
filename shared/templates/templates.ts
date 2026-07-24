@@ -1,7 +1,7 @@
 import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/shared/canvas";
 import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
 import { defaultMotionTemplateVariablesJson } from "@/shared/motion/templates";
-import { videoModelPatch, videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
+import { DEFAULT_VIDEO_MODEL_PRESET_ID, videoModelPatch, videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
 import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER } from "@/shared/api/qwenContracts";
 
 const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "status">> = {
@@ -9,9 +9,9 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   text: { instruction: "Turn this brief into an engaging creative draft", model: "", temperature: 0.7 },
   script: { storyBrief: "A fictional creative story", scriptTone: "Cinematic, warm, fictional", numberOfScenes: 3, model: "" },
   image: { prompt: "A cinematic editorial image", model: "gpt-image-2(tokenstar)", size: "2048x2048", aspectRatio: "1:1", resolution: "2K", referenceImageUrl: "" },
-  video: { prompt: "A gentle cinematic movement", aspectRatio: "16:9", referenceImageUrl: "", fps: "", ...videoModelPatch("seedance-2.0"), referenceImageAssetUrl: "", referenceVideoAssetUrl: "", referenceAudioAssetUrl: "" },
+  video: { prompt: "A gentle cinematic movement", aspectRatio: "16:9", referenceImageUrl: "", fps: "", ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID), referenceImageAssetUrl: "", referenceVideoAssetUrl: "", referenceAudioAssetUrl: "" },
   videoEdit: { prompt: "", editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" },
-  motion: { prompt: "Create a clean HyperFrames-style title package", compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")), templateId: "basic-title", motionVariablesJson: defaultMotionTemplateVariablesJson("basic-title") },
+  motion: { prompt: "Use all connected media to create a polished HyperFrames edit.", compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")), templateId: "basic-title", motionVariablesJson: defaultMotionTemplateVariablesJson("basic-title"), motionMode: "codex-hyperframes" },
   audio: { prompt: "A warm, modern ambient bed", voiceStyle: "Atmospheric", duration: 12, model: "", voice: "", emotion: "", volume: 1 },
   voiceClone: { preferredName: "voice_1", targetModel: DEFAULT_QWEN_VOICE_MODEL, voiceProvider: DEFAULT_QWEN_VOICE_PROVIDER, language: "zh", transcript: "", consentConfirmed: false },
   voiceTTS: { ttsText: "", voice: "", targetModel: DEFAULT_QWEN_VOICE_MODEL, voiceProvider: DEFAULT_QWEN_VOICE_PROVIDER, languageType: "Auto" },
@@ -40,7 +40,7 @@ export function buildTemplate(template: Template): { nodes: CanvasNode[]; edges:
   nodes.forEach((node, index) => {
     if (node.data.nodeType !== "video") return;
     const hasUpstreamMedia = nodes.slice(0, index).some((source) => ["image", "reference", "video", "audio", "voiceTTS"].includes(source.data.nodeType));
-    if (hasUpstreamMedia) node.data = { ...node.data, ...videoModelPatch("seedance-2.0-assets") };
+    if (hasUpstreamMedia) node.data = { ...node.data, ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID) };
   });
   return { nodes, edges: nodes.slice(1).map((node, index) => {
     const source = nodes[index];

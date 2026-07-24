@@ -155,6 +155,14 @@ export type CapabilityEvidenceBundle = {
   generatedAt: string;
 };
 
+export type AgentSkillUsage = {
+  id: string;
+  name: string;
+  source: "rag" | "active" | "catalog";
+  evidenceIds: string[];
+  supports: string[];
+};
+
 const nodeKindByCapability: Record<string, NodeType> = {
   prompt_authoring: "prompt",
   text_generation: "text",
@@ -163,6 +171,7 @@ const nodeKindByCapability: Record<string, NodeType> = {
   image_generation: "image",
   image_revision: "image",
   video_generation: "video",
+  text_to_video: "video",
   image_to_video: "video",
   multi_reference_video: "video",
   multi_image_video_generation: "video",

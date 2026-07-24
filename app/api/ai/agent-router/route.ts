@@ -16,7 +16,7 @@ import { createAgentRunRecorder } from "@/server/agent/agentRunRecorder";
 import { getAgentRun, persistAgentRunTrace } from "@/server/storage/agentRunStorage";
 import type { AgentRunCheckpoint, AgentRunExecutionMode } from "@/shared/agent/agentAutonomy";
 import type { AgentRunRetrievalTrace } from "@/shared/agent/agentAutonomy";
-import type { AgentSemanticRoute, CapabilityEvidenceBundle, CapabilityRetrievalRequest } from "@/shared/agent/capabilityTypes";
+import type { AgentSemanticRoute, AgentSkillUsage, CapabilityEvidenceBundle, CapabilityRetrievalRequest } from "@/shared/agent/capabilityTypes";
 import { retrieveCapabilities } from "@/server/agent/capabilities/capabilityRetriever";
 import { approvalRequiredStepIds, bindPlanCapabilities, bindRoutedCanvasInputs, capabilityPlanGraphIssues, capabilityPlanIssues } from "@/server/agent/capabilities/capabilityValidator";
 
@@ -215,10 +215,18 @@ const retrievalRequestFrom = (
   const targets = snapshot.nodes.filter((node) => targetIds.has(node.id));
   const count = (types: string[]) => targets.filter((node) => types.includes(node.data.nodeType)).length;
   const constraintText = (key: string) => typeof route.constraints[key] === "string" ? route.constraints[key] as string : undefined;
+  const textToVideoRequested = /text[\s-]*to[\s-]*video|文生视频|文本生成视频/i.test(route.objective)
+    || route.requiredCapabilities.includes("text_to_video");
+  const hyperframesRequested = /codex[\s+&-]*hyperframes|hyperframes|动态包装|动效包装/i.test(route.objective)
+    || route.requiredCapabilities.includes("motion_graphics");
   return {
     query: route.objective,
     domains: workflowId ? ["capability", "workflow", "project", "repair"] : ["capability", "workflow", "repair"],
-    requiredCapabilities: route.requiredCapabilities,
+    requiredCapabilities: [...new Set([
+      ...route.requiredCapabilities,
+      ...(textToVideoRequested ? ["text_to_video"] : []),
+      ...(hyperframesRequested ? ["motion_graphics"] : []),
+    ])],
     filters: {
       inputImages: numberConstraint(route.constraints, "inputImages") ?? count(["image", "reference"]),
       inputVideos: numberConstraint(route.constraints, "inputVideos") ?? count(["video", "videoEdit", "motion"]),
@@ -234,6 +242,41 @@ const retrievalRequestFrom = (
   };
 };
 
+const skillUsageFrom = (bundle: CapabilityEvidenceBundle, customSkill?: ActiveSkillContext): AgentSkillUsage[] =>
+  bundle.skills.map((skill) => {
+    const evidenceIds = skill.evidenceIds;
+    const isActive = Boolean(customSkill && skill.id === `skill:${customSkill.id}`);
+    const source = isActive
+      ? "active"
+      : evidenceIds.some((id) => id.startsWith("catalog:"))
+        ? "catalog"
+        : "rag";
+    return {
+      id: skill.id,
+      name: skill.name,
+      source,
+      evidenceIds,
+      supports: skill.supports,
+    };
+  });
+
+const requirementSkillGuidanceFrom = (bundle?: CapabilityEvidenceBundle) => {
+  if (!bundle?.skills.length) return "";
+  const evidenceById = new Map(bundle.evidence.map((item) => [item.id, item]));
+  return bundle.skills.slice(0, 4).map((skill) => {
+    const excerpts = skill.evidenceIds
+      .map((id) => evidenceById.get(id)?.excerpt)
+      .filter((item): item is string => Boolean(item))
+      .join("\n")
+      .slice(0, 4_000);
+    return [
+      `Skill: ${skill.name}`,
+      `Capabilities: ${skill.supports.join(", ")}`,
+      excerpts ? `Instructions:\n${excerpts}` : "",
+    ].filter(Boolean).join("\n");
+  }).join("\n\n---\n\n");
+};
+
 export async function POST(request: Request) {
   let run = createAgentRunRecorder();
   let executionMode: AgentRunExecutionMode = "browser";
@@ -241,9 +284,13 @@ export async function POST(request: Request) {
   let checkpointSnapshot: RouterSnapshot | undefined;
   let checkpointSelectedNodeIds: string[] = [];
   let checkpointRetrieval: AgentRunRetrievalTrace | undefined;
+  let checkpointSkillUsage: AgentSkillUsage[] | undefined;
   const respond = async (payload: Record<string, unknown>, init?: ResponseInit) => {
     const trace = run.snapshot();
-    const hasExecutablePlan = payload.ok === true && ["create", "edit", "organize", "skill"].includes(String(payload.intent || ""));
+    const responsePayload = checkpointSkillUsage?.length && !Array.isArray(payload.skillUsage)
+      ? { ...payload, skillUsage: checkpointSkillUsage }
+      : payload;
+    const hasExecutablePlan = responsePayload.ok === true && ["create", "edit", "organize", "skill"].includes(String(responsePayload.intent || ""));
     const checkpoint: AgentRunCheckpoint | undefined = checkpointSnapshot ? {
       version: 1,
       savedAt: new Date().toISOString(),
@@ -251,15 +298,16 @@ export async function POST(request: Request) {
       selectedNodeIds: checkpointSelectedNodeIds,
       executedNodeIds: [],
       repairAttempts: 0,
-      planResponse: hasExecutablePlan ? payload : undefined,
+      planResponse: hasExecutablePlan ? responsePayload : undefined,
       retrieval: checkpointRetrieval,
+      skillUsage: checkpointSkillUsage,
     } : undefined;
     try {
       await persistAgentRunTrace(trace, { executionMode, request: runRequest, checkpoint });
     } catch (storageError) {
       console.warn("Unable to persist Agent run checkpoint.", storageError instanceof Error ? storageError.message : storageError);
     }
-    return NextResponse.json({ ...payload, agentRun: trace }, init);
+    return NextResponse.json({ ...responsePayload, agentRun: trace }, init);
   };
   try {
     const body = await request.json() as {
@@ -379,14 +427,31 @@ export async function POST(request: Request) {
       }
     }
     const validCanvasIds = new Set(snapshot.nodes.map((node) => node.id));
+    const selectedCanvasNodeIds = selectedNodeIds.filter((id) => validCanvasIds.has(id));
     const routedTargets = semanticRoute.targetNodeIds.filter((id) => validCanvasIds.has(id));
-    semanticRoute = { ...semanticRoute, targetNodeIds: routedTargets.length ? routedTargets : semanticRoute.route === "plan" ? selectedNodeIds : [] };
+    const routeEditsCanvas = semanticRoute.operation === "transform_media";
+    semanticRoute = {
+      ...semanticRoute,
+      targetNodeIds: routeEditsCanvas
+        ? (routedTargets.length ? routedTargets : selectedCanvasNodeIds)
+        : [],
+    };
+    if (semanticRoute.route === "clarify") {
+      run.add("routing", "Router requested clarification; deferring the decision until relevant Skill guidance has been retrieved.", { kind: "decision" });
+      semanticRoute = {
+        ...semanticRoute,
+        route: "plan",
+        operation: semanticRoute.targetNodeIds.length ? "transform_media" : "create_workflow",
+        missingInformation: [],
+        questions: [],
+      };
+    }
     intent = resumePending && pendingIntent
       ? pendingIntent
-      : semanticRoute.route === "dialogue" || semanticRoute.route === "clarify" ? "dialogue"
-        : semanticRoute.route === "organize" ? "organize"
+      : semanticRoute.route === "dialogue" ? "dialogue"
+          : semanticRoute.route === "organize" ? "organize"
           : semanticRoute.route === "tool" ? "tool"
-            : semanticRoute.targetNodeIds.length ? "edit" : "create";
+            : semanticRoute.operation === "transform_media" && semanticRoute.targetNodeIds.length ? "edit" : "create";
     if (semanticRoute.route === "tool") {
       routedToolCall = validateAgentToolCall({ name: semanticRoute.toolName, arguments: semanticRoute.toolArguments });
     }
@@ -452,6 +517,43 @@ export async function POST(request: Request) {
       });
     }
 
+    let evidenceBundle: CapabilityEvidenceBundle | undefined;
+    if (intent === "create" || intent === "edit") {
+      const retrievalStartedAt = Date.now();
+      const retrievalQuery = retrievalRequestFrom(semanticRoute, snapshot, runRequest?.workflowId);
+      run.add("tooling", "Retrieving Skills, Tools, models, and workflow evidence before evaluating missing requirements.", {
+        kind: "tool",
+        metadata: { requiredCapabilities: retrievalQuery.requiredCapabilities.length, targetNodes: semanticRoute.targetNodeIds.length },
+      });
+      evidenceBundle = await retrieveCapabilities(retrievalQuery, { customSkill });
+      checkpointRetrieval = {
+        query: retrievalQuery,
+        retrievalMode: evidenceBundle.retrievalMode,
+        candidateIds: evidenceBundle.capabilities.map((candidate) => candidate.id),
+        selectedCapabilityIds: [],
+        evidenceIds: evidenceBundle.evidence.map((evidence) => evidence.id),
+        generatedAt: evidenceBundle.generatedAt,
+      };
+      checkpointSkillUsage = skillUsageFrom(evidenceBundle, customSkill);
+      run.add("tooling", `Capability retrieval returned ${evidenceBundle.capabilities.length} executable candidates and ${checkpointSkillUsage.length} matching Skills.`, {
+        kind: "tool",
+        durationMs: Date.now() - retrievalStartedAt,
+        metadata: {
+          retrievalMode: evidenceBundle.retrievalMode,
+          candidateCount: evidenceBundle.capabilities.length,
+          evidenceCount: evidenceBundle.evidence.length,
+          skillCount: checkpointSkillUsage.length,
+        },
+      });
+      if (checkpointSkillUsage.length) {
+        run.add("tooling", `Using Skill guidance: ${checkpointSkillUsage.map((skill) => skill.name).join(", ")}.`, {
+          kind: "decision",
+          metadata: { skillCount: checkpointSkillUsage.length },
+        });
+      }
+      if (!evidenceBundle.capabilities.length) throw new Error("No configured capability satisfies the routed requirements and constraints.");
+    }
+
     let effectiveUserMessage = userMessage;
     if (intent === "create" || intent === "edit") {
       const requirementStartedAt = Date.now();
@@ -466,6 +568,7 @@ export async function POST(request: Request) {
           customSkill ? `Selected custom skill: ${customSkill.name}\nUsage: ${customSkill.howToUse}\nExpected output: ${customSkill.expectedOutput}` : "",
         ].filter(Boolean).join("\n\n"),
         conversation,
+        skillGuidance: requirementSkillGuidanceFrom(evidenceBundle),
       });
       run.add("clarifying", requirement.ready ? "The request is executable." : "Critical information is still missing.", {
         kind: "validation",
@@ -480,6 +583,7 @@ export async function POST(request: Request) {
           ok: true,
           intent: "dialogue",
           semanticRoute: { ...semanticRoute, route: "clarify", missingInformation: requirement.missingInformation, questions: requirement.questions },
+          evidenceBundle,
           requiresClarification: true,
           pendingIntent: intent,
           pendingRequest: requirement.resolvedRequest,
@@ -532,28 +636,8 @@ export async function POST(request: Request) {
       });
     }
 
-    const retrievalStartedAt = Date.now();
     semanticRoute = { ...semanticRoute, objective: effectiveUserMessage };
-    const retrievalQuery = retrievalRequestFrom(semanticRoute, snapshot, runRequest?.workflowId);
-    run.add("tooling", "Retrieving executable Skills, Tools, models, and workflow evidence.", {
-      kind: "tool",
-      metadata: { requiredCapabilities: retrievalQuery.requiredCapabilities.length, targetNodes: semanticRoute.targetNodeIds.length },
-    });
-    const evidenceBundle: CapabilityEvidenceBundle = await retrieveCapabilities(retrievalQuery, { customSkill });
-    checkpointRetrieval = {
-      query: retrievalQuery,
-      retrievalMode: evidenceBundle.retrievalMode,
-      candidateIds: evidenceBundle.capabilities.map((candidate) => candidate.id),
-      selectedCapabilityIds: [],
-      evidenceIds: evidenceBundle.evidence.map((evidence) => evidence.id),
-      generatedAt: evidenceBundle.generatedAt,
-    };
-    run.add("tooling", `Capability retrieval returned ${evidenceBundle.capabilities.length} executable candidates.`, {
-      kind: "tool",
-      durationMs: Date.now() - retrievalStartedAt,
-      metadata: { retrievalMode: evidenceBundle.retrievalMode, candidateCount: evidenceBundle.capabilities.length, evidenceCount: evidenceBundle.evidence.length },
-    });
-    if (!evidenceBundle.capabilities.length) throw new Error("No configured capability satisfies the routed requirements and constraints.");
+    if (!evidenceBundle) throw new Error("Capability retrieval did not run for this planning request.");
 
     const planStartedAt = Date.now();
     run.add("planning", "Planning only with capabilities from the retrieved Evidence Bundle.", { kind: "model" });
@@ -597,7 +681,9 @@ export async function POST(request: Request) {
       qualityIssues = [...capabilityPlanGraphIssues(plan, evidenceBundle), ...capabilityPlanIssues(plan, evidenceBundle), ...editInputIssues()];
     }
     if (qualityIssues.length) throw new Error(`Agent planner returned an invalid capability plan: ${qualityIssues.join(" ")}`);
-    checkpointRetrieval.selectedCapabilityIds = [...new Set(plan.steps.map((step) => step.providerCapabilityId).filter((id): id is string => Boolean(id)))];
+    if (checkpointRetrieval) {
+      checkpointRetrieval.selectedCapabilityIds = [...new Set(plan.steps.map((step) => step.providerCapabilityId).filter((id): id is string => Boolean(id)))];
+    }
     const approvalSteps = approvalRequiredStepIds(plan, evidenceBundle);
 
     if (intent === "edit") {

@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { CapabilityAvailability, CapabilityConstraints, CapabilityRecord, MediaRole } from "@/shared/agent/capabilityTypes";
-import { videoModelPresets, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
+import { videoModelOptions, videoModelPresets, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
 
 const configured = (value: string | undefined): CapabilityAvailability => value?.trim() ? "available" : "unconfigured";
 
@@ -39,7 +39,7 @@ const constraintsByPreset: Partial<Record<VideoModelPresetId, CapabilityConstrai
   "sora-2": { allowedDurations: [4, 8, 12], maxImages: 1, resolutions: ["720p", "1080p"] },
 };
 
-const videoRecords = (): CapabilityRecord[] => Object.values(videoModelPresets).map((preset) => ({
+const videoRecords = (): CapabilityRecord[] => videoModelOptions.map((preset) => ({
   id: `model:video:${preset.id}`,
   kind: "model",
   name: preset.label,
@@ -101,7 +101,7 @@ export const modelCapabilityRecords = (): CapabilityRecord[] => [
     produces: ["source_text", "script", "storyboard"],
     risk: "costly",
     requiresApproval: true,
-    availability: configured(process.env.AI_302_API_KEY || process.env.HKGAI_MAAS_API_KEY),
+    availability: configured(process.env.AI_302_API_KEY || process.env.HKGAI_MAAS_API_KEY || process.env.HKGAI_API_KEY),
     executorRef: "text:configured",
     metadata: { nodeTypes: ["text", "script", "storyboard"] },
   },

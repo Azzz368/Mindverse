@@ -24,6 +24,9 @@ export function buildAgentPlannerMessages(
         languageInstructionFor(userPrompt),
         "Use the unified capability-plan protocol. Choose semantics and composition, but do not invent node kinds, model ids, tools, or provider limits.",
         "You may reference only providerCapabilityId values present in the Evidence Bundle. Each step must cite a provider whose kind is model or runtime and one or more evidenceIds from that candidate. Skills are planning guidance and Tools run before planning; neither is a canvas step executor.",
+        "For script_generation, storyboard_generation, and text_generation use model:text:configured when it is available. For text_to_video use a retrieved text-to-video model such as model:video:seedance-2.0; never select seedance-asset-fast for a pure text-to-video step. Prefer model:video:seedance-asset-fast only for compatible asset/image-reference video steps, unless the user explicitly requested another model.",
+        "Storyboard workflows are capped at 3 scenes and 3 storyboard image branches. Use fewer when requested, and reduce larger requests to the 3 essential shots.",
+        "Do not add optional audio, narration, music, or extra packaging steps unless the user explicitly requested them or the request requires them to satisfy an explicit deliverable.",
         "Each step must contain: id, capability, providerCapabilityId, evidenceIds, typed inputs, label, params, and dependsOn.",
         "Typed input shape: {source:'canvas_node'|'step_output'|'user_input', nodeId?:string, stepId?:string, role:'prompt|story_brief|source_text|reference_image|source_video|reference_audio|background_music|...' }.",
         "Do not output kind. Mindverse maps capability to a concrete node type deterministically after validation.",
@@ -54,12 +57,14 @@ export function buildAgentRequirementMessages({
   intendedIntent,
   canvasSummary,
   conversation,
+  skillGuidance,
 }: {
   userMessage: string;
   pendingRequest?: string;
   intendedIntent: "create" | "edit" | "skill";
   canvasSummary: string;
   conversation: Array<{ role: "user" | "assistant"; content: string }>;
+  skillGuidance?: string;
 }) {
   const languageSource = [pendingRequest, userMessage, ...conversation.map((item) => item.content)].filter(Boolean).join("\n");
   return [
@@ -76,6 +81,7 @@ export function buildAgentRequirementMessages({
         "If the user requests N storyboard images or shots but leaves their exact staging open, infer N distinct editable scene descriptions from the supplied story instead of asking the user to write every shot.",
         "A selected canvas node is a valid source/target when the canvas summary says it is selected. Do not ask the user to provide it again.",
         "Reference assets listed in Agent memory with canvas node ids are valid existing source assets. Resolve phrases such as this person, this image, or the selected photo to those exact nodes instead of asking the user to upload them again.",
+        "Retrieved Skills are planning guidance. When a retrieved Skill explicitly permits defaults or tells you to infer a detail, follow it and record the result as an editable assumption instead of asking a question.",
         "When this is a follow-up to a pending request, combine the pending request and latest answer into one standalone resolvedRequest.",
         "Return at most three concise questions. If ready is true, questions must be empty.",
         "Return JSON only: {\"ready\":true|false,\"resolvedRequest\":\"standalone instruction\",\"missingInformation\":[\"...\"],\"questions\":[\"...\"],\"assumptions\":[\"...\"]}.",
@@ -89,6 +95,7 @@ export function buildAgentRequirementMessages({
         "Conversation so far:",
         JSON.stringify(conversation.slice(-12), null, 2),
         canvasSummary,
+        skillGuidance ? `Retrieved Skill guidance:\n${skillGuidance}` : "Retrieved Skill guidance: none",
         `Latest user message:\n${userMessage}`,
       ].join("\n\n"),
     },

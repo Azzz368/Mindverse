@@ -52,18 +52,20 @@ export async function runAgentRequirementLLM({
   intendedIntent,
   canvasSummary,
   conversation,
+  skillGuidance,
 }: {
   userMessage: string;
   pendingRequest?: string;
   intendedIntent: "create" | "edit" | "skill";
   canvasSummary: string;
   conversation: AgentDialogueMessage[];
+  skillGuidance?: string;
 }): Promise<AgentRequirementDecision> {
   const raw = await requestChatCompletion<ChatResponse>({
     provider: agentProvider(),
     body: {
       model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
-      messages: buildAgentRequirementMessages({ userMessage, pendingRequest, intendedIntent, canvasSummary, conversation }),
+      messages: buildAgentRequirementMessages({ userMessage, pendingRequest, intendedIntent, canvasSummary, conversation, skillGuidance }),
       temperature: 0,
       response_format: { type: "json_object" },
     },

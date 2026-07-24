@@ -19,6 +19,8 @@ export const inferSkillCapabilities = (skill: SkillLike) => {
   if (includes(source, [/script|剧本/])) capabilities.add("script_generation");
   if (includes(source, [/audio|music|bgm|音频|音乐|配乐/])) capabilities.add("audio_generation");
   if (includes(source, [/motion|hyperframes|动效|动态标题/])) capabilities.add("motion_graphics");
+  if (includes(source, [/text[\s-]*to[\s-]*video|文生视频|文本生成视频/])) capabilities.add("text_to_video");
+  if (includes(source, [/image[\s-]*to[\s-]*video|图生视频|图片转视频/])) capabilities.add("image_to_video");
   if (!capabilities.size) capabilities.add("create_workflow");
   return [...capabilities];
 };

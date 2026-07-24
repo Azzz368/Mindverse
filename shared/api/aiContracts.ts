@@ -14,7 +14,7 @@ import type { CanvasNode, NodeType, WorkflowEdge } from "@/shared/canvas";
 import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
 import type { AgentObserveResponse, AgentRunExecutionMode, AgentRunRecord, AgentRunTrace, AgentRunUpdate } from "@/shared/agent/agentAutonomy";
 import type { AgentToolCall, AgentToolResult } from "@/shared/agent/agentTools";
-import type { AgentSemanticRoute, CapabilityEvidenceBundle } from "@/shared/agent/capabilityTypes";
+import type { AgentSemanticRoute, AgentSkillUsage, CapabilityEvidenceBundle } from "@/shared/agent/capabilityTypes";
 
 export type CanvasSnapshotPayload = { version: 1; projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; agentMemory?: AgentProjectMemory };
 
@@ -56,6 +56,7 @@ export type AgentRouterResponse = {
   intent: AgentRouterIntent;
   semanticRoute?: AgentSemanticRoute;
   evidenceBundle?: CapabilityEvidenceBundle;
+  skillUsage?: AgentSkillUsage[];
   approvalRequiredStepIds?: string[];
   agentRun?: AgentRunTrace;
   summary?: string;

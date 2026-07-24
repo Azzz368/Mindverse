@@ -7,7 +7,7 @@ import { createKlingImageVideo as tsKlingImage, createKlingTextVideo, createKlin
 import { createSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
 import { createFfmpegVideoEdit } from "@/server/video/ffmpegEditRunner";
 import { createMotionComposition } from "@/server/motion/motionCompositionRunner";
-import { parseScript, scriptInstruction } from "@/shared/workflow/storyPipeline";
+import { clampStoryboardSceneCount, parseScript, scriptInstruction } from "@/shared/workflow/storyPipeline";
 import { archiveResultMedia } from "@/server/storage/mediaArchive";
 import { synthesizeWithClonedVoice } from "@/server/qwen/speechSynthesis";
 import { qwenErrorPayload } from "@/server/qwen/errors";
@@ -113,7 +113,7 @@ async function runScript(input: Record<string, unknown>) {
   const brief = text(input.storyBrief) || text(input.prompt);
   const defaultTone = /[\u3400-\u9fff]/.test(brief) ? "电影感、虚构、完整可拍摄剧本" : "Cinematic, fictional";
   const tone = text(input.scriptTone) || defaultTone;
-  const count = Math.max(1, Math.min(12, Number(input.numberOfScenes) || 3));
+  const count = clampStoryboardSceneCount(input.numberOfScenes);
   const result = await textProvider.generateText({ model: optionalText(input.model), temperature: 0.5, prompt: scriptInstruction(brief, tone, count) });
   return parseScript(result.text, brief, count);
 }
@@ -229,7 +229,10 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
     : nodeType === "image-revision" ? await imageProvider.generateImageRevision(rawInput as GenerateImageRevisionInput)
     : nodeType === "video" ? await provider.generateVideo(rawInput as GenerateVideoInput)
     : nodeType === "audio" ? await provider.generateAudio(rawInput as GenerateAudioInput)
-    : await textProvider.generateStoryboard(rawInput as GenerateStoryboardInput);
+    : await textProvider.generateStoryboard({
+      ...(rawInput as GenerateStoryboardInput),
+      numberOfScenes: clampStoryboardSceneCount(rawInput.numberOfScenes),
+    });
   const verifiedOutput = nodeType === "video" ? await verifyCompletedVideoAspectRatio(output, rawInput.aspectRatio) : output;
   return {
     ok: true,

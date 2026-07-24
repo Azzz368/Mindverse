@@ -7,6 +7,7 @@ import {
   type AgentRouteOperation,
   type AgentSemanticRoute,
 } from "@/shared/agent/capabilityTypes";
+import { clampStoryboardSceneCount } from "@/shared/workflow/storyPipeline";
 
 export type AgentWorkflowGoal =
   | "story_to_video"
@@ -229,7 +230,7 @@ export function validateAgentPlan(value: unknown): AgentWorkflowPlan {
   const goal = goals.includes(raw.goal as AgentWorkflowGoal) ? raw.goal as AgentWorkflowGoal : "custom";
   const aspectRatio = aspectRatios.includes(raw.aspectRatio as typeof aspectRatios[number]) ? raw.aspectRatio as AgentWorkflowPlan["aspectRatio"] : "16:9";
   const videoProvider = videoProviders.includes(raw.videoProvider as typeof videoProviders[number]) ? raw.videoProvider as AgentWorkflowPlan["videoProvider"] : "tokenstar";
-  const sceneCount = Math.max(1, Math.min(12, Number(raw.sceneCount) || 3));
+  const sceneCount = clampStoryboardSceneCount(raw.sceneCount);
   const seen = new Set<string>();
   const steps: AgentWorkflowStep[] = [];
   if (Array.isArray(raw.steps)) raw.steps.forEach((item, index) => {
@@ -241,6 +242,12 @@ export function validateAgentPlan(value: unknown): AgentWorkflowPlan {
     let id = safeId(text(step.id), `${kind}-${index + 1}`);
     if (seen.has(id)) id = `${id}-${index + 1}`;
     seen.add(id);
+    let stepParams = params(step.params);
+    if (kind === "script" || kind === "storyboard") {
+      stepParams = { ...(stepParams || {}) };
+      stepParams.numberOfScenes = clampStoryboardSceneCount(stepParams.numberOfScenes ?? sceneCount);
+      if (kind === "storyboard") stepParams.targetShotCount = clampStoryboardSceneCount(stepParams.targetShotCount ?? sceneCount);
+    }
     steps.push({
       id,
       kind,
@@ -252,7 +259,7 @@ export function validateAgentPlan(value: unknown): AgentWorkflowPlan {
       purpose: text(step.purpose) || undefined,
       prompt: text(step.prompt) || undefined,
       dependsOn: stringArray(step.dependsOn),
-      params: params(step.params),
+      params: stepParams,
     });
   });
   if (!userPrompt) throw new Error("Agent plan is missing userPrompt.");

@@ -14,11 +14,16 @@ import { hybridRetrieve } from "@/server/rag/hybridRetriever";
 import { indexModelDocument } from "@/server/rag/sources/modelSource";
 import { indexToolDocument } from "@/server/rag/sources/toolSource";
 import { backfillSkillRagDocuments } from "@/server/storage/skillStorage";
+import { DEFAULT_VIDEO_MODEL_PRESET_ID } from "@/shared/workflow/videoModelPresets";
 
 let staticSync: Promise<void> | undefined;
 
 const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9_\-\u3400-\u9fff]+/g, " ").trim();
 const terms = (value: string) => new Set(normalize(value).split(/\s+/).filter(Boolean));
+const planningCapabilityIds = ["runtime:prompt-authoring", "model:text:configured", "runtime:canvas-output"];
+const textToVideoRequestPattern = /text[\s_-]*to[\s_-]*video|文生视频|文本生成视频/i;
+const hyperframesRequestPattern = /codex[\s+&_-]*hyperframes|hyperframes|动态包装|动效包装/i;
+const videoRequestPattern = /(?:^|[\s_-])video(?:$|[\s_-])|视频|短片|影片|影像|动画|分镜/i;
 
 const supportsConstraints = (record: CapabilityRecord, request: CapabilityRetrievalRequest) => {
   if (record.availability !== "available") return false;
@@ -182,7 +187,20 @@ export async function retrieveCapabilities(
     const match = ranked.find((item) => item.record.capabilities.includes(capability));
     if (match && !selected.includes(match)) selected.push(match);
   });
-  ["runtime:prompt-authoring", "runtime:canvas-output"].forEach((id) => {
+  const requiredPlanningCapabilityIds = videoRequestPattern.test(request.query)
+    || request.requiredCapabilities.some((capability) => /video|motion/.test(capability))
+    ? [
+      ...planningCapabilityIds,
+      `model:video:${DEFAULT_VIDEO_MODEL_PRESET_ID}`,
+      ...(textToVideoRequestPattern.test(request.query) || request.requiredCapabilities.includes("text_to_video")
+        ? ["model:video:seedance-2.0"]
+        : []),
+      ...(hyperframesRequestPattern.test(request.query) || request.requiredCapabilities.includes("motion_graphics")
+        ? ["runtime:hyperframes-motion"]
+        : []),
+    ]
+    : planningCapabilityIds;
+  requiredPlanningCapabilityIds.forEach((id) => {
     const coreRuntime = ranked.find((item) => item.record.id === id);
     if (coreRuntime && !selected.includes(coreRuntime)) selected.push(coreRuntime);
   });

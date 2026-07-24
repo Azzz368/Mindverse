@@ -1,6 +1,6 @@
 import type { CanvasEditPatch } from "./agentSchema";
 import type { CanvasSnapshot } from "../canvas";
-import type { CapabilityRetrievalRequest } from "./capabilityTypes";
+import type { AgentSkillUsage, CapabilityRetrievalRequest } from "./capabilityTypes";
 
 export type AgentRunPhase =
   | "received"
@@ -59,6 +59,7 @@ export type AgentRunCheckpoint = {
   repairAttempts: number;
   planResponse?: Record<string, unknown>;
   retrieval?: AgentRunRetrievalTrace;
+  skillUsage?: AgentSkillUsage[];
 };
 
 export type AgentRunRetrievalTrace = {

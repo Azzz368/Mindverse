@@ -4,6 +4,7 @@ import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/share
 import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
 import { defaultMotionTemplateVariablesJson, getMotionTemplate } from "@/shared/motion/templates";
 import { videoModelPresetIdFromData } from "@/shared/workflow/videoModelPresets";
+import { clampStoryboardSceneCount } from "@/shared/workflow/storyPipeline";
 import { targetHandleForNodeConnection } from "@/shared/workflow/connectionHandles";
 import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER, qwenTtsLanguageTypes } from "@/shared/api/qwenContracts";
 import { assertWorkflowPatchMatchesPlan } from "@/server/agent/workflowPlanQuality";
@@ -29,7 +30,7 @@ const targetHandleFor = (sourceNode: CanvasNode | undefined, targetNode: CanvasN
   sourceNode && targetNode ? targetHandleForNodeConnection(sourceNode.data.nodeType, targetNode.data) : undefined;
 const DEFAULT_AGENT_IMAGE_MODEL = "gpt-image-2(tokenstar)";
 const sceneCountFor = (plan: AgentWorkflowPlan, params: Record<string, unknown>) =>
-  Math.max(1, Math.min(30, Math.round(plan.sceneCount || number(params.targetShotCount) || number(params.numberOfScenes) || 3)));
+  clampStoryboardSceneCount(plan.sceneCount || number(params.targetShotCount) || number(params.numberOfScenes));
 const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][number], upstreamKinds: NodeType[]): Partial<CanvasNodeData> => {
   const params = { ...nodeParamsForCapability(step.providerCapabilityId), ...object(step.params) };
   const stepPrompt = step.prompt?.trim() || "";
