@@ -169,7 +169,10 @@ const buildComposition = (input: MotionCompositionInput) => {
   const templateComposition = !codexMode && input.templateId
     ? renderMotionTemplate(input.templateId, parseMotionVariablesJson(input.motionVariablesJson))
     : undefined;
-  const base = templateComposition || compositionFromJson(input.compositionJson, input.prompt || "HyperFrames Composition");
+  const parsedBase = templateComposition || compositionFromJson(input.compositionJson, input.prompt || "HyperFrames Composition");
+  const base = codexMode
+    ? applyCodexRequestedCanvas(parsedBase, [input.codexInstruction, input.prompt].filter(Boolean).join("\n"))
+    : parsedBase;
   const requestedTitle = titleFromPrompt([input.codexInstruction, input.prompt].filter(Boolean).join("\n"));
   const assets: MotionAssetReference[] = [
     ...(input.referenceVideoUrls || []).filter(Boolean).map((url, index) => asset("video", url, index)),
@@ -266,6 +269,33 @@ const localizedAssets = async (composition: MotionComposition, projectDir: strin
   return sourceById;
 };
 
+/**
+ * Codex + HyperFrames jobs often begin from an empty Motion node, whose
+ * generic fallback is 1280x720 for ten seconds. When a user has already
+ * specified delivery dimensions in their edit prompt, make that contract
+ * true before Codex starts. Otherwise Codex wastes most of its budget
+ * rebuilding the root timeline rather than editing the actual footage.
+ */
+const applyCodexRequestedCanvas = (composition: MotionComposition, instruction: string): MotionComposition => {
+  const canvasMatch = /\b(\d{3,5})\s*[x×]\s*(\d{3,5})\b/i.exec(instruction);
+  const durationMatch = /\b(\d+(?:\.\d+)?)\s*(?:-|\s)*(?:seconds?|secs?)\b|(?:时长|持续|长度)\s*[：:]?\s*(\d+(?:\.\d+)?)\s*秒|\b(\d+(?:\.\d+)?)\s*秒/i.exec(instruction);
+  const fpsMatch = /\b(\d{2,3})\s*fps\b|\b(\d{2,3})\s*帧\s*(?:每|\/)\s*秒/i.exec(instruction);
+  const width = Number(canvasMatch?.[1]);
+  const height = Number(canvasMatch?.[2]);
+  const duration = Number(durationMatch?.[1] || durationMatch?.[2] || durationMatch?.[3]);
+  const fps = Number(fpsMatch?.[1] || fpsMatch?.[2]);
+  return {
+    ...composition,
+    canvas: {
+      ...composition.canvas,
+      ...(Number.isFinite(width) && width >= 320 ? { width } : {}),
+      ...(Number.isFinite(height) && height >= 320 ? { height } : {}),
+      ...(Number.isFinite(duration) && duration >= 1 ? { duration } : {}),
+      ...(Number.isFinite(fps) && fps >= 12 ? { fps } : {}),
+    },
+  };
+};
+
 const localizeRuntimeAssets = async (projectDir: string) => {
   const gsapSource = path.join(process.cwd(), "node_modules", "gsap", "dist", "gsap.min.js");
   if (!existsSync(gsapSource)) {
@@ -345,13 +375,13 @@ const elementHtml = (element: MotionElement, sourceById: Map<string, string>, to
     const position = String(element.style?.objectPosition || "center");
     const mediaStyle = `object-fit:${escapeAttr(fit)};object-position:${escapeAttr(position)};display:block;`;
     const media = element.type === "video"
-      ? `<video class="element" src="${escapeAttr(src)}" data-start="${cssNumber(element.start)}" data-duration="${cssNumber(element.duration)}" muted playsinline preload="auto" style="${style};${mediaStyle}"></video>`
+      ? `<video id="${escapeAttr(element.id)}" class="element" src="${escapeAttr(src)}" data-start="${cssNumber(element.start)}" data-duration="${cssNumber(element.duration)}" muted playsinline preload="auto" style="${style};${mediaStyle}"></video>`
       : `<img class="element" src="${escapeAttr(src)}" alt="" style="${style};${mediaStyle}" />`;
     return { css: animation.css, html: media };
   }
   if (element.type === "audio" && src) {
     const volume = clamp(styleNumber(element.style, "volume", element.opacity ?? 1), 0, 1);
-    return { css: "", html: `<audio src="${escapeAttr(src)}" data-start="${cssNumber(element.start)}" data-duration="${cssNumber(element.duration)}" data-volume="${cssNumber(volume, 1)}" preload="auto"></audio>` };
+    return { css: "", html: `<audio id="${escapeAttr(element.id)}" src="${escapeAttr(src)}" data-start="${cssNumber(element.start)}" data-duration="${cssNumber(element.duration)}" data-volume="${cssNumber(volume, 1)}" preload="auto"></audio>` };
   }
   if (element.type === "progressBar") {
     const fillName = `${animation.name}-fill`;
@@ -409,7 +439,16 @@ const writeProject = async (composition: MotionComposition, projectDir: string) 
   </div>
 </body>
 </html>`;
-  await writeFile(path.join(projectDir, "index.html"), ensureLocalVideoAudioTracks(html).html, "utf8");
+  const normalizedHtml = ensureLocalVideoAudioTracks(ensureLocalMediaIds(html)).html;
+  await writeFile(path.join(projectDir, "index.html"), normalizedHtml, "utf8");
+  await writeFile(path.join(projectDir, "package.json"), JSON.stringify({
+    name: "mindverse-hyperframes-job",
+    private: true,
+    scripts: {
+      lint: "node ../../../scripts/hyperframes-cli.mjs lint",
+      check: "node ../../../scripts/hyperframes-cli.mjs check --json",
+    },
+  }, null, 2), "utf8");
 };
 
 type TimedLocalVideo = {
@@ -431,6 +470,18 @@ const htmlNumberAttribute = (tag: string, name: string, fallback: number) => {
 };
 
 const localVideoSource = (src: string | undefined) => Boolean(src && /^assets\/video-[^/]+\.(?:mp4|webm|mov|mkv)$/i.test(src));
+
+/** Ensure a partially completed Codex edit remains render-checkable after a timeout. */
+const ensureLocalMediaIds = (html: string) => {
+  const counters = new Map<string, number>();
+  return html.replace(/<(video|audio)\b[^>]*>/gi, (tag, rawTagName: string) => {
+    if (htmlAttribute(tag, "id")) return tag;
+    const tagName = rawTagName.toLowerCase();
+    const next = (counters.get(tagName) || 0) + 1;
+    counters.set(tagName, next);
+    return tag.replace(new RegExp(`^<${tagName}\\b`, "i"), `<${tagName} id="${tagName}-media-${next}"`);
+  });
+};
 
 const sourceAudioTracks = (html: string): TimedLocalVideo[] => {
   const tracks: TimedLocalVideo[] = [];
@@ -514,8 +565,9 @@ const ensureLocalVideoAudioTracks = (html: string) => {
 
 const restoreSourceVideoAudioTracks = async (projectDir: string) => {
   const indexPath = path.join(projectDir, "index.html");
-  const result = ensureLocalVideoAudioTracks(await readFile(indexPath, "utf8"));
-  if (result.addedTracks) await writeFile(indexPath, result.html, "utf8");
+  const originalHtml = await readFile(indexPath, "utf8");
+  const result = ensureLocalVideoAudioTracks(ensureLocalMediaIds(originalHtml));
+  if (result.addedTracks || result.html !== originalHtml) await writeFile(indexPath, result.html, "utf8");
   return result.addedTracks;
 };
 
@@ -560,8 +612,9 @@ const writeCodexPrompt = async (input: MotionCompositionInput, composition: Moti
     "7. Add a visible requested title, short-video pacing, animated caption/overlay treatment, subtle vignette, progress motion, and tasteful transitions.",
     "8. Keep title and caption text readable over every sampled frame with a compact dark backing, scrim, stroke, or strong shadow; do not rely on white text directly over changing footage.",
     "9. Ensure the video remains full-bleed and correctly framed for the current canvas, especially 9:16 vertical output.",
-    "10. Use `node ../../../scripts/hyperframes-cli.mjs lint` while making structural edits. Run one final `node ../../../scripts/hyperframes-cli.mjs check --json`; it already includes lint.",
+    "10. This job includes package scripts. Use `npm run lint` while making structural edits. Run one final `npm run check`; it already includes lint.",
     "11. When the final check returns `ok: true`, stop immediately and return the result. Do not start optional polish passes or repeat a passing check.",
+    "12. Budget your work: inspect sources with ffprobe only, make one focused edit pass, and do not generate contact sheets, run volume analysis, or perform optional exploratory work.",
     "",
     "## Notes",
     "- This file is generated so Codex can take over the edit from the app.",
