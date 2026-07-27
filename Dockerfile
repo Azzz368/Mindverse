@@ -8,17 +8,19 @@ FROM node:22-bookworm-slim AS base
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     HOME=/home/node \
-    PUPPETEER_CACHE_DIR=/home/node/.cache/puppeteer \
+    PRODUCER_HEADLESS_SHELL_PATH=/usr/bin/chromium-headless-shell \
     PRODUCER_PUPPETEER_LAUNCH_TIMEOUT_MS=120000
 
 WORKDIR /app
 
-# FFmpeg handles media inspection/assembly. The remaining packages are Chromium's
-# shared-library dependencies for HyperFrames/Puppeteer rendering.
+# FFmpeg handles media inspection/assembly. Chromium Headless Shell supports
+# HyperFrames' Linux beginFrame capture without downloading a browser at build
+# time, which is important because Render's build network can reject Chrome's
+# external download endpoint.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       ca-certificates \
-      chromium \
+      chromium-headless-shell \
       ffmpeg \
       fonts-liberation \
       fonts-noto-cjk \
@@ -50,31 +52,19 @@ COPY package.json package-lock.json ./
 # default install behavior.
 RUN npm ci --include=dev
 
-# Do not point HyperFrames at Debian's regular Chromium. It only supports the
-# screenshot capture fallback on Linux, which is prohibitively slow on a Render
-# Web Service. Download HyperFrames' matching Chrome Headless Shell instead;
-# it enables deterministic HeadlessExperimental.beginFrame capture at runtime.
-# This stage only has package.json/package-lock.json and node_modules; the
-# repository's scripts/ wrapper has not been copied yet, so call the installed
-# HyperFrames CLI directly.
-RUN node node_modules/hyperframes/dist/cli.js browser ensure --force
-
 FROM dependencies AS build
 
 COPY . .
 RUN npm run build
 
-# Keep Chromium as a diagnostic fallback, but normal rendering uses the managed
-# Chrome Headless Shell copied from the build stage.
-RUN mkdir -p /home/node/.cache/puppeteer /app/.mindverse \
+# The Headless Shell comes from APT in the base stage, so no runtime browser
+# cache or external Chrome download is required.
+RUN mkdir -p /app/.mindverse \
     && chown -R node:node /home/node /app
 
 FROM base AS runtime
 
 COPY --from=build --chown=node:node /app /app
-# The managed browser is outside /app, so it must be copied explicitly. Without
-# this layer the runtime falls back to Debian Chromium and screenshot capture.
-COPY --from=build --chown=node:node /home/node/.cache/hyperframes /home/node/.cache/hyperframes
 COPY --chown=node:node docker/codex/config.toml /home/node/.codex/config.toml
 COPY --chown=node:node docker-entrypoint.sh /usr/local/bin/mindverse-entrypoint
 RUN chmod 755 /usr/local/bin/mindverse-entrypoint
