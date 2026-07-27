@@ -54,7 +54,10 @@ RUN npm ci --include=dev
 # screenshot capture fallback on Linux, which is prohibitively slow on a Render
 # Web Service. Download HyperFrames' matching Chrome Headless Shell instead;
 # it enables deterministic HeadlessExperimental.beginFrame capture at runtime.
-RUN npm run hyperframes -- browser ensure --force
+# This stage only has package.json/package-lock.json and node_modules; the
+# repository's scripts/ wrapper has not been copied yet, so call the installed
+# HyperFrames CLI directly.
+RUN node node_modules/hyperframes/dist/cli.js browser ensure --force
 
 FROM dependencies AS build
 
