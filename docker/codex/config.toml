@@ -12,3 +12,8 @@ name = "letaicode"
 base_url = "https://letaicode.cn/codex"
 wire_api = "responses"
 requires_openai_auth = false
+# LETAICODE proxies the HTTP Responses stream. Disable Codex's WebSocket
+# transport because a proxy WebSocket upgrade can otherwise surface as HTML 502.
+supports_websockets = false
+request_max_retries = 3
+stream_max_retries = 3
