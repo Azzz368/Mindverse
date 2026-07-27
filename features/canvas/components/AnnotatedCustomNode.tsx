@@ -186,12 +186,16 @@ function NodePreview({ node, t, onView, onViewVideo, onAnnotate }: { node: Canva
     const canvas = record(composition.canvas);
     const elements = Array.isArray(composition.elements) ? composition.elements.length : 0;
     const assets = Array.isArray(composition.assets) ? composition.assets.length : 0;
+    const phase = text(details.phase);
+    const message = text(details.message);
+    const progress = Number(details.progress);
     return (
       <div className="mt-2 rounded-md border border-blue-100 bg-blue-50 p-2 dark:border-blue-400/20 dark:bg-blue-400/10">
         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-700 dark:text-blue-200">HyperFrames DSL</p>
         <p className="mt-1 text-[11px] leading-4 text-[#1a1a1a] dark:text-slate-200">{text(composition.title) || node.data.title}</p>
         <p className="mt-1 text-[10px] text-[#676f7b] dark:text-slate-400">{String(canvas.width || 1280)}x{String(canvas.height || 720)} · {String(canvas.fps || 30)}fps · {String(canvas.duration || 10)}s</p>
-        <p className="mt-1 text-[10px] text-[#676f7b] dark:text-slate-400">{elements} elements · {assets} assets · render pending</p>
+        <p className="mt-1 text-[10px] text-[#676f7b] dark:text-slate-400">{elements} elements · {assets} assets · {phase || "render pending"}</p>
+        {message && <p className="mt-1 text-[10px] leading-4 text-blue-700 dark:text-blue-200">{message}{Number.isFinite(progress) ? ` (${Math.round(progress)}%)` : ""}</p>}
       </div>
     );
   }

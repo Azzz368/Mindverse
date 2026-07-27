@@ -9,6 +9,23 @@ const required = (name: string) => {
 };
 
 const trimSlashes = (value: string) => value.replace(/^\/+|\/+$/g, "");
+const timeoutMs = (name: string, fallback: number) => {
+  const configured = Number(process.env[name] || fallback);
+  return Number.isFinite(configured) && configured > 0 ? configured : fallback;
+};
+
+const fetchWithTimeout = async (url: string, init: RequestInit, timeout: number, operation: string) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(`${operation} timed out after ${timeout}ms.`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+};
 const bunnyConfig = () => {
   const storageZone = required("BUNNY_STORAGE_ZONE");
   const accessKey = required("BUNNY_ACCESS_KEY");
@@ -27,7 +44,7 @@ const storageUrlFor = (remotePath: string) => {
 export async function uploadToBunny(fileBuffer: Buffer, remotePath: string, contentType?: string): Promise<string> {
   const { accessKey, pullZoneUrl } = bunnyConfig();
   const { storagePath, uploadUrl } = storageUrlFor(remotePath);
-  const response = await fetch(uploadUrl, {
+  const response = await fetchWithTimeout(uploadUrl, {
     method: "PUT",
     headers: {
       AccessKey: accessKey,
@@ -35,7 +52,7 @@ export async function uploadToBunny(fileBuffer: Buffer, remotePath: string, cont
       "Content-Length": String(fileBuffer.byteLength),
     },
     body: fileBuffer as unknown as BodyInit,
-  });
+  }, timeoutMs("MINDVERSE_BUNNY_UPLOAD_TIMEOUT_MS", 180_000), `Bunny upload for ${storagePath}`);
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
@@ -48,7 +65,7 @@ export async function uploadToBunny(fileBuffer: Buffer, remotePath: string, cont
 export async function getBunnyFile(remotePath: string): Promise<Buffer | null> {
   const { accessKey } = bunnyConfig();
   const { uploadUrl } = storageUrlFor(remotePath);
-  const response = await fetch(uploadUrl, { method: "GET", headers: { AccessKey: accessKey }, cache: "no-store" });
+  const response = await fetchWithTimeout(uploadUrl, { method: "GET", headers: { AccessKey: accessKey }, cache: "no-store" }, timeoutMs("MINDVERSE_BUNNY_REQUEST_TIMEOUT_MS", 120_000), `Bunny read for ${remotePath}`);
   if (response.status === 404) return null;
   if (!response.ok) {
     const body = await response.text().catch(() => "");
@@ -60,7 +77,7 @@ export async function getBunnyFile(remotePath: string): Promise<Buffer | null> {
 export async function deleteBunnyFile(remotePath: string): Promise<void> {
   const { accessKey } = bunnyConfig();
   const { uploadUrl } = storageUrlFor(remotePath);
-  const response = await fetch(uploadUrl, { method: "DELETE", headers: { AccessKey: accessKey } });
+  const response = await fetchWithTimeout(uploadUrl, { method: "DELETE", headers: { AccessKey: accessKey } }, timeoutMs("MINDVERSE_BUNNY_REQUEST_TIMEOUT_MS", 120_000), `Bunny delete for ${remotePath}`);
   if (response.status === 404) return;
   if (!response.ok) {
     const body = await response.text().catch(() => "");

@@ -32,6 +32,16 @@ export type MotionCompositionInput = {
   referenceAudioUrls?: string[];
 };
 
+export type MotionProgressUpdate = {
+  phase: "preparing" | "codex" | "checking" | "rendering" | "uploading";
+  message: string;
+  progress: number;
+};
+
+type MotionCompositionOptions = {
+  onProgress?: (update: MotionProgressUpdate) => Promise<void> | void;
+};
+
 const require = createRequire(import.meta.url);
 const ffprobeStatic = require("ffprobe-static") as { path?: string };
 
@@ -44,6 +54,10 @@ const asset = (type: MotionAssetReference["type"], url: string, index: number): 
 
 const pathSeparator = process.platform === "win32" ? ";" : ":";
 const dateKey = () => new Date().toISOString().slice(0, 10);
+const configuredTimeout = (name: string, fallback: number, minimum = 1) => {
+  const value = Number(process.env[name] || fallback);
+  return Number.isFinite(value) && value >= minimum ? value : fallback;
+};
 const isCodexHyperframesMode = (input: MotionCompositionInput) => input.motionMode === "codex-hyperframes";
 const codexRequired = () => !["0", "false", "no"].includes(String(process.env.MINDVERSE_CODEX_REQUIRED || "true").trim().toLowerCase());
 const codexBypassSandbox = () => ["1", "true", "yes", "on"].includes(String(process.env.MINDVERSE_CODEX_BYPASS_SANDBOX || "").trim().toLowerCase());
@@ -153,11 +167,23 @@ const downloadAsset = async (assetItem: MotionAssetReference, filePath: string) 
     await writeFile(filePath, file);
     return;
   }
-  const response = await fetch(url, {
+  const controller = new AbortController();
+  const assetTimeout = configuredTimeout("MINDVERSE_MOTION_ASSET_TIMEOUT_MS", 120_000, 30_000);
+  const timer = setTimeout(() => controller.abort(), assetTimeout);
+  let response: Response;
+  try {
+    response = await fetch(url, {
     cache: "no-store",
     redirect: "follow",
+    signal: controller.signal,
     headers: { Accept: "video/*,image/*,audio/*,*/*", "User-Agent": "Mindverse-HyperFrames/1.0" },
-  });
+    });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(`Downloading motion asset ${assetItem.id} timed out after ${assetTimeout}ms.`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!response.ok) {
     throw new Error(`Could not download motion asset ${assetItem.id} (${response.status} ${response.statusText}).`);
   }
@@ -649,8 +675,11 @@ const terminateProcessTree = (pid: number | undefined) => {
     return;
   }
   try {
-    process.kill(pid, "SIGTERM");
+    // Unix jobs are spawned in their own process group, so this also stops
+    // Chromium/ffmpeg or the Codex child rather than leaving it behind.
+    process.kill(-pid, "SIGTERM");
   } catch {
+    try { process.kill(pid, "SIGTERM"); } catch { /* Process already exited. */ }
     // The process may have exited between the timeout and cleanup.
   }
 };
@@ -661,6 +690,7 @@ const runProcess = (command: string, args: string[], options: RunProcessOptions 
       cwd: options.cwd,
       env: options.env,
       windowsHide: true,
+      detached: process.platform !== "win32",
       // Codex treats a piped stdin as additional prompt input and waits for EOF.
       // These jobs pass the complete prompt as an argument, so stdin must be closed.
       stdio: ["ignore", "pipe", "pipe"],
@@ -863,25 +893,33 @@ const renderWithHyperframes = async (projectDir: string, outputPath: string, com
     "--player-ready-timeout", "120000",
     "--low-memory-mode",
     "--quiet",
-  ], { cwd: projectDir, env: hyperframesEnv() });
+  ], {
+    cwd: projectDir,
+    env: hyperframesEnv(),
+    timeoutMs: configuredTimeout("MINDVERSE_HYPERFRAMES_RENDER_TIMEOUT_MS", 720_000, 60_000),
+  });
 };
 
-export const createMotionComposition = async (input: MotionCompositionInput) => {
+export const createMotionComposition = async (input: MotionCompositionInput, options: MotionCompositionOptions = {}) => {
+  const report = async (update: MotionProgressUpdate) => { await options.onProgress?.(update); };
   const composition = buildComposition(input);
   const persistent = isCodexHyperframesMode(input);
   const projectDir = persistent
     ? path.join(process.cwd(), ".mindverse", "hyperframes-jobs", randomUUID())
     : await mkdtemp(path.join(tmpdir(), "mindverse-motion-"));
   try {
+    await report({ phase: "preparing", message: "Downloading connected media and preparing the composition.", progress: 10 });
     if (persistent) await mkdir(projectDir, { recursive: true });
     await writeProject(composition, projectDir);
     let codexRun: CodexRunRecord | undefined;
     if (persistent) {
+      await report({ phase: "codex", message: "Codex is editing the HyperFrames composition.", progress: 28 });
       await writeCodexPrompt(input, composition, projectDir);
       let codexCompleted = false;
       try {
         codexRun = await runCodexHyperframesEdit(projectDir, input);
         codexCompleted = true;
+        await report({ phase: "checking", message: "Checking the Codex composition with HyperFrames.", progress: 55 });
         await restoreSourceVideoAudioTracks(projectDir);
         await assertLocalRuntimeDependencies(projectDir);
         await checkWithHyperframes(projectDir);
@@ -931,8 +969,10 @@ export const createMotionComposition = async (input: MotionCompositionInput) => 
       }
     }
     const outputPath = path.join(projectDir, "motion.mp4");
+    await report({ phase: "rendering", message: "Rendering video with Chromium and FFmpeg.", progress: 68 });
     await renderWithHyperframes(projectDir, outputPath, composition);
     const remotePath = `canvas/${dateKey()}/motion/${randomUUID()}.mp4`;
+    await report({ phase: "uploading", message: "Uploading the rendered video.", progress: 92 });
     const videoUrl = await uploadToBunny(await readFile(outputPath), remotePath, "video/mp4");
     const compositionJson = motionCompositionToJson(composition);
     return {

@@ -540,14 +540,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const node = get().nodes.find((item) => item.id === id);
     const value = asRecord(node?.data.output?.value);
     const taskId = asText(value.taskId);
-    if (!node || !taskId || !["image", "video", "audio"].includes(node.data.nodeType)) return;
+    if (!node || !taskId || !["image", "video", "audio", "motion"].includes(node.data.nodeType)) return;
     set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "running", error: undefined } } : item) }));
     try {
       const payload = await pollTaskRemote({ type: node.data.nodeType, taskId, provider: pollProviderFor(node, value), pollUrl: asText(value.pollUrl) || undefined, pollAction: node.data.nodeType === "video" ? (asText(value.pollAction) || undefined) : undefined, expectedAspectRatio: node.data.nodeType === "video" ? asText(value.expectedAspectRatio) || node.data.aspectRatio : undefined });
       const rawOutput = asRecord(payload.output);
       const providerFromPoll = typeof payload.provider === "string" ? payload.provider : pollProviderFor(node, value);
       const pollVideoProvider = videoProviderFrom(providerFromPoll);
-      const result = outputFromProvider(node.data.nodeType, node.data.nodeType === "video" ? { ...rawOutput, provider: providerFromPoll, videoUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl) } : payload.output);
+      const result = outputFromProvider(node.data.nodeType, node.data.nodeType === "video" || node.data.nodeType === "motion" ? { ...rawOutput, provider: providerFromPoll, videoUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl) } : payload.output);
       const state = asText(rawOutput.status);
       const intervalMs = Number(payload.polling?.intervalMs) || 3000;
       if (state === "pending" || state === "running") schedulePoll(id, () => void get().pollNode(id), intervalMs);
@@ -556,7 +556,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     } catch (error) {
       const message = error instanceof Error ? error.message : "Task polling failed";
       const retryStatus = asText(value.status);
-      const shouldRetry = retryStatus === "pending" || retryStatus === "running" || pollProviderFor(node, value) === "tokenstar";
+      const shouldRetry = retryStatus === "pending" || retryStatus === "running" || pollProviderFor(node, value) === "tokenstar" || node.data.nodeType === "motion";
       if (shouldRetry) {
         const retryMs = Number(asRecord(value.polling).intervalMs) || 12000;
         schedulePoll(id, () => void get().pollNode(id), retryMs);

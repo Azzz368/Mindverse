@@ -6,7 +6,7 @@ import { generateTokenStarImage, generateTokenStarImageRevision, isTokenStarImag
 import { createKlingImageVideo as tsKlingImage, createKlingTextVideo, createKlingOmniVideo, createSeedanceAssetVideo, createSeedanceVideo } from "@/server/ai/tokenstar/tokenstarVideoProvider";
 import { createSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
 import { createFfmpegVideoEdit } from "@/server/video/ffmpegEditRunner";
-import { createMotionComposition } from "@/server/motion/motionCompositionRunner";
+import { enqueueMotionJob } from "@/server/motion/motionJobRunner";
 import { clampStoryboardSceneCount, parseScript, scriptInstruction } from "@/shared/workflow/storyPipeline";
 import { archiveResultMedia } from "@/server/storage/mediaArchive";
 import { synthesizeWithClonedVoice } from "@/server/qwen/speechSynthesis";
@@ -144,7 +144,7 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
 
   if (nodeType === "motion") {
     try {
-      const output = await createMotionComposition({
+      const job = await enqueueMotionJob({
         prompt: optionalText(rawInput.prompt),
         compositionJson: optionalText(rawInput.compositionJson),
         templateId: optionalText(rawInput.templateId),
@@ -155,7 +155,12 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
         referenceImageUrls: urls(rawInput.referenceImageUrls),
         referenceAudioUrls: urls(rawInput.referenceAudioUrls),
       });
-      return { ok: true, provider: "hyperframes", output, polling: { intervalMs: 0 } };
+      return {
+        ok: true,
+        provider: "hyperframes",
+        output: { status: job.status, taskId: job.id, phase: job.phase, progress: job.progress, message: job.message },
+        polling: { intervalMs: 2500 },
+      };
     } catch (error) {
       return fail(error instanceof Error ? error.message : "Motion render failed.", 500, "MOTION_RENDER_ERROR");
     }
