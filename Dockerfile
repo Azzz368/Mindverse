@@ -62,10 +62,13 @@ RUN npm run hyperframes -- browser ensure
 FROM base AS runtime
 
 COPY --from=build --chown=node:node /app /app
+COPY --chown=node:node docker-entrypoint.sh /usr/local/bin/mindverse-entrypoint
+RUN chmod 755 /usr/local/bin/mindverse-entrypoint
 USER node
 
 # Render injects PORT. EXPOSE is documentation only and does not hard-code it.
 EXPOSE 10000
 
 # Next receives Render's PORT and binds to all interfaces.
+ENTRYPOINT ["/usr/local/bin/mindverse-entrypoint"]
 CMD ["npm", "run", "start", "--", "-H", "0.0.0.0"]
