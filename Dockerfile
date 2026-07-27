@@ -9,6 +9,7 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     HOME=/home/node \
     PUPPETEER_CACHE_DIR=/home/node/.cache/puppeteer \
+    HYPERFRAMES_BROWSER_PATH=/usr/bin/chromium \
     PRODUCER_PUPPETEER_LAUNCH_TIMEOUT_MS=120000
 
 WORKDIR /app
@@ -18,8 +19,11 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       ca-certificates \
+      chromium \
       ffmpeg \
       fonts-liberation \
+      fonts-noto-cjk \
+      libnspr4 \
       libasound2 \
       libatk-bridge2.0-0 \
       libatk1.0-0 \
@@ -52,12 +56,10 @@ FROM dependencies AS build
 COPY . .
 RUN npm run build
 
-# Download Chromium at build time, rather than on the first user render. It is
-# installed in the non-root user's cache so runtime Chromium processes can read it.
+# Chromium comes from Debian packages above. Using the system browser avoids a
+# separate HyperFrames Chrome download during Render's image build.
 RUN mkdir -p /home/node/.cache/puppeteer /app/.mindverse \
     && chown -R node:node /home/node /app
-USER node
-RUN npm run hyperframes -- browser ensure
 
 FROM base AS runtime
 
