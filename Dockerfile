@@ -9,7 +9,6 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     HOME=/home/node \
     PUPPETEER_CACHE_DIR=/home/node/.cache/puppeteer \
-    HYPERFRAMES_BROWSER_PATH=/usr/bin/chromium \
     PRODUCER_PUPPETEER_LAUNCH_TIMEOUT_MS=120000
 
 WORKDIR /app
@@ -51,19 +50,28 @@ COPY package.json package-lock.json ./
 # default install behavior.
 RUN npm ci --include=dev
 
+# Do not point HyperFrames at Debian's regular Chromium. It only supports the
+# screenshot capture fallback on Linux, which is prohibitively slow on a Render
+# Web Service. Download HyperFrames' matching Chrome Headless Shell instead;
+# it enables deterministic HeadlessExperimental.beginFrame capture at runtime.
+RUN npm run hyperframes -- browser ensure --force
+
 FROM dependencies AS build
 
 COPY . .
 RUN npm run build
 
-# Chromium comes from Debian packages above. Using the system browser avoids a
-# separate HyperFrames Chrome download during Render's image build.
+# Keep Chromium as a diagnostic fallback, but normal rendering uses the managed
+# Chrome Headless Shell copied from the build stage.
 RUN mkdir -p /home/node/.cache/puppeteer /app/.mindverse \
     && chown -R node:node /home/node /app
 
 FROM base AS runtime
 
 COPY --from=build --chown=node:node /app /app
+# The managed browser is outside /app, so it must be copied explicitly. Without
+# this layer the runtime falls back to Debian Chromium and screenshot capture.
+COPY --from=build --chown=node:node /home/node/.cache/hyperframes /home/node/.cache/hyperframes
 COPY --chown=node:node docker/codex/config.toml /home/node/.codex/config.toml
 COPY --chown=node:node docker-entrypoint.sh /usr/local/bin/mindverse-entrypoint
 RUN chmod 755 /usr/local/bin/mindverse-entrypoint

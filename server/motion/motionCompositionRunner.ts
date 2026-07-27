@@ -891,7 +891,11 @@ const renderWithHyperframes = async (projectDir: string, outputPath: string, com
     "--workers", "1",
     "--browser-timeout", "120",
     "--player-ready-timeout", "120000",
-    "--low-memory-mode",
+    // We already keep one render worker. HyperFrames' low-memory profile also
+    // forces Page.captureScreenshot for every frame, which made a 10s/30fps
+    // composition take well beyond twelve minutes on Render. The managed
+    // Chrome Headless Shell in the Docker image can use beginFrame instead.
+    "--no-low-memory-mode",
     "--quiet",
   ], {
     cwd: projectDir,
