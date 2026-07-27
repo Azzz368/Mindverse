@@ -64,6 +64,7 @@ RUN mkdir -p /home/node/.cache/puppeteer /app/.mindverse \
 FROM base AS runtime
 
 COPY --from=build --chown=node:node /app /app
+COPY --chown=node:node docker/codex/config.toml /home/node/.codex/config.toml
 COPY --chown=node:node docker-entrypoint.sh /usr/local/bin/mindverse-entrypoint
 RUN chmod 755 /usr/local/bin/mindverse-entrypoint
 USER node
