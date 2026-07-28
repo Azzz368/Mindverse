@@ -270,6 +270,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
         x: store.nodes.length ? Math.max(...store.nodes.map((node) => node.position.x)) + 420 : 80,
         y: store.nodes.length ? Math.min(...store.nodes.map((node) => node.position.y)) : 80,
       };
+      store.recordCanvasMutation();
       store.addMediaNode(canvasImageUrl, position);
       const nodeId = useCanvasStore.getState().selectedNodeId;
       if (!nodeId) throw new Error("Reference node was not created.");

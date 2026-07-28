@@ -28,7 +28,19 @@ const appendImageHistory = (history: string[] | undefined, imageUrl: string) =>
   imageUrl ? [imageUrl, ...(history || []).filter((url) => url !== imageUrl)].slice(0, 8) : history;
 
 type AgentStatus = "idle" | "planning" | "building" | "running" | "completed" | "error";
+type CanvasHistorySource = { nodes: CanvasNode[]; edges: WorkflowEdge[]; selectedNodeId: string | null };
+type CanvasHistoryEntry = CanvasHistorySource;
+const MAX_UNDO_ENTRIES = 50;
+const cloneHistoryEntry = (state: CanvasHistorySource): CanvasHistoryEntry => {
+  const value = { nodes: state.nodes, edges: state.edges, selectedNodeId: state.selectedNodeId };
+  return typeof structuredClone === "function"
+    ? structuredClone(value)
+    : JSON.parse(JSON.stringify(value)) as CanvasHistoryEntry;
+};
+const appendUndoEntry = (history: CanvasHistoryEntry[], state: CanvasHistorySource) =>
+  [...history, cloneHistoryEntry(state)].slice(-MAX_UNDO_ENTRIES);
 type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; agentMemory: AgentProjectMemory | null; selectedNodeId: string | null; selectionMode: boolean; lastError: string | null; agentStatus: AgentStatus; agentMessage: string | null;
+  undoStack: CanvasHistoryEntry[]; canUndo: boolean; recordCanvasMutation(): void; undoLastCanvasMutation(): void;
   ghostType: NodeType | null; ghostData: Partial<CanvasNodeData> | null; setGhostType(type: NodeType | null, data?: Partial<CanvasNodeData>): void; placeGhostNode(position: { x: number; y: number }): void;
   ghostMediaUrl: string | null; setGhostMedia(dataUrl: string): void; placeGhostMedia(position: { x: number; y: number }): void;
   pendingAgentPatch: CanvasPatch | null; setPendingAgentPatch(patch: CanvasPatch | null): void; placeAgentPatch(position: { x: number; y: number }): void;
@@ -132,9 +144,26 @@ const storyboardBranchFrom = (storyboard: CanvasNode, value: unknown): { nodes: 
   return { nodes, edges };
 };
 export const useCanvasStore = create<CanvasState>((set, get) => ({
-  projectName: "Untitled creative flow", nodes: initialNodes, edges: [], agentMemory: null, selectedNodeId: null, selectionMode: false, lastError: null, agentStatus: "idle", agentMessage: null, ghostType: null, ghostData: null, ghostMediaUrl: null, pendingAgentPatch: null,
+  projectName: "Untitled creative flow", nodes: initialNodes, edges: [], agentMemory: null, selectedNodeId: null, selectionMode: false, lastError: null, agentStatus: "idle", agentMessage: null, undoStack: [], canUndo: false, ghostType: null, ghostData: null, ghostMediaUrl: null, pendingAgentPatch: null,
+  recordCanvasMutation: () => set((state) => {
+    const undoStack = appendUndoEntry(state.undoStack, state);
+    return { undoStack, canUndo: true };
+  }),
+  undoLastCanvasMutation: () => set((state) => {
+    const previous = state.undoStack.at(-1);
+    if (!previous) return {};
+    const undoStack = state.undoStack.slice(0, -1);
+    return {
+      nodes: previous.nodes,
+      edges: previous.edges,
+      selectedNodeId: previous.selectedNodeId,
+      undoStack,
+      canUndo: undoStack.length > 0,
+      lastError: null,
+    };
+  }),
   setGhostType: (ghostType, ghostData) => set({ ghostType, ghostData: ghostType ? ghostData ?? null : null }),
-  placeGhostNode: (position) => { const { ghostType, ghostData } = get(); if (!ghostType) return; const base = makeNode(ghostType, position); const node = ghostData ? { ...base, data: { ...base.data, ...ghostData } } : base; set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id, ghostType: null, ghostData: null })); },
+  placeGhostNode: (position) => { const { ghostType, ghostData } = get(); if (!ghostType) return; const base = makeNode(ghostType, position); const node = ghostData ? { ...base, data: { ...base.data, ...ghostData } } : base; set((state) => { const undoStack = appendUndoEntry(state.undoStack, state); return { nodes: [...state.nodes, node], selectedNodeId: node.id, ghostType: null, ghostData: null, undoStack, canUndo: true }; }); },
   setGhostMedia: (dataUrl) => set({ ghostMediaUrl: dataUrl }),
   updateAgentMemory: (patch) => set((state) => ({ agentMemory: mergeAgentProjectMemory(state.agentMemory, patch) })),
   clearAgentMemory: () => set({ agentMemory: null }),
@@ -346,7 +375,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   }),
   onNodesChange: (changes) => set((state) => {
     const nextChanges = changes.filter((change) => change.type !== "select");
-    return nextChanges.length ? { nodes: applyNodeChanges(nextChanges, state.nodes) as CanvasNode[] } : {};
+    if (!nextChanges.length) return {};
+    const isStructuralChange = nextChanges.some((change) => change.type === "add" || change.type === "remove" || change.type === "replace");
+    const undoStack = isStructuralChange ? appendUndoEntry(state.undoStack, state) : state.undoStack;
+    return {
+      nodes: applyNodeChanges(nextChanges, state.nodes) as CanvasNode[],
+      ...(isStructuralChange ? { undoStack, canUndo: true } : {}),
+    };
   }), onEdgesChange: (changes) => set((state) => ({ edges: applyEdgeChanges(changes, state.edges) })),
   onConnect: (connection) => set((state) => {
     const source = state.nodes.find((node) => node.id === connection.source);
@@ -378,13 +413,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       ...(switchedVideoInput ? { agentMessage: "视频节点已切换为支持图片素材的 Seedance Assets 模式。" } : {}),
     };
   }),
-  addNode: (type) => { const node = makeNode(type, { x: 160 + (get().nodes.length % 4) * 55, y: 120 + (get().nodes.length % 5) * 60 }); set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id })); },
+  addNode: (type) => { const node = makeNode(type, { x: 160 + (get().nodes.length % 4) * 55, y: 120 + (get().nodes.length % 5) * 60 }); set((state) => { const undoStack = appendUndoEntry(state.undoStack, state); return { nodes: [...state.nodes, node], selectedNodeId: node.id, undoStack, canUndo: true }; }); },
   updateNodeData: (id, patch) => set((state) => {
     const nodes = state.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, ...patch } } : node);
     return { nodes, edges: withVideoTargetHandles(nodes, state.edges) };
   }),
-  removeNode: (id) => set((state) => ({ nodes: state.nodes.filter((node) => node.id !== id), edges: state.edges.filter((edge) => edge.source !== id && edge.target !== id), selectedNodeId: state.selectedNodeId === id ? null : state.selectedNodeId })),
-  duplicateNode: (id) => { const original = get().nodes.find((node) => node.id === id); if (!original) return; const clone: CanvasNode = { ...original, id: `${original.data.nodeType}-${crypto.randomUUID()}`, position: { x: original.position.x + 36, y: original.position.y + 36 }, selected: true, data: { ...original.data, title: `${original.data.title} copy`, status: "idle", output: undefined, error: undefined } }; set((state) => ({ nodes: [...state.nodes.map((node) => ({ ...node, selected: false })), clone], selectedNodeId: clone.id })); },
+  removeNode: (id) => set((state) => { const undoStack = appendUndoEntry(state.undoStack, state); return { nodes: state.nodes.filter((node) => node.id !== id), edges: state.edges.filter((edge) => edge.source !== id && edge.target !== id), selectedNodeId: state.selectedNodeId === id ? null : state.selectedNodeId, undoStack, canUndo: true }; }),
+  duplicateNode: (id) => { const original = get().nodes.find((node) => node.id === id); if (!original) return; const clone: CanvasNode = { ...original, id: `${original.data.nodeType}-${crypto.randomUUID()}`, position: { x: original.position.x + 36, y: original.position.y + 36 }, selected: true, data: { ...original.data, title: `${original.data.title} copy`, status: "idle", output: undefined, error: undefined } }; set((state) => { const undoStack = appendUndoEntry(state.undoStack, state); return { nodes: [...state.nodes.map((node) => ({ ...node, selected: false })), clone], selectedNodeId: clone.id, undoStack, canUndo: true }; }); },
   createImageRevision: async (sourceId, annotations, instruction) => { const source = get().nodes.find((node) => node.id === sourceId); const sourceImageUrl = source ? imageUrlFrom(source) : ""; if (!source || !sourceImageUrl) { set({ lastError: "The source image is unavailable for revision." }); return; } const revisionPrompt = revisionPromptFrom(source.data.prompt, annotations, instruction); const revision: CanvasNode = { id: `image-${crypto.randomUUID()}`, type: "creative", position: { x: source.position.x + 340, y: source.position.y + 40 }, data: { ...source.data, title: `${source.data.title} — Revision`, status: "running", output: undefined, error: undefined, annotations, revisionOf: source.id, sourceImageUrl, revisionInstruction: instruction } }; set((state) => ({ nodes: [...state.nodes.map((node) => node.id === sourceId ? { ...node, data: { ...node.data, annotations, revisionInstruction: instruction } } : { ...node, selected: false }), revision], selectedNodeId: revision.id, lastError: null })); try { const payload = await requestImageRevision({ sourceImageUrl, prompt: revisionPrompt, size: source.data.size }); const providerOutput = asRecord(payload.output); const output = outputFromProvider("image", { ...providerOutput, imageUrl: asText(providerOutput.revisedImageUrl) }); set((state) => ({ nodes: state.nodes.map((node) => node.id === revision.id ? { ...node, data: { ...node.data, status: "success", output } } : node) })); } catch (error) { const message = error instanceof Error ? error.message : "Image revision failed."; set((state) => ({ lastError: message, nodes: state.nodes.map((node) => node.id === revision.id ? { ...node, data: { ...node.data, status: "error", error: message } } : node) })); } },
   createKeyframeBatch: (sourceId) => {
     const state = get();
@@ -431,7 +466,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       for (const id of targetIds) await get().runNode(id);
     })();
   },
-  setCanvas: (nodes, edges, agentMemory) => { const activeNodes = nodes.filter((node) => node.data.nodeType !== "storyboardImage"); const activeIds = new Set(activeNodes.map((node) => node.id)); set({ nodes: restoreStatuses(activeNodes), edges: withVideoTargetHandles(activeNodes, edges.filter((edge) => activeIds.has(edge.source) && activeIds.has(edge.target))), agentMemory: agentMemory || null, selectedNodeId: null, lastError: null }); },
+  setCanvas: (nodes, edges, agentMemory) => { const activeNodes = nodes.filter((node) => node.data.nodeType !== "storyboardImage"); const activeIds = new Set(activeNodes.map((node) => node.id)); set({ nodes: restoreStatuses(activeNodes), edges: withVideoTargetHandles(activeNodes, edges.filter((edge) => activeIds.has(edge.source) && activeIds.has(edge.target))), agentMemory: agentMemory || null, selectedNodeId: null, lastError: null, undoStack: [], canUndo: false }); },
   generateAgentPlan: async (userPrompt) => {
     const prompt = userPrompt.trim();
     if (!prompt) throw new Error("Agent brief is empty.");
@@ -739,9 +774,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
   },
   saveCanvas: () => { const { projectName, nodes, edges, agentMemory } = get(); canvasStorage.save({ version: 1, projectName, nodes, edges, agentMemory: agentMemory || undefined }); },
-  loadCanvas: () => { try { const snapshot = canvasStorage.load(); if (!snapshot || !isSnapshot(snapshot)) throw new Error("No valid saved canvas found."); set({ projectName: snapshot.projectName || "Untitled creative flow", nodes: restoreStatuses(snapshot.nodes), edges: withVideoTargetHandles(snapshot.nodes, snapshot.edges), agentMemory: snapshot.agentMemory || null, selectedNodeId: null, lastError: null }); } catch (error) { set({ lastError: error instanceof Error ? error.message : "Could not load canvas" }); } },
-  clearCanvas: () => set({ nodes: [], edges: [], agentMemory: null, selectedNodeId: null, lastError: null }),
+  loadCanvas: () => { try { const snapshot = canvasStorage.load(); if (!snapshot || !isSnapshot(snapshot)) throw new Error("No valid saved canvas found."); set({ projectName: snapshot.projectName || "Untitled creative flow", nodes: restoreStatuses(snapshot.nodes), edges: withVideoTargetHandles(snapshot.nodes, snapshot.edges), agentMemory: snapshot.agentMemory || null, selectedNodeId: null, lastError: null, undoStack: [], canUndo: false }); } catch (error) { set({ lastError: error instanceof Error ? error.message : "Could not load canvas" }); } },
+  clearCanvas: () => set({ nodes: [], edges: [], agentMemory: null, selectedNodeId: null, lastError: null, undoStack: [], canUndo: false }),
   exportCanvasJson: () => { const { projectName, nodes, edges, agentMemory } = get(); return JSON.stringify({ version: 1, projectName, nodes, edges, agentMemory: agentMemory || undefined }, null, 2); },
-  importCanvasJson: (raw) => { try { const value = JSON.parse(raw) as unknown; if (!isSnapshot(value)) throw new Error("Invalid canvas JSON. Expected nodes and edges arrays."); set({ projectName: value.projectName || "Imported creative flow", nodes: restoreStatuses(value.nodes), edges: withVideoTargetHandles(value.nodes, value.edges), agentMemory: value.agentMemory || null, selectedNodeId: null, lastError: null }); } catch (error) { set({ lastError: error instanceof Error ? error.message : "Could not import JSON" }); } },
-  applyTemplate: (template) => { const flow = buildTemplate(template); set({ nodes: flow.nodes, edges: withVideoTargetHandles(flow.nodes, flow.edges), projectName: template.name, selectedNodeId: null, lastError: null }); },
+  importCanvasJson: (raw) => { try { const value = JSON.parse(raw) as unknown; if (!isSnapshot(value)) throw new Error("Invalid canvas JSON. Expected nodes and edges arrays."); set({ projectName: value.projectName || "Imported creative flow", nodes: restoreStatuses(value.nodes), edges: withVideoTargetHandles(value.nodes, value.edges), agentMemory: value.agentMemory || null, selectedNodeId: null, lastError: null, undoStack: [], canUndo: false }); } catch (error) { set({ lastError: error instanceof Error ? error.message : "Could not import JSON" }); } },
+  applyTemplate: (template) => { const flow = buildTemplate(template); set({ nodes: flow.nodes, edges: withVideoTargetHandles(flow.nodes, flow.edges), projectName: template.name, selectedNodeId: null, lastError: null, undoStack: [], canUndo: false }); },
 }));

@@ -178,7 +178,7 @@ const fallbackSizeFor = (type: string) => ({
 }[type] || { w: 280, h: 250 });
 
 export function CreativeCanvas() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, toggleSelectedNode, selectionMode, ghostType, setGhostType, placeGhostNode, addMediaNode, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia, pendingAgentPatch, setPendingAgentPatch, placeAgentPatch } = useCanvasStore();
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, toggleSelectedNode, selectionMode, ghostType, setGhostType, placeGhostNode, addMediaNode, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia, pendingAgentPatch, setPendingAgentPatch, placeAgentPatch, recordCanvasMutation } = useCanvasStore();
   const { theme } = useTheme();
   const { getNodes, screenToFlowPosition } = useReactFlow();
   const { x: viewX, y: viewY, zoom } = useViewport();
@@ -296,6 +296,7 @@ export function CreativeCanvas() {
       placeGhostNode(flowPos);
     } else if (ghostMediaUrl) {
       const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      recordCanvasMutation();
       placeGhostMedia(flowPos);
     } else if (!selectionMode) {
       setSelectedNode(null);
@@ -330,10 +331,10 @@ export function CreativeCanvas() {
     const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
     files.forEach((file, i) => {
       const reader = new FileReader();
-      reader.onload = () => { addMediaNode(reader.result as string, { x: flowPos.x + i * 60, y: flowPos.y + i * 40 }); };
+      reader.onload = () => { recordCanvasMutation(); addMediaNode(reader.result as string, { x: flowPos.x + i * 60, y: flowPos.y + i * 40 }); };
       reader.readAsDataURL(file);
     });
-  }, [screenToFlowPosition, addMediaNode]);
+  }, [screenToFlowPosition, addMediaNode, recordCanvasMutation]);
 
   return (
     <div className={`relative h-full flex-1 ${isGhosting ? "cursor-crosshair" : selectionMode ? "cursor-cell" : ""}`}
