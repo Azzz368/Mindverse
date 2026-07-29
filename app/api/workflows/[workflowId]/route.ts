@@ -4,6 +4,7 @@ import type { CanvasSnapshot } from "@/shared/canvas";
 
 type Params = { params: Promise<{ workflowId: string }> };
 const isSnapshot = (value: unknown): value is CanvasSnapshot => Boolean(value && typeof value === "object" && Array.isArray((value as CanvasSnapshot).nodes) && Array.isArray((value as CanvasSnapshot).edges));
+const maxWorkflowRequestBytes = Math.max(256 * 1024, Number(process.env.MINDVERSE_MAX_WORKFLOW_REQUEST_BYTES || 3 * 1024 * 1024));
 
 export async function GET(request: Request, { params }: Params) {
   try {
@@ -20,6 +21,10 @@ export async function GET(request: Request, { params }: Params) {
 export async function PUT(request: Request, { params }: Params) {
   try {
     const { workflowId } = await params;
+    const contentLength = Number(request.headers.get("content-length") || 0);
+    if (Number.isFinite(contentLength) && contentLength > maxWorkflowRequestBytes) {
+      return NextResponse.json({ ok: false, error: { message: "Workflow payload is too large. Archive local media before saving.", status: 413 } }, { status: 413 });
+    }
     const body = await request.json() as { accessCode?: unknown; snapshot?: unknown; name?: unknown };
     if (!isSnapshot(body.snapshot)) return NextResponse.json({ ok: false, error: { message: "A valid snapshot is required.", status: 400 } }, { status: 400 });
     return NextResponse.json({ ok: true, output: await saveWorkflow(body.accessCode, workflowId, body.snapshot, body.name) });

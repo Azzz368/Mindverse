@@ -4,6 +4,7 @@ import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnnotatedCustomNode } from "./AnnotatedCustomNode";
 import { AddNodeMenu } from "./AddNodeMenu";
+import { archiveImageFile } from "@/features/canvas/services/mediaArchiveClient";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import { useLang } from "@/components/providers/LangProvider";
@@ -330,9 +331,9 @@ export function CreativeCanvas() {
     if (!files.length) return;
     const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
     files.forEach((file, i) => {
-      const reader = new FileReader();
-      reader.onload = () => { recordCanvasMutation(); addMediaNode(reader.result as string, { x: flowPos.x + i * 60, y: flowPos.y + i * 40 }); };
-      reader.readAsDataURL(file);
+      void archiveImageFile(file)
+        .then((url) => { recordCanvasMutation(); addMediaNode(url, { x: flowPos.x + i * 60, y: flowPos.y + i * 40 }); })
+        .catch((error) => console.error("Dropped image archive failed", error));
     });
   }, [screenToFlowPosition, addMediaNode, recordCanvasMutation]);
 

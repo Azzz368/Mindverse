@@ -1,4 +1,5 @@
 import { getJson, patchJson, postJson } from "@/shared/api/client";
+import { snapshotForAgentTransport } from "@/shared/canvas/snapshotTransport";
 import type {
   AgentDialogueApiResponse,
   AgentDialogueRequest,
@@ -16,23 +17,28 @@ import type {
   AgentRunUpdateRequest,
 } from "@/shared/api/aiContracts";
 
+const withSafeCanvasSnapshot = <T extends { canvasSnapshot: AgentRouterRequest["canvasSnapshot"] }>(request: T): T => ({
+  ...request,
+  canvasSnapshot: snapshotForAgentTransport(request.canvasSnapshot),
+});
+
 export const requestAgentRouter = (request: AgentRouterRequest) =>
-  postJson<AgentRouterResponse>("/api/ai/agent-router", request, "Agent request failed.");
+  postJson<AgentRouterResponse>("/api/ai/agent-router", withSafeCanvasSnapshot(request), "Agent request failed.");
 
 export const requestAgentPlan = (request: AgentPlanRequest) =>
-  postJson<AgentPlanResponse>("/api/ai/agent-plan", request, "Agent workflow planning failed.");
+  postJson<AgentPlanResponse>("/api/ai/agent-plan", withSafeCanvasSnapshot(request), "Agent workflow planning failed.");
 
 export const requestAgentEdit = (request: AgentEditRequest) =>
-  postJson<AgentEditResponse>("/api/ai/agent-edit", request, "Agent canvas edit planning failed.");
+  postJson<AgentEditResponse>("/api/ai/agent-edit", withSafeCanvasSnapshot(request), "Agent canvas edit planning failed.");
 
 export const requestAgentOrganize = (request: AgentOrganizeRequest) =>
-  postJson<AgentOrganizeResponse>("/api/ai/agent-organize", request, "Agent canvas organization failed.");
+  postJson<AgentOrganizeResponse>("/api/ai/agent-organize", withSafeCanvasSnapshot(request), "Agent canvas organization failed.");
 
 export const requestAgentDialogue = (request: AgentDialogueRequest) =>
   postJson<AgentDialogueApiResponse>("/api/ai/agent-dialogue", request, "Agent dialogue failed.");
 
 export const requestAgentObserve = (request: AgentObserveRequest) =>
-  postJson<AgentObserveApiResponse>("/api/ai/agent-observe", request, "Agent verification failed.");
+  postJson<AgentObserveApiResponse>("/api/ai/agent-observe", withSafeCanvasSnapshot(request), "Agent verification failed.");
 
 const runWriteQueues = new Map<string, Promise<unknown>>();
 

@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import { nodeTypes } from "@/shared/canvas";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
+import { archiveImageFile } from "@/features/canvas/services/mediaArchiveClient";
 import { useLang } from "@/components/providers/LangProvider";
 
 // Node types that are text/creative-writing — shown in dark gray
@@ -19,6 +20,7 @@ export function NodeToolbar() {
   const ghostMediaUrl = useCanvasStore((state) => state.ghostMediaUrl);
   const { t } = useLang();
   const [imageMenuOpen, setImageMenuOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleTypeClick = (type: typeof nodeTypes[number]) => {
@@ -33,20 +35,20 @@ export function NodeToolbar() {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).filter(f => /^image\//.test(f.type));
-    // Read first file and enter ghost mode; subsequent files place directly after
-    files.forEach((file, i) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (i === 0) {
-          setGhostMedia(reader.result as string);
-        } else {
-          // For multi-select, place extras at offset positions via addMediaNode equivalent
-          setGhostMedia(reader.result as string);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
     e.target.value = "";
+    if (!files.length) return;
+    setUploading(true);
+    void (async () => {
+      try {
+        // A canvas node stores the Bunny CDN URL, never the browser's base64 copy.
+        const url = await archiveImageFile(files[0]);
+        setGhostMedia(url);
+      } catch (error) {
+        console.error("Image archive failed", error);
+      } finally {
+        setUploading(false);
+      }
+    })();
   };
 
   return (
@@ -72,9 +74,10 @@ export function NodeToolbar() {
         {/* Upload local image — gray, same group as text tools */}
         <button
           onClick={() => fileRef.current?.click()}
+          disabled={uploading}
           className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-semibold transition text-[#939393] hover:bg-[#f0f1f3] hover:text-[#676f7b] dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-400"
         >
-          {t.uploadImage}
+          {uploading ? "Uploading…" : t.uploadImage}
         </button>
         <input
           ref={fileRef}

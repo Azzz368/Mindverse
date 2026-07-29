@@ -13,7 +13,8 @@
     "hyperframes": "node scripts/hyperframes-cli.mjs",
     "hyperframes:doctor": "node scripts/hyperframes-cli.mjs doctor",
     "hyperframes:help": "node scripts/hyperframes-cli.mjs --help",
-    "hyperframes:browser": "node scripts/hyperframes-cli.mjs browser ensure"
+    "hyperframes:browser": "node scripts/hyperframes-cli.mjs browser ensure",
+    "workflow:migrate-inline-media": "node scripts/migrate-workflow-inline-media.mjs"
   },
   "dependencies": {
     "@xyflow/react": "^12.8.4",

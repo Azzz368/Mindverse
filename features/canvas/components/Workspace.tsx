@@ -12,6 +12,9 @@ import type { CanvasSnapshot } from "@/shared/canvas";
 import type { StoredSkill } from "@/shared/skills/skillTypes";
 import { cloneSkillCanvasTemplate } from "@/shared/skills/skillTemplate";
 import { PENDING_SKILL_KEY } from "@/features/skills/services/skillClient";
+import { hasInlineMedia, snapshotForWorkflowPersistence, snapshotJsonSize } from "@/shared/canvas/snapshotTransport";
+
+const MAX_REMOTE_WORKFLOW_BYTES = 3 * 1024 * 1024;
 
 function PendingTaskRecovery() {
   const nodes = useCanvasStore((state) => state.nodes); const pollNode = useCanvasStore((state) => state.pollNode); const seen = useRef(new Set<string>());
@@ -64,6 +67,18 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
         if (!payload.output) throw new Error("Workflow not found.");
         setProjectName(payload.output.projectName || payload.output.name || "Untitled workflow");
         setCanvas(Array.isArray(payload.output.nodes) ? payload.output.nodes as never : [], Array.isArray(payload.output.edges) ? payload.output.edges as never : [], payload.output.agentMemory || null);
+        const loaded = useCanvasStore.getState();
+        const snapshot = snapshotForWorkflowPersistence({
+          version: 1,
+          projectName: loaded.projectName,
+          nodes: loaded.nodes,
+          edges: loaded.edges,
+          agentMemory: loaded.agentMemory || undefined,
+        });
+        // Do not immediately write a just-loaded workflow back to Render. A
+        // legacy snapshot can contain inline media and used to cause a large
+        // read → serialize → PUT loop as soon as the canvas finished loading.
+        lastSavedJsonRef.current = JSON.stringify({ accessCode, name: loaded.projectName, snapshot });
         loadedRemoteWorkflow.current = true;
       } catch {
         window.location.href = "/workspace";
@@ -105,7 +120,15 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => {
       saveTimerRef.current = null;
-      const snapshot: CanvasSnapshot = { version: 1, projectName, nodes, edges, agentMemory: agentMemory || undefined };
+      const snapshot = snapshotForWorkflowPersistence({ version: 1, projectName, nodes, edges, agentMemory: agentMemory || undefined });
+      if (hasInlineMedia(snapshot)) {
+        console.warn("Remote workflow save skipped: archive inline image, video, or audio data before saving this canvas.");
+        return;
+      }
+      if (snapshotJsonSize(snapshot) > MAX_REMOTE_WORKFLOW_BYTES) {
+        console.warn(`Remote workflow save skipped: canvas snapshot exceeds the ${MAX_REMOTE_WORKFLOW_BYTES / 1024 / 1024}MB safety limit.`);
+        return;
+      }
       const payload = { accessCode, name: projectName, snapshot };
       const payloadJson = JSON.stringify(payload);
       if (payloadJson === lastSavedJsonRef.current) return;
