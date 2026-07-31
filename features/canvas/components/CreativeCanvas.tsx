@@ -4,8 +4,8 @@ import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnnotatedCustomNode } from "./AnnotatedCustomNode";
 import { AddNodeMenu } from "./AddNodeMenu";
-import { archiveImageFile } from "@/features/canvas/services/mediaArchiveClient";
-import { useCanvasStore } from "@/features/canvas/state/canvasStore";
+import { archiveAudioFile, archiveImageFile, archiveRemoteImageUrl, archiveVideoFile } from "@/features/canvas/services/mediaArchiveClient";
+import { type PastedCanvasMedia, useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import { useLang } from "@/components/providers/LangProvider";
 import type { NodeType, WorkflowEdge } from "@/shared/canvas";
@@ -14,6 +14,34 @@ type AlignGuide = { type: "v" | "h"; pos: number };
 const SNAP_THRESHOLD = 10;
 const GROUP_PADDING = 40;
 const MAX_ALIGNMENT_GUIDE_NODES = 60;
+
+const mediaTypeFromClipboardFile = (file: File): PastedCanvasMedia["mediaType"] | null => {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  if (file.type.startsWith("audio/")) return "audio";
+  const extension = file.name.split(".").at(-1)?.toLowerCase();
+  if (["png", "jpg", "jpeg", "webp", "gif", "avif", "bmp", "svg"].includes(extension || "")) return "image";
+  if (["mp4", "mov", "webm", "mkv", "avi", "m4v"].includes(extension || "")) return "video";
+  if (["mp3", "wav", "m4a", "aac", "ogg", "flac", "webm"].includes(extension || "")) return "audio";
+  return null;
+};
+
+const isEditablePasteTarget = (target: EventTarget | null) =>
+  target instanceof HTMLElement && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+
+const imageUrlFromClipboard = (clipboard: DataTransfer) => {
+  const uriList = clipboard.getData("text/uri-list").split(/\r?\n/).find((line) => line && !line.startsWith("#"));
+  const plainText = clipboard.getData("text/plain").trim();
+  const html = clipboard.getData("text/html");
+  const htmlImageUrl = /<img[^>]+src=["']([^"']+)["']/i.exec(html)?.[1];
+  const candidate = uriList || htmlImageUrl || plainText;
+  try {
+    const url = new URL(candidate);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+};
 
 /* ── Morandicolor palette (10 colours) ───────────────────────── */
 const MORANDI = [
@@ -179,13 +207,14 @@ const fallbackSizeFor = (type: string) => ({
 }[type] || { w: 280, h: 250 });
 
 export function CreativeCanvas() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, toggleSelectedNode, selectionMode, ghostType, setGhostType, placeGhostNode, addMediaNode, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia, pendingAgentPatch, setPendingAgentPatch, placeAgentPatch, recordCanvasMutation } = useCanvasStore();
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, toggleSelectedNode, selectionMode, ghostType, setGhostType, placeGhostNode, addMediaNode, addPastedMediaNodes, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia, pendingAgentPatch, setPendingAgentPatch, placeAgentPatch, recordCanvasMutation } = useCanvasStore();
   const { theme } = useTheme();
   const { getNodes, screenToFlowPosition } = useReactFlow();
   const { x: viewX, y: viewY, zoom } = useViewport();
   const nodeTypes = useMemo<NodeTypes>(() => ({ creative: AnnotatedCustomNode }), []);
   const edgeTypes = useMemo<EdgeTypes>(() => ({ default: DeletableEdge }), []);
   const edgeReconnecting = useRef(false);
+  const canvasRef = useRef<HTMLDivElement>(null);
   const [alignGuides, setAlignGuides] = useState<AlignGuide[]>([]);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
@@ -246,6 +275,73 @@ export function CreativeCanvas() {
     window.addEventListener("contextmenu", onCtx);
     return () => window.removeEventListener("contextmenu", onCtx);
   }, [ghostType, ghostMediaUrl, pendingAgentPatch, setGhostType, _setGhostMedia, setPendingAgentPatch]);
+
+  /* Paste a copied media file directly into the canvas. */
+  useEffect(() => {
+    const canvasCenter = () => {
+      const bounds = canvasRef.current?.getBoundingClientRect();
+      return screenToFlowPosition({
+        x: bounds ? bounds.left + bounds.width / 2 : window.innerWidth / 2,
+        y: bounds ? bounds.top + bounds.height / 2 : window.innerHeight / 2,
+      });
+    };
+
+    const archiveClipboardFile = async (file: File, mediaType: PastedCanvasMedia["mediaType"]) => {
+      const url = mediaType === "image"
+        ? await archiveImageFile(file)
+        : mediaType === "video"
+          ? await archiveVideoFile(file)
+          : await archiveAudioFile(file);
+      return { mediaType, url, fileName: file.name } satisfies PastedCanvasMedia;
+    };
+
+    const onPaste = (event: ClipboardEvent) => {
+      if (isEditablePasteTarget(event.target)) return;
+      const clipboard = event.clipboardData;
+      if (!clipboard) return;
+      const mediaFiles = Array.from(clipboard.files)
+        .map((file) => ({ file, mediaType: mediaTypeFromClipboardFile(file) }))
+        .filter((entry): entry is { file: File; mediaType: PastedCanvasMedia["mediaType"] } => entry.mediaType !== null);
+      const remoteImageUrl = mediaFiles.length ? null : imageUrlFromClipboard(clipboard);
+      if (!mediaFiles.length && !remoteImageUrl) return;
+
+      event.preventDefault();
+      const position = canvasCenter();
+      useCanvasStore.setState({ agentMessage: "正在归档剪贴板素材…", lastError: null });
+
+      void (async () => {
+        if (remoteImageUrl) {
+          try {
+            const url = await archiveRemoteImageUrl(remoteImageUrl, "clipboard-url");
+            addPastedMediaNodes([{ mediaType: "image", url, fileName: "Copied image" }], position);
+          } catch (error) {
+            console.error("Pasted image URL archive failed", error);
+            useCanvasStore.setState({ lastError: "无法归档剪贴板中的图片链接。请复制图片本身，或将文件拖到画布。", agentMessage: null });
+          }
+          return;
+        }
+
+        const archived = await Promise.allSettled(mediaFiles.map(({ file, mediaType }) => archiveClipboardFile(file, mediaType)));
+        const successful = archived.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+        const failedCount = archived.length - successful.length;
+        archived.forEach((result) => {
+          if (result.status === "rejected") console.error("Clipboard media archive failed", result.reason);
+        });
+        if (successful.length) addPastedMediaNodes(successful, position);
+        if (failedCount) {
+          useCanvasStore.setState({
+            lastError: successful.length
+              ? `${failedCount} 个剪贴板素材归档失败。`
+              : "剪贴板素材归档失败。请确认文件类型和大小后重试。",
+            ...(successful.length ? {} : { agentMessage: null }),
+          });
+        }
+      })();
+    };
+
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [addPastedMediaNodes, screenToFlowPosition]);
 
   const handleReconnectStart = useCallback(() => { edgeReconnecting.current = false; }, []);
   const handleReconnect = useCallback((oldEdge: WorkflowEdge, newConnection: Connection) => {
@@ -338,7 +434,7 @@ export function CreativeCanvas() {
   }, [screenToFlowPosition, addMediaNode, recordCanvasMutation]);
 
   return (
-    <div className={`relative h-full flex-1 ${isGhosting ? "cursor-crosshair" : selectionMode ? "cursor-cell" : ""}`}
+    <div ref={canvasRef} className={`relative h-full flex-1 ${isGhosting ? "cursor-crosshair" : selectionMode ? "cursor-cell" : ""}`}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       onClick={() => ctxMenu && setCtxMenu(null)}
