@@ -4,7 +4,7 @@ import { compileWorkflowPlanToCanvas } from "@/server/agent/compileWorkflowPlan"
 import { capabilityPlanToEditPlan, compileCapabilityPlanToEditPatch } from "@/server/agent/compileCapabilityPlan";
 import { summarizeCanvasForAgent } from "@/server/agent/summarizeCanvas";
 import { normalizeAIError } from "@/server/ai/errors";
-import { runAgentDialogueLLM, runAgentOrganizeLLM, runAgentPlannerLLM, runAgentRequirementLLM, runAgentRouterLLM } from "@/server/ai/302aiLLMProvider";
+import { runAgentDialogueLLM, runAgentOrganizeLLM, runAgentPlannerLLM, runAgentPromptComposerLLM, runAgentRequirementLLM, runAgentRouterLLM } from "@/server/ai/302aiLLMProvider";
 import { agentMemorySummary, type AgentProjectMemory } from "@/shared/agent/projectMemory";
 import { validateAgentSemanticRoute, type AgentDialogueMessage } from "@/shared/agent/agentSchema";
 import type { AgentRouterIntent } from "@/shared/api/aiContracts";
@@ -19,6 +19,8 @@ import type { AgentRunRetrievalTrace } from "@/shared/agent/agentAutonomy";
 import type { AgentSemanticRoute, AgentSkillUsage, CapabilityEvidenceBundle, CapabilityRetrievalRequest } from "@/shared/agent/capabilityTypes";
 import { retrieveCapabilities } from "@/server/agent/capabilities/capabilityRetriever";
 import { approvalRequiredStepIds, bindPlanCapabilities, bindRoutedCanvasInputs, capabilityPlanGraphIssues, capabilityPlanIssues } from "@/server/agent/capabilities/capabilityValidator";
+import { applyComposedPrompts, fallbackComposedPrompts } from "@/server/agent/composeWorkflowPrompts";
+import { resolvePromptProfiles } from "@/server/agent/promptProfiles/resolver";
 
 type RouterSnapshot = {
   projectName: string;
@@ -38,6 +40,10 @@ const customSkillFrom = (value: unknown): ActiveSkillContext | undefined => {
   const name = text(raw.name).slice(0, 120);
   const skillMd = text(raw.skillMd).slice(0, 12_000);
   if (!id || !name || !skillMd) return undefined;
+  const role = raw.role === "base_prompt_policy" || raw.role === "style_profile" || raw.role === "repair_playbook" ? raw.role : "workflow_recipe";
+  const appliesTo = Array.isArray(raw.appliesTo) ? raw.appliesTo.filter((item): item is "image" | "video" => item === "image" || item === "video") : [];
+  const triggerPhrases = Array.isArray(raw.triggerPhrases) ? raw.triggerPhrases.filter((item): item is string => typeof item === "string").slice(0, 20) : [];
+  const priority = Number.isFinite(Number(raw.priority)) ? Math.max(1, Math.min(999, Number(raw.priority))) : 100;
   return {
     id,
     name,
@@ -46,6 +52,10 @@ const customSkillFrom = (value: unknown): ActiveSkillContext | undefined => {
     usageScenario: text(raw.usageScenario).slice(0, 2_000),
     howToUse: text(raw.howToUse).slice(0, 2_000),
     expectedOutput: text(raw.expectedOutput).slice(0, 2_000),
+    role,
+    appliesTo,
+    triggerPhrases,
+    priority,
   };
 };
 
@@ -56,6 +66,7 @@ const userMessageWithCustomSkill = (userMessage: string, skill?: ActiveSkillCont
   `Usage scenario: ${skill.usageScenario}`,
   `How to use: ${skill.howToUse}`,
   `Expected output: ${skill.expectedOutput}`,
+  `Skill role: ${skill.role}. Prompt targets: ${skill.appliesTo.join(", ") || "none"}. Trigger phrases: ${skill.triggerPhrases.join(", ") || "none"}.`,
   `Latest user request:\n${userMessage}`,
 ].join("\n\n") : userMessage;
 
@@ -210,6 +221,7 @@ const retrievalRequestFrom = (
   route: AgentSemanticRoute,
   snapshot: RouterSnapshot,
   workflowId?: string,
+  rawUserMessage?: string,
 ): CapabilityRetrievalRequest => {
   const targetIds = new Set(route.targetNodeIds);
   const targets = snapshot.nodes.filter((node) => targetIds.has(node.id));
@@ -220,7 +232,9 @@ const retrievalRequestFrom = (
   const hyperframesRequested = /codex[\s+&-]*hyperframes|hyperframes|动态包装|动效包装/i.test(route.objective)
     || route.requiredCapabilities.includes("motion_graphics");
   return {
-    query: route.objective,
+    // Preserve user wording as well as the Router abstraction: visual-style
+    // terms (for example 日系动画) are meaningful retrieval evidence.
+    query: [route.objective, rawUserMessage].filter(Boolean).join("\n"),
     domains: workflowId ? ["capability", "workflow", "project", "repair"] : ["capability", "workflow", "repair"],
     requiredCapabilities: [...new Set([
       ...route.requiredCapabilities,
@@ -259,6 +273,22 @@ const skillUsageFrom = (bundle: CapabilityEvidenceBundle, customSkill?: ActiveSk
       supports: skill.supports,
     };
   });
+
+const promptProfileUsageFrom = (bundle: CapabilityEvidenceBundle): AgentSkillUsage[] =>
+  (bundle.promptProfiles || []).map((profile) => ({
+    id: profile.id,
+    name: profile.name,
+    source: profile.source,
+    evidenceIds: profile.evidenceIds,
+    supports: profile.appliesTo.map((target) => `${target}_prompt`),
+    role: profile.role,
+  }));
+
+const mergeSkillUsage = (...lists: AgentSkillUsage[][]): AgentSkillUsage[] => {
+  const merged = new Map<string, AgentSkillUsage>();
+  lists.flat().forEach((usage) => merged.set(usage.id, usage));
+  return [...merged.values()];
+};
 
 const requirementSkillGuidanceFrom = (bundle?: CapabilityEvidenceBundle) => {
   if (!bundle?.skills.length) return "";
@@ -520,7 +550,7 @@ export async function POST(request: Request) {
     let evidenceBundle: CapabilityEvidenceBundle | undefined;
     if (intent === "create" || intent === "edit") {
       const retrievalStartedAt = Date.now();
-      const retrievalQuery = retrievalRequestFrom(semanticRoute, snapshot, runRequest?.workflowId);
+      const retrievalQuery = retrievalRequestFrom(semanticRoute, snapshot, runRequest?.workflowId, userMessage);
       run.add("tooling", "Retrieving Skills, Tools, models, and workflow evidence before evaluating missing requirements.", {
         kind: "tool",
         metadata: { requiredCapabilities: retrievalQuery.requiredCapabilities.length, targetNodes: semanticRoute.targetNodeIds.length },
@@ -534,7 +564,7 @@ export async function POST(request: Request) {
         evidenceIds: evidenceBundle.evidence.map((evidence) => evidence.id),
         generatedAt: evidenceBundle.generatedAt,
       };
-      checkpointSkillUsage = skillUsageFrom(evidenceBundle, customSkill);
+      checkpointSkillUsage = mergeSkillUsage(skillUsageFrom(evidenceBundle, customSkill), promptProfileUsageFrom(evidenceBundle));
       run.add("tooling", `Capability retrieval returned ${evidenceBundle.capabilities.length} executable candidates and ${checkpointSkillUsage.length} matching Skills.`, {
         kind: "tool",
         durationMs: Date.now() - retrievalStartedAt,
@@ -681,6 +711,29 @@ export async function POST(request: Request) {
       qualityIssues = [...capabilityPlanGraphIssues(plan, evidenceBundle), ...capabilityPlanIssues(plan, evidenceBundle), ...editInputIssues()];
     }
     if (qualityIssues.length) throw new Error(`Agent planner returned an invalid capability plan: ${qualityIssues.join(" ")}`);
+    const promptProfiles = resolvePromptProfiles(evidenceBundle.query, evidenceBundle.evidence, customSkill).profiles;
+    if (promptProfiles.length && plan.steps.some((step) => step.kind === "image" || step.kind === "video")) {
+      const promptStartedAt = Date.now();
+      run.add("planning", `Composing visual node prompts with ${promptProfiles.map((profile) => profile.name).join(", ")}.`, { kind: "model" });
+      try {
+        const drafts = await runAgentPromptComposerLLM({ userPrompt: effectiveUserMessage, plan, profiles: promptProfiles });
+        const fallback = fallbackComposedPrompts(plan, promptProfiles);
+        const draftIds = new Set(drafts.map((draft) => draft.id));
+        plan = applyComposedPrompts(plan, [...drafts, ...fallback.filter((draft) => !draftIds.has(draft.id))]);
+        run.add("planning", `Composed prompts for ${plan.steps.filter((step) => step.kind === "image" || step.kind === "video").length} image/video nodes.`, {
+          kind: "model",
+          durationMs: Date.now() - promptStartedAt,
+          metadata: { promptProfileCount: promptProfiles.length },
+        });
+      } catch (error) {
+        plan = applyComposedPrompts(plan, fallbackComposedPrompts(plan, promptProfiles));
+        run.add("planning", "Prompt Composer was unavailable; applied deterministic Skill-guided prompts instead.", {
+          kind: "validation",
+          durationMs: Date.now() - promptStartedAt,
+          metadata: { promptProfileCount: promptProfiles.length },
+        });
+      }
+    }
     if (checkpointRetrieval) {
       checkpointRetrieval.selectedCapabilityIds = [...new Set(plan.steps.map((step) => step.providerCapabilityId).filter((id): id is string => Boolean(id)))];
     }

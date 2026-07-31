@@ -9,8 +9,11 @@ import { deactivateSkillDocument, indexSkillDocument } from "@/server/rag/source
 import type { CanvasNode, CanvasSnapshot } from "@/shared/canvas";
 import {
   skillCategories,
+  skillRoles,
   type SkillCategory,
   type SkillDraft,
+  type PromptTarget,
+  type SkillRole,
   type SkillSummary,
   type SkillVisibility,
   type StoredSkill,
@@ -45,6 +48,31 @@ const asCategory = (value: unknown): SkillCategory => {
 
 const asVisibility = (value: unknown): SkillVisibility =>
   value === "public" || value === "unlisted" ? value : "private";
+
+const asSkillRole = (value: unknown): SkillRole =>
+  typeof value === "string" && skillRoles.includes(value as SkillRole) ? value as SkillRole : "workflow_recipe";
+
+const asPromptTargets = (value: unknown, role: SkillRole): PromptTarget[] => {
+  const targets = Array.isArray(value)
+    ? value.filter((item): item is PromptTarget => item === "image" || item === "video")
+    : [];
+  if (targets.length) return [...new Set(targets)];
+  return role === "base_prompt_policy" || role === "style_profile" ? ["image", "video"] : [];
+};
+
+const asTriggerPhrases = (value: unknown) => {
+  const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[,，\n]/) : [];
+  return [...new Set(raw.filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+    .map((item) => item.slice(0, 80)))].slice(0, 20);
+};
+
+const asPriority = (value: unknown, role: SkillRole) => {
+  const fallback = role === "style_profile" ? 200 : role === "base_prompt_policy" ? 150 : 100;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(1, Math.min(999, Math.floor(parsed))) : fallback;
+};
 
 const validateSkillMarkdown = (value: unknown) => {
   const markdown = asText(value, "SKILL.md", 50_000);
@@ -94,6 +122,7 @@ const cleanCanvasTemplate = (value: unknown): CanvasSnapshot | undefined => {
 const normalizeDraft = (value: unknown): SkillDraft => {
   if (!value || typeof value !== "object") throw new Error("Skill payload is required.");
   const draft = value as Partial<SkillDraft>;
+  const role = asSkillRole(draft.role);
   return {
     name: asText(draft.name, "Skill name", 80),
     tagline: asText(draft.tagline, "Tagline", 160),
@@ -103,6 +132,10 @@ const normalizeDraft = (value: unknown): SkillDraft => {
     expectedOutput: asText(draft.expectedOutput, "Expected output", 2_000),
     category: asCategory(draft.category),
     visibility: asVisibility(draft.visibility),
+    role,
+    appliesTo: asPromptTargets(draft.appliesTo, role),
+    triggerPhrases: asTriggerPhrases(draft.triggerPhrases),
+    priority: asPriority(draft.priority, role),
     canvasTemplate: cleanCanvasTemplate(draft.canvasTemplate),
   };
 };
@@ -115,6 +148,10 @@ const summaryFrom = (skill: StoredSkill): SkillSummary => ({
   visibility: skill.visibility,
   hasCanvasTemplate: Boolean(skill.canvasTemplate?.nodes.length),
   nodeCount: skill.canvasTemplate?.nodes.length || 0,
+  role: skill.role || "workflow_recipe",
+  appliesTo: skill.appliesTo || [],
+  triggerPhrases: skill.triggerPhrases || [],
+  priority: Number.isFinite(skill.priority) ? skill.priority : 100,
   createdAt: skill.createdAt,
   updatedAt: skill.updatedAt,
 });
@@ -172,6 +209,10 @@ export async function createSkill(accessCodeValue: unknown, draftValue: unknown)
     id: `skill-${crypto.randomUUID()}`,
     version: 1,
     visibility: draft.visibility || "private",
+    role: draft.role || "workflow_recipe",
+    appliesTo: draft.appliesTo || [],
+    triggerPhrases: draft.triggerPhrases || [],
+    priority: draft.priority || 100,
     hasCanvasTemplate: Boolean(draft.canvasTemplate?.nodes.length),
     nodeCount: draft.canvasTemplate?.nodes.length || 0,
     createdAt: now,
@@ -239,6 +280,10 @@ async function updateSkillIn(storage: "bunny" | "local", accessCode: string, ski
     id: skillId,
     version: Math.max(1, Number(existing.version) || 1) + 1,
     visibility: draft.visibility || existing.visibility,
+    role: draft.role || existing.role || "workflow_recipe",
+    appliesTo: draft.appliesTo || existing.appliesTo || [],
+    triggerPhrases: draft.triggerPhrases || existing.triggerPhrases || [],
+    priority: draft.priority || existing.priority || 100,
     hasCanvasTemplate: Boolean(draft.canvasTemplate?.nodes.length),
     nodeCount: draft.canvasTemplate?.nodes.length || 0,
     updatedAt: new Date().toISOString(),

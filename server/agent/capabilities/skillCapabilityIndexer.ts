@@ -39,6 +39,15 @@ export function capabilityRecordFromSkill(skill: SkillLike): CapabilityRecord {
     requiresApproval: false,
     availability: "available",
     executorRef: `skill:${skill.id}`,
-    metadata: { skillId: skill.id, skillMd: skill.skillMd, howToUse: skill.howToUse, expectedOutput: skill.expectedOutput },
+    metadata: {
+      skillId: skill.id,
+      skillMd: skill.skillMd,
+      howToUse: skill.howToUse,
+      expectedOutput: skill.expectedOutput,
+      role: skill.role || "workflow_recipe",
+      appliesTo: skill.appliesTo || [],
+      triggerPhrases: skill.triggerPhrases || [],
+      priority: skill.priority || 100,
+    },
   };
 }

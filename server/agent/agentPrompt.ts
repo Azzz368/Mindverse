@@ -3,6 +3,8 @@ import type { AgentProjectMemory } from "@/shared/agent/projectMemory";
 import type { AgentObservationReport } from "@/shared/agent/agentAutonomy";
 import type { AgentSemanticRoute, CapabilityEvidenceBundle } from "@/shared/agent/capabilityTypes";
 import { evidenceBundlePrompt } from "@/server/rag/retrievalBundle";
+import type { AgentWorkflowPlan } from "@/shared/agent/agentSchema";
+import type { PromptProfile } from "@/shared/agent/promptProfiles";
 
 const languageInstructionFor = (text: string) =>
   /[\u3400-\u9fff]/.test(text)
@@ -49,6 +51,52 @@ export function buildAgentPlannerMessages(
       ].filter(Boolean).join("\n\n"),
     },
   ] as Array<{ role: "system" | "user"; content: string }>;
+}
+
+export function buildAgentPromptComposerMessages({
+  userPrompt,
+  plan,
+  profiles,
+}: {
+  userPrompt: string;
+  plan: AgentWorkflowPlan;
+  profiles: PromptProfile[];
+}) {
+  const visualSteps = plan.steps
+    .filter((step) => step.kind === "image" || step.kind === "video")
+    .map((step) => ({
+      id: step.id,
+      kind: step.kind,
+      label: step.label,
+      purpose: step.purpose || "",
+      existingPrompt: step.prompt || "",
+      params: step.params || {},
+      dependsOn: step.dependsOn || [],
+    }));
+  return [
+    {
+      role: "system" as const,
+      content: [
+        "You are Mindverse Prompt Composer. You do not design workflow topology, change providers, create steps, or select models.",
+        languageInstructionFor(userPrompt),
+        "Write one production-ready English prompt and one concise English negativePrompt for every supplied image or video step.",
+        "The prompt must describe only that step's shot, not a multi-panel storyboard. Preserve user-mandated brand/product/person names exactly when supplied. Use concrete visual language: subject, setting, action, composition, camera, lighting, palette, medium and continuity. Keep generated in-frame typography to an absolute minimum; brand title cards belong in downstream motion nodes.",
+        "For image steps, write a single keyframe image prompt. For video steps, write a single-shot video prompt with temporal action and camera movement. Respect the requested aspect ratio, duration, source-reference mode and existing dependencies without inventing unsupported source assets.",
+        "Profiles are guidance, not user-facing text. Apply only profiles whose Targets include the current step kind. Apply base policy first, then a style profile may override only visual medium/style conflicts (for example 2D animation overrides photorealistic live action). Do not mention named living artists or imitate a specific copyrighted film, character, poster, frame or logo.",
+        "Return JSON only: {\"steps\":[{\"id\":\"exact supplied id\",\"prompt\":\"English prompt\",\"negativePrompt\":\"English negative prompt\"}]}. Return exactly one item for each supplied step.",
+      ].join("\n\n"),
+    },
+    {
+      role: "user" as const,
+      content: [
+        `User creative brief:\n${userPrompt}`,
+        `Workflow constraints:\n${JSON.stringify({ aspectRatio: plan.aspectRatio, sceneCount: plan.sceneCount, goal: plan.goal }, null, 2)}`,
+        `Visual generation steps:\n${JSON.stringify(visualSteps, null, 2)}`,
+        "Prompt profiles to apply in priority order:",
+        profiles.map((profile) => `## ${profile.name} (${profile.role}; Targets: ${profile.appliesTo.join(", ")})\n${profile.runtimeInstructions}`).join("\n\n"),
+      ].filter(Boolean).join("\n\n"),
+    },
+  ];
 }
 
 export function buildAgentRequirementMessages({

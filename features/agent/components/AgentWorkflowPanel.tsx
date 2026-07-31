@@ -70,13 +70,15 @@ const fixedSceneConstraints = [
 const LAST_AGENT_RUN_KEY = "mindverse:last-agent-run-id";
 
 const skillUsageLabel = (source: AgentSkillUsage["source"]) =>
-  source === "active" ? "已启用" : source === "rag" ? "RAG 检索" : "内置目录";
+  source === "active" ? "已启用" : source === "rag" ? "RAG 检索" : source === "system" ? "提示词规则" : "内置目录";
 
 const skillUsageClassName = (source: AgentSkillUsage["source"]) =>
   source === "active"
     ? "border-violet-200 bg-violet-50 text-violet-700"
     : source === "rag"
       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : source === "system"
+        ? "border-amber-200 bg-amber-50 text-amber-800"
       : "border-sky-200 bg-sky-50 text-sky-700";
 
 const skillUsageList = (value: unknown): AgentSkillUsage[] => {
@@ -86,7 +88,7 @@ const skillUsageList = (value: unknown): AgentSkillUsage[] => {
     const raw = item as Record<string, unknown>;
     const id = typeof raw.id === "string" ? raw.id.trim() : "";
     const name = typeof raw.name === "string" ? raw.name.trim() : "";
-    const source = raw.source === "active" || raw.source === "rag" || raw.source === "catalog" ? raw.source : "rag";
+    const source = raw.source === "active" || raw.source === "rag" || raw.source === "catalog" || raw.source === "system" ? raw.source : "rag";
     if (!id || !name) return [];
     return [{
       id,
@@ -94,6 +96,7 @@ const skillUsageList = (value: unknown): AgentSkillUsage[] => {
       source,
       evidenceIds: Array.isArray(raw.evidenceIds) ? raw.evidenceIds.filter((id): id is string => typeof id === "string") : [],
       supports: Array.isArray(raw.supports) ? raw.supports.filter((capability): capability is string => typeof capability === "string") : [],
+      role: raw.role === "base_policy" || raw.role === "style_profile" ? raw.role : undefined,
     }];
   });
 };
@@ -760,7 +763,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
 
         {usedSkills.length > 0 && (
           <div className="rounded-xl border border-[#dce2ea] bg-white px-3 py-2 shadow-sm">
-            <div className="mb-2 text-[11px] font-semibold text-[#111827]">本次已使用的 Skill</div>
+            <div className="mb-2 text-[11px] font-semibold text-[#111827]">本次已使用的 Skill / 提示词规则</div>
             <div className="flex flex-wrap gap-1.5">
               {usedSkills.map((skill) => (
                 <span
@@ -769,7 +772,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
                   className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold ${skillUsageClassName(skill.source)}`}
                 >
                   <span>{skill.name}</span>
-                  <span className="font-normal opacity-75">{skillUsageLabel(skill.source)}</span>
+                  <span className="font-normal opacity-75">{skill.role === "base_policy" ? "基础规范" : skill.role === "style_profile" ? "风格" : skillUsageLabel(skill.source)}</span>
                 </span>
               ))}
             </div>

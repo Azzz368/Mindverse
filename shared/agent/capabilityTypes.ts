@@ -1,4 +1,5 @@
 import type { NodeType } from "@/shared/canvas";
+import type { PromptProfileUsage } from "@/shared/agent/promptProfiles";
 
 export const capabilityKinds = ["skill", "tool", "model", "runtime"] as const;
 export type CapabilityKind = (typeof capabilityKinds)[number];
@@ -151,6 +152,8 @@ export type CapabilityEvidenceBundle = {
   tools: CapabilityCandidate[];
   models: CapabilityCandidate[];
   evidence: CapabilityEvidence[];
+  /** Guidance-only prompt policies. These never authorize a canvas executor. */
+  promptProfiles?: PromptProfileUsage[];
   retrievalMode: "catalog" | "postgres-hybrid";
   generatedAt: string;
 };
@@ -158,9 +161,10 @@ export type CapabilityEvidenceBundle = {
 export type AgentSkillUsage = {
   id: string;
   name: string;
-  source: "rag" | "active" | "catalog";
+  source: "rag" | "active" | "catalog" | "system";
   evidenceIds: string[];
   supports: string[];
+  role?: PromptProfileUsage["role"];
 };
 
 const nodeKindByCapability: Record<string, NodeType> = {

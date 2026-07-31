@@ -1,10 +1,12 @@
 import "server-only";
 import { validateAgentCanvasEditPlan, validateAgentCanvasOrganizePlan, validateAgentDialogueResponse, validateAgentPlan, validateAgentSemanticRoute, type AgentCanvasEditPlan, type AgentCanvasOrganizePlan, type AgentDialogueMessage, type AgentDialogueResponse, type AgentWorkflowPlan } from "@/shared/agent/agentSchema";
-import { buildAgentDialogueMessages, buildAgentEditMessages, buildAgentOrganizeMessages, buildAgentPlannerMessages, buildAgentRequirementMessages, buildAgentRouterMessages, buildAgentVerifierMessages } from "@/server/agent/agentPrompt";
+import { buildAgentDialogueMessages, buildAgentEditMessages, buildAgentOrganizeMessages, buildAgentPlannerMessages, buildAgentPromptComposerMessages, buildAgentRequirementMessages, buildAgentRouterMessages, buildAgentVerifierMessages } from "@/server/agent/agentPrompt";
 import { agentModel, agentProvider, requestChatCompletion } from "@/server/ai/textLLMClient";
 import type { AgentSemanticRoute, CapabilityEvidenceBundle } from "@/shared/agent/capabilityTypes";
 import { validateAgentVerificationDecision, type AgentObservationReport, type AgentVerificationDecision } from "@/shared/agent/agentAutonomy";
 import { validateAgentRequirementDecision, type AgentRequirementDecision } from "@/shared/agent/agentRequirements";
+import { validateComposedPromptDrafts } from "@/server/agent/composeWorkflowPrompts";
+import type { PromptProfile } from "@/shared/agent/promptProfiles";
 
 type ChatResponse = {
   choices?: Array<{ message?: { content?: string }; delta?: { content?: string } }>;
@@ -44,6 +46,29 @@ export async function runAgentPlannerLLM({
   const content = raw.choices?.[0]?.message?.content || raw.choices?.[0]?.delta?.content;
   if (!content) throw new Error("Agent planner did not return JSON content.");
   return validateAgentPlan(JSON.parse(cleanJson(content)));
+}
+
+export async function runAgentPromptComposerLLM({
+  userPrompt,
+  plan,
+  profiles,
+}: {
+  userPrompt: string;
+  plan: AgentWorkflowPlan;
+  profiles: PromptProfile[];
+}) {
+  const raw = await requestChatCompletion<ChatResponse>({
+    provider: agentProvider(),
+    body: {
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      messages: buildAgentPromptComposerMessages({ userPrompt, plan, profiles }),
+      temperature: 0.25,
+      response_format: { type: "json_object" },
+    },
+  });
+  const content = raw.choices?.[0]?.message?.content || raw.choices?.[0]?.delta?.content;
+  if (!content) throw new Error("Prompt composer did not return JSON content.");
+  return validateComposedPromptDrafts(JSON.parse(cleanJson(content)), plan);
 }
 
 export async function runAgentRequirementLLM({

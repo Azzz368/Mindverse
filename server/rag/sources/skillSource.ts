@@ -11,6 +11,10 @@ export const skillRagContent = (skill: StoredSkill) => {
     `Tagline: ${skill.tagline}`,
     `Capabilities: ${capability.capabilities.join(", ")}`,
     `Category: ${skill.category}`,
+    `Role: ${skill.role || "workflow_recipe"}`,
+    `Prompt targets: ${(skill.appliesTo || []).join(", ") || "none"}`,
+    `Trigger phrases: ${(skill.triggerPhrases || []).join(", ") || "none"}`,
+    `Priority: ${skill.priority || 100}`,
     `Usage scenario: ${skill.usageScenario}`,
     `How to use: ${skill.howToUse}`,
     `Expected output: ${skill.expectedOutput}`,
@@ -34,6 +38,10 @@ export const indexSkillDocument = (skill: StoredSkill, tenantId = "shared") => i
     capabilities: capabilityRecordFromSkill(skill).capabilities,
     hasCanvasTemplate: skill.hasCanvasTemplate,
     nodeCount: skill.nodeCount,
+    role: skill.role || "workflow_recipe",
+    appliesTo: skill.appliesTo || [],
+    triggerPhrases: skill.triggerPhrases || [],
+    priority: skill.priority || 100,
   },
 });
 

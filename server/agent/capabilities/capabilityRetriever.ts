@@ -15,6 +15,9 @@ import { indexModelDocument } from "@/server/rag/sources/modelSource";
 import { indexToolDocument } from "@/server/rag/sources/toolSource";
 import { backfillSkillRagDocuments } from "@/server/storage/skillStorage";
 import { DEFAULT_VIDEO_MODEL_PRESET_ID } from "@/shared/workflow/videoModelPresets";
+import { builtInPromptProfiles } from "@/server/agent/promptProfiles/catalog";
+import { resolvePromptProfiles } from "@/server/agent/promptProfiles/resolver";
+import { indexPromptProfileDocument } from "@/server/rag/sources/promptProfileSource";
 
 let staticSync: Promise<void> | undefined;
 
@@ -72,6 +75,7 @@ async function syncStaticKnowledge(records: CapabilityRecord[]) {
       } catch (error) {
         console.warn("Stored Skill RAG backfill failed; continuing with the indexed capability catalog.", error instanceof Error ? error.message : error);
       }
+      await Promise.all(builtInPromptProfiles.map((profile) => indexPromptProfileDocument(profile)));
     })().catch((error) => {
       staticSync = undefined;
       throw error;
@@ -192,6 +196,11 @@ export async function retrieveCapabilities(
     ? [
       ...planningCapabilityIds,
       `model:video:${DEFAULT_VIDEO_MODEL_PRESET_ID}`,
+      // A planner may need to concatenate, preserve source audio, or add an
+      // explicitly requested music track after generating clips. Keep this
+      // runtime in the Evidence Bundle for every visual-video plan so an
+      // otherwise valid video_edit step never loses its executable evidence.
+      "runtime:ffmpeg-video-edit",
       ...(textToVideoRequestPattern.test(request.query) || request.requiredCapabilities.includes("text_to_video")
         ? ["model:video:seedance-2.0"]
         : []),
@@ -219,6 +228,11 @@ export async function retrieveCapabilities(
     .filter((evidence) => evidence.metadata?.domain !== "capability")
     .slice(0, 8)
     .forEach((evidence) => selectedEvidence.set(evidence.id, evidence));
+  const promptProfileResolution = resolvePromptProfiles(request, retrievedEvidence, options.customSkill);
+  promptProfileResolution.usage.forEach((usage) => usage.evidenceIds.forEach((id) => {
+    const evidence = retrievedEvidence.find((item) => item.id === id);
+    if (evidence) selectedEvidence.set(evidence.id, evidence);
+  }));
 
   return {
     query: request,
@@ -227,6 +241,7 @@ export async function retrieveCapabilities(
     tools: candidates.filter((candidate) => candidate.kind === "tool"),
     models: candidates.filter((candidate) => candidate.kind === "model"),
     evidence: [...selectedEvidence.values()].slice(0, 20),
+    promptProfiles: promptProfileResolution.usage,
     retrievalMode,
     generatedAt: new Date().toISOString(),
   };
