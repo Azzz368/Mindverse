@@ -102,6 +102,10 @@ Use **Generate revision** to create a new ImageNode beside the original. The sou
 
 The mock provider creates a local revision preview. Real 302.AI image revision deliberately remains unavailable until a confirmed image-edit endpoint is configured; the new revision node will show a clear error instead of silently using a text-to-image replacement.
 
+## Durable workflow storage
+
+Canvas projects auto-save after edits, keep a small browser draft as a recovery copy, and flush the latest change when the page is hidden or left. For Render, set `WORKFLOW_STORAGE_PROVIDER=bunny` and configure `BUNNY_STORAGE_ZONE`, `BUNNY_ACCESS_KEY`, `BUNNY_STORAGE_REGION`, and `BUNNY_PULL_ZONE_URL`. Do not use `WORKFLOW_STORAGE_PROVIDER=local` in production: Render's local filesystem is ephemeral, so projects can disappear after an instance restart or deploy.
+
 ## Capability retrieval and RAG
 
 The Agent uses a unified semantic route and capability-plan protocol: Router → Capability Retriever → Planner → deterministic validator → canvas compiler. Skills, Tools, configured models, and runtimes share one executable capability catalog; Planner steps cite `providerCapabilityId` and `evidenceIds` instead of inventing providers.

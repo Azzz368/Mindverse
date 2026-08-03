@@ -524,7 +524,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       for (const id of targetIds) await get().runNode(id);
     })();
   },
-  setCanvas: (nodes, edges, agentMemory) => { const activeNodes = nodes.filter((node) => node.data.nodeType !== "storyboardImage"); const activeIds = new Set(activeNodes.map((node) => node.id)); set({ nodes: restoreStatuses(activeNodes), edges: withVideoTargetHandles(activeNodes, edges.filter((edge) => activeIds.has(edge.source) && activeIds.has(edge.target))), agentMemory: agentMemory || null, selectedNodeId: null, lastError: null, undoStack: [], canUndo: false }); },
+  setCanvas: (nodes, edges, agentMemory) => { const activeNodes = nodes; const activeIds = new Set(activeNodes.map((node) => node.id)); set({ nodes: restoreStatuses(activeNodes), edges: withVideoTargetHandles(activeNodes, edges.filter((edge) => activeIds.has(edge.source) && activeIds.has(edge.target))), agentMemory: agentMemory || null, selectedNodeId: null, lastError: null, undoStack: [], canUndo: false }); },
   generateAgentPlan: async (userPrompt) => {
     const prompt = userPrompt.trim();
     if (!prompt) throw new Error("Agent brief is empty.");

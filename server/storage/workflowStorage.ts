@@ -18,12 +18,18 @@ const emptySnapshot = (projectName: string): CanvasSnapshot => ({ version: 1, pr
 const accountPath = (accessCode: string) => `workflows/access-${accessCode}`;
 const indexPath = (accessCode: string) => `${accountPath(accessCode)}/index.json`;
 const workflowPath = (accessCode: string, workflowId: string) => `${accountPath(accessCode)}/${workflowId}.json`;
+const workspaceLocalStorageRoot = () => path.join(process.cwd(), ".mindverse-local");
+const operatingSystemLocalStorageRoot = () =>
+  path.join(process.env.LOCALAPPDATA || process.env.XDG_DATA_HOME || os.homedir(), "Mindverse", "workflow-storage");
 const localStorageRoot = () =>
   process.env.MINDVERSE_LOCAL_STORAGE_ROOT ||
-  path.join(process.env.LOCALAPPDATA || process.env.XDG_DATA_HOME || os.homedir(), "Mindverse", "workflow-storage");
+  workspaceLocalStorageRoot();
 const localPath = (remotePath: string) => path.join(localStorageRoot(), ...remotePath.split("/"));
-const legacyLocalStorageRoot = () => path.join(process.cwd(), ".mindverse-local");
-const legacyLocalPath = (remotePath: string) => path.join(legacyLocalStorageRoot(), ...remotePath.split("/"));
+const legacyLocalPaths = (remotePath: string) => [
+  operatingSystemLocalStorageRoot(),
+  workspaceLocalStorageRoot(),
+].filter((root, index, roots) => root !== localStorageRoot() && roots.indexOf(root) === index)
+  .map((root) => path.join(root, ...remotePath.split("/")));
 const canUseLocalFallback = () => process.env.WORKFLOW_STORAGE_PROVIDER === "local" || process.env.NODE_ENV !== "production";
 const executableNodeTypes = new Set([
   "script", "storyboard", "storyboardImage", "image", "video", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "output",
@@ -74,12 +80,15 @@ async function getLocalJson<T>(remotePath: string): Promise<T | null> {
     return JSON.parse(await readFile(localPath(remotePath), "utf8")) as T;
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-      try {
-        return JSON.parse(await readFile(legacyLocalPath(remotePath), "utf8")) as T;
-      } catch (legacyError) {
-        if (legacyError && typeof legacyError === "object" && "code" in legacyError && legacyError.code === "ENOENT") return null;
-        throw legacyError;
+      for (const legacyPath of legacyLocalPaths(remotePath)) {
+        try {
+          return JSON.parse(await readFile(legacyPath, "utf8")) as T;
+        } catch (legacyError) {
+          if (legacyError && typeof legacyError === "object" && "code" in legacyError && legacyError.code === "ENOENT") continue;
+          throw legacyError;
+        }
       }
+      return null;
     }
     throw error;
   }

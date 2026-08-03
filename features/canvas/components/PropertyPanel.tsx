@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
+import { archiveImageFile } from "@/features/canvas/services/mediaArchiveClient";
 import { useLang } from "@/components/providers/LangProvider";
 import { ImeInput, ImeTextarea } from "./ImeTextFields";
 import { motionTemplateIds } from "@/shared/motion/templates";
@@ -88,11 +89,12 @@ export function PropertyPanel() {
     });
   const uploadImageReference = (file: File | undefined) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") updateNodeData(node.id, { referenceImageUrl: reader.result });
-    };
-    reader.readAsDataURL(file);
+    void archiveImageFile(file)
+      .then((referenceImageUrl) => updateNodeData(node.id, { referenceImageUrl }))
+      .catch((error) => {
+        console.error("Image reference archive failed", error);
+        useCanvasStore.setState({ lastError: "参考图归档失败，未写入画布。请检查 Bunny Storage 配置后重试。" });
+      });
   };
 
   const prompts = Array.isArray((node.data.output?.value as { prompts?: unknown })?.prompts)

@@ -91,26 +91,17 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
   const archiveLocalVideo = (file: File) => archiveVideoFile(file);
   const archiveLocalAudio = (file: File) => archiveAudioFile(file);
 
-  const readAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error || new Error("Could not read file."));
-    reader.readAsDataURL(file);
-  });
-
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).filter(f => /^image\//.test(f.type));
-    files.forEach((file, i) => {
+    files.forEach((file) => {
       void (async () => {
-        let url: string;
         try {
-          url = await archiveLocalImage(file);
+          const url = await archiveLocalImage(file);
+          setGhostMedia(url);
         } catch (error) {
-          console.error("Local image archive failed, falling back to data URL", error);
-          url = await readAsDataUrl(file);
+          console.error("Local image archive failed", error);
+          useCanvasStore.setState({ lastError: "图片归档失败，未写入画布。请检查 Bunny Storage 配置后重试。" });
         }
-        if (i === 0) setGhostMedia(url);
-        else setGhostMedia(url);
       })();
     });
     e.target.value = "";
