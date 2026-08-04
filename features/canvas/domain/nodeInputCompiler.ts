@@ -124,8 +124,21 @@ export const promptFrom = (node: CanvasNode, upstream: CanvasNode[]) => {
   return [ownPrompt, nonStoryboardContext, matchingScenePrompt].filter(Boolean).join("\n\n");
 };
 
-const videoPromptReferences = (prompt: string) =>
-  prompt.replace(/@(?:image[_\s-]?|图|素材)?(\d+)/gi, (_, index: string) => `<<<image_${Number(index)}>>>`);
+type MediaReferenceKind = "image" | "video" | "audio";
+
+const mediaReferenceKindForNode = (node: CanvasNode): MediaReferenceKind | undefined => {
+  if (node.data.nodeType === "image" || node.data.nodeType === "reference") return "image";
+  if (node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") return "video";
+  if (node.data.nodeType === "audio" || node.data.nodeType === "voiceTTS") return "audio";
+  return undefined;
+};
+
+const videoPromptReferences = (prompt: string, orderedReferences: CanvasNode[]) =>
+  prompt.replace(/@(?:image[_\s-]?|video[_\s-]?|audio[_\s-]?|图|视频|音频|素材)?(\d+)/gi, (_, index: string) => {
+    const number = Number(index);
+    const kind = mediaReferenceKindForNode(orderedReferences[number - 1]) || "image";
+    return `<<<${kind}_${number}>>>`;
+  });
 
 const imagePromptReferences = (prompt: string) =>
   prompt.replace(/@(?:image[_\s-]?|素材|图片|reference[_\s-]?image[_\s-]?|ref[_\s-]?)?(\d+)/gi, (_, index: string) => `reference image ${Number(index)}`);
@@ -141,6 +154,13 @@ const referencedImageUrlsFrom = (node: CanvasNode, upstream: CanvasNode[], ids =
     .filter((item): item is CanvasNode => Boolean(item))
     .map(imageUrlFrom)
     .filter(Boolean);
+};
+
+const selectedSourcesForKind = (sources: CanvasNode[], selectedIds: string[], strictSelection = false) => {
+  const selectedSources = sources.filter((source) => selectedIds.includes(source.id));
+  // Older workflows only stored selected image IDs. Keep their existing video/audio behaviour
+  // until a video or audio reference has actually been explicitly selected.
+  return strictSelection || selectedSources.length ? selectedSources : sources;
 };
 
 type UpstreamConnection = { node: CanvasNode; targetHandle?: string | null };
@@ -287,6 +307,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
     const activeVideoPatch = videoModelPatch(activeVideoModel);
     const supportedKinds = new Set(videoInputPortsForPreset(activeVideoModel).map((port) => port.kind));
     const connections = upstreamConnectionsFrom(upstream, incomingEdges);
+    const hasExplicitReferenceSelection = d.videoReferenceSelectionActive === true;
     const textSources = videoSourcesForKind(connections, "text", supportedKinds);
     const imageSources = videoSourcesForKind(connections, "image", supportedKinds);
     const videoSources = videoSourcesForKind(connections, "video", supportedKinds);
@@ -297,15 +318,18 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
     ].filter(Boolean);
     const selectedImageUrls = explicitReferenceImageUrls.filter((url) => handleImageUrls.includes(url));
     const referenceImageUrls = supportedKinds.has("image")
-      ? [...(d.referenceImageUrl ? [d.referenceImageUrl] : []), ...(selectedImageUrls.length ? selectedImageUrls : handleImageUrls)].filter(Boolean)
+      ? [...(d.referenceImageUrl ? [d.referenceImageUrl] : []), ...(hasExplicitReferenceSelection ? selectedImageUrls : selectedImageUrls.length ? selectedImageUrls : handleImageUrls)].filter(Boolean)
       : [];
-    const referenceVideoUrls = supportedKinds.has("video") ? videoSources.map(videoUrlFrom).filter(Boolean) : [];
-    const referenceAudioUrls = supportedKinds.has("audio") ? audioSources.map(audioUrlFrom).filter(Boolean) : [];
+    const referenceVideoUrls = supportedKinds.has("video") ? selectedSourcesForKind(videoSources, d.videoReferenceNodeIds || [], hasExplicitReferenceSelection).map(videoUrlFrom).filter(Boolean) : [];
+    const referenceAudioUrls = supportedKinds.has("audio") ? selectedSourcesForKind(audioSources, d.videoReferenceNodeIds || [], hasExplicitReferenceSelection).map(audioUrlFrom).filter(Boolean) : [];
     const promptSources = textSources.length ? textSources : supportedKinds.has("text") ? upstream.filter((source) => nodeKind(source) === "text") : [];
     const videoPrompt = ownPromptFrom(d) || promptFrom(node, promptSources);
+    const orderedPromptReferences = (d.videoReferenceNodeIds || [])
+      .map((referenceId) => upstream.find((source) => source.id === referenceId))
+      .filter((source): source is CanvasNode => Boolean(source));
 
     return {
-      prompt: limitProviderPrompt(videoPromptReferences(videoPrompt)),
+      prompt: limitProviderPrompt(videoPromptReferences(videoPrompt, orderedPromptReferences)),
       negativePrompt: d.negativePrompt,
       model: activeVideoPatch.model,
       image: supportedKinds.has("image") ? d.referenceImageUrl || referenceImageUrls[0] : undefined,
