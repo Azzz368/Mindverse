@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { cancelAgentRun, getAgentRun, requestAgentRouter, resumeAgentRun, updateAgentRun } from "@/features/agent/services/agentClient";
 import { runAutonomousAgent } from "@/features/agent/services/autonomousAgent";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
-import { agentMemorySummary, type AgentReferenceAsset } from "@/shared/agent/projectMemory";
+import { type AgentReferenceAsset } from "@/shared/agent/projectMemory";
 import { agentWorkflowSkills, buildFixedSceneVideoSkill, type AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 import type {
   AgentCanvasEditPlan,
@@ -51,13 +51,6 @@ type ChatEntry = {
     results: AgentImageSearchResult[];
   };
 };
-
-const suggestions = [
-  "和我一起构思一个骑士寻找公主的悲情短片",
-  "用人物四象图和场景九宫图生成一个10秒固定场景视频工作流",
-  "把选中的视频剪成15秒预告片，节奏快一点，保留原声",
-  "整理当前画布，把同一故事的节点分组并排整齐",
-];
 
 const operationTarget = (operation: AgentCanvasEditPlan["operations"][number]) =>
   operation.targetNodeId || operation.sourceNodeId || operation.targetNodeIdForConnection || operation.targetEdgeId || operation.nodeType || "canvas";
@@ -131,6 +124,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
   const [autonomousEvents, setAutonomousEvents] = useState<AgentRunEvent[]>([]);
   const [agentRunId, setAgentRunId] = useState<string | null>(null);
   const [agentRunStatus, setAgentRunStatus] = useState<AgentRunStatus | null>(null);
+  const [agentRunExpanded, setAgentRunExpanded] = useState(false);
   const [usedSkills, setUsedSkills] = useState<AgentSkillUsage[]>([]);
   const [selectingImageId, setSelectingImageId] = useState<string | null>(null);
   const [selectedImageResultIds, setSelectedImageResultIds] = useState<string[]>([]);
@@ -169,8 +163,11 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
     () => selectedNodeIds.map((id) => nodes.find((node) => node.id === id)).filter((node): node is CanvasNode => Boolean(node)),
     [nodes, selectedNodeIds],
   );
-  const memoryText = useMemo(() => agentMemorySummary(agentMemory), [agentMemory]);
   const canSubmit = input.trim().length > 0 && !busy;
+  const clearProjectMemory = () => {
+    clearAgentMemory();
+    setLocalError(null);
+  };
 
   useEffect(() => {
     const raw = window.localStorage.getItem(ACTIVE_SKILL_KEY);
@@ -632,24 +629,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
           </div>
         )}
 
-        {memoryText && (
-          <div className="rounded-[16px] border border-[#dce2ea] bg-white px-3 py-3 text-[12px] leading-5 text-[#5f6b7a] shadow-sm">
-            <div className="mb-1 flex items-center justify-between gap-3">
-              <span className="font-semibold text-[#111827]">项目记忆</span>
-              <button type="button" onClick={clearAgentMemory} className="text-[11px] font-semibold text-[#6b7280] hover:text-[#111827]">
-                清除
-              </button>
-            </div>
-            <p className="line-clamp-4 whitespace-pre-wrap">{memoryText}</p>
-          </div>
-        )}
-
         <div className="space-y-3">
-          {chat.length === 0 && (
-            <div className="rounded-[16px] border border-[#e1e6ee] bg-white px-3 py-3 text-[12px] leading-5 text-[#5f6b7a] shadow-sm">
-              你可以先和 Agent 聊故事方向，再说“生成一个新工作流”。如果前面已经确认了固定场景短片，它会优先调用人物四象图 + 场景九宫图的 skill。
-            </div>
-          )}
           {chat.map((item, index) => (
             <div key={`${item.role}-${index}`} className={`rounded-[16px] border px-3 py-3 shadow-sm ${item.role === "user" ? "ml-12 border-[#111827] bg-[#111827] text-white" : "mr-8 border-[#e1e6ee] bg-white text-[#111827]"}`}>
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] opacity-60">{item.role === "user" ? "You" : item.intent || "Agent"}</div>
@@ -712,19 +692,6 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 gap-2">
-          {suggestions.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setInput(item)}
-              className="rounded-xl border border-[#e1e6ee] bg-white px-3 py-2 text-left text-[12px] font-medium leading-5 text-[#374151] shadow-sm transition hover:border-[#c8d2df] hover:bg-[#fbfcfe]"
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-
         {(agentMessage || localError || agentStatus !== "idle") && (
           <div className="flex items-start gap-2 rounded-xl border border-[#e1e6ee] bg-white px-3 py-2 text-[12px] text-[#5f6b7a] shadow-sm">
             <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${localError || agentStatus === "error" ? "bg-rose-500" : agentStatus === "completed" ? "bg-emerald-500" : "bg-sky-500"}`} />
@@ -780,8 +747,8 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
         )}
 
         {autonomousEvents.length > 0 && (
-          <div className="max-h-44 overflow-y-auto rounded-xl border border-[#dce2ea] bg-white px-3 py-2 shadow-sm">
-            <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-semibold text-[#111827]">
+          <div className="rounded-xl border border-[#dce2ea] bg-white px-3 py-2 shadow-sm">
+            <div className="flex items-center justify-between gap-2 text-[11px] font-semibold text-[#111827]">
               <span>Agent Run</span>
               <div className="flex items-center gap-2">
                 {!busy && agentRunId && agentRunStatus && ["ready", "running"].includes(agentRunStatus) && (
@@ -805,23 +772,34 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
                 <span className="font-mono text-[10px] font-normal text-[#7b8794]">
                   {agentRunId ? agentRunId.slice(0, 8) : "local"} · {agentRunStatus || "running"}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => setAgentRunExpanded((value) => !value)}
+                  className="font-sans text-[10px] font-semibold text-[#5f6b7a] hover:text-[#111827]"
+                >
+                  {agentRunExpanded ? "收起" : "详情"}
+                </button>
               </div>
             </div>
-            <div className="space-y-1">
-              {autonomousEvents.slice(-10).map((event) => (
-                <div key={event.id} className="flex gap-2 text-[11px] leading-4 text-[#5f6b7a]">
-                  <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${event.phase === "blocked" ? "bg-rose-500" : event.phase === "completed" ? "bg-emerald-500" : event.phase === "repairing" ? "bg-amber-500" : "bg-sky-500"}`} />
-                  <span>
-                    <strong className="font-semibold text-[#374151]">{event.phase}</strong> {event.message}
-                    {(event.kind || event.durationMs !== undefined) && (
-                      <span className="ml-1 text-[10px] text-[#9aa4b2]">
-                        {[event.kind, event.durationMs !== undefined ? `${event.durationMs}ms` : ""].filter(Boolean).join(" · ")}
-                      </span>
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
+            {agentRunExpanded ? (
+              <div className="mt-2 max-h-40 space-y-1 overflow-y-auto border-t border-[#edf1f6] pt-2">
+                {autonomousEvents.slice(-10).map((event) => (
+                  <div key={event.id} className="flex gap-2 text-[11px] leading-4 text-[#5f6b7a]">
+                    <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${event.phase === "blocked" ? "bg-rose-500" : event.phase === "completed" ? "bg-emerald-500" : event.phase === "repairing" ? "bg-amber-500" : "bg-sky-500"}`} />
+                    <span>
+                      <strong className="font-semibold text-[#374151]">{event.phase}</strong> {event.message}
+                      {(event.kind || event.durationMs !== undefined) && (
+                        <span className="ml-1 text-[10px] text-[#9aa4b2]">
+                          {[event.kind, event.durationMs !== undefined ? `${event.durationMs}ms` : ""].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1 truncate text-[10px] text-[#7b8794]">{autonomousEvents.at(-1)?.message || "等待执行"}</p>
+            )}
           </div>
         )}
 
@@ -841,12 +819,23 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
             aria-label="Agent instruction"
           />
           <div className="flex items-center justify-between gap-2 border-t border-[#edf1f6] px-3 py-3">
-            <Button type="button" onClick={() => setAdvancedOpen((value) => !value)} className="rounded-full px-4">
-              高级
-            </Button>
-            <Button type="button" disabled={!canSubmit} onClick={() => void runUnifiedAgent()} className="rounded-full border-[#111827] bg-[#111827] px-4 text-white hover:border-[#263244] hover:bg-[#263244]">
+            <div className="flex items-center gap-2">
+              <Button type="button" onClick={() => setAdvancedOpen((value) => !value)} className="rounded-full px-4">
+                高级
+              </Button>
+              <button
+                type="button"
+                disabled={!agentMemory}
+                onClick={clearProjectMemory}
+                title="清空项目记忆"
+                className="rounded-full border border-[#dce2ea] bg-white px-3 py-2 text-xs font-semibold text-[#5f6b7a] transition hover:border-[#b9c4d2] hover:text-[#111827] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                清空
+              </button>
+            </div>
+            <button type="button" disabled={!canSubmit} onClick={() => void runUnifiedAgent()} className="min-w-20 rounded-full border border-[#111827] bg-[#111827] px-4 py-2 text-xs font-semibold !text-white transition hover:border-[#263244] hover:bg-[#263244] disabled:cursor-not-allowed disabled:border-[#cbd5e1] disabled:bg-[#cbd5e1] disabled:!text-[#64748b]">
               {busy ? "处理中..." : "发送"}
-            </Button>
+            </button>
           </div>
         </div>
 
