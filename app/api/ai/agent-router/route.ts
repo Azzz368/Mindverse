@@ -21,6 +21,7 @@ import { retrieveCapabilities } from "@/server/agent/capabilities/capabilityRetr
 import { approvalRequiredStepIds, bindPlanCapabilities, bindRoutedCanvasInputs, capabilityPlanGraphIssues, capabilityPlanIssues } from "@/server/agent/capabilities/capabilityValidator";
 import { applyComposedPrompts, fallbackComposedPrompts } from "@/server/agent/composeWorkflowPrompts";
 import { resolvePromptProfiles } from "@/server/agent/promptProfiles/resolver";
+import { DEFAULT_AGENT_EXECUTION_MODEL, isAgentExecutionModelId, type AgentExecutionModelId } from "@/shared/agent/executionModels";
 
 type RouterSnapshot = {
   projectName: string;
@@ -310,16 +311,19 @@ const requirementSkillGuidanceFrom = (bundle?: CapabilityEvidenceBundle) => {
 export async function POST(request: Request) {
   let run = createAgentRunRecorder();
   let executionMode: AgentRunExecutionMode = "browser";
-  let runRequest: { userMessage: string; selectedNodeIds: string[]; workflowId?: string } | undefined;
+  let executionModel: AgentExecutionModelId = DEFAULT_AGENT_EXECUTION_MODEL;
+  let resumedExecutionModel: AgentExecutionModelId | undefined;
+  let runRequest: { userMessage: string; selectedNodeIds: string[]; workflowId?: string; executionModel?: AgentExecutionModelId } | undefined;
   let checkpointSnapshot: RouterSnapshot | undefined;
   let checkpointSelectedNodeIds: string[] = [];
   let checkpointRetrieval: AgentRunRetrievalTrace | undefined;
   let checkpointSkillUsage: AgentSkillUsage[] | undefined;
   const respond = async (payload: Record<string, unknown>, init?: ResponseInit) => {
     const trace = run.snapshot();
-    const responsePayload = checkpointSkillUsage?.length && !Array.isArray(payload.skillUsage)
+    const basePayload = checkpointSkillUsage?.length && !Array.isArray(payload.skillUsage)
       ? { ...payload, skillUsage: checkpointSkillUsage }
       : payload;
+    const responsePayload: Record<string, unknown> = { ...basePayload, executionModel };
     const hasExecutablePlan = responsePayload.ok === true && ["create", "edit", "organize", "skill"].includes(String(responsePayload.intent || ""));
     const checkpoint: AgentRunCheckpoint | undefined = checkpointSnapshot ? {
       version: 1,
@@ -350,6 +354,7 @@ export async function POST(request: Request) {
       resumeRunId?: unknown;
       executionMode?: unknown;
       workflowId?: unknown;
+      executionModel?: unknown;
     };
     const userMessage = text(body.userMessage);
     const resumeRunId = text(body.resumeRunId);
@@ -357,6 +362,7 @@ export async function POST(request: Request) {
       const existingRun = await getAgentRun(resumeRunId);
       if (existingRun) {
         run = createAgentRunRecorder(existingRun);
+        resumedExecutionModel = existingRun.request?.executionModel;
         run.add("received", "Resumed the existing Agent run with new user input.", { kind: "decision" });
       }
     }
@@ -364,8 +370,15 @@ export async function POST(request: Request) {
       run.finish("blocked", "blocked", "The Agent request did not include a user message.");
       return respond({ ok: false, error: { message: "userMessage is required." } }, { status: 400 });
     }
+    if (body.executionModel !== undefined && !isAgentExecutionModelId(body.executionModel)) {
+      run.finish("blocked", "blocked", "Unsupported Agent execution model.");
+      return respond({ ok: false, error: { message: "Unsupported Agent execution model." } }, { status: 400 });
+    }
+    executionModel = isAgentExecutionModelId(body.executionModel)
+      ? body.executionModel
+      : resumedExecutionModel || DEFAULT_AGENT_EXECUTION_MODEL;
     run.add("received", "Received the user request and canvas context.", {
-      metadata: { messageLength: userMessage.length },
+      metadata: { messageLength: userMessage.length, executionModel },
     });
 
     const snapshot = snapshotFrom(body.canvasSnapshot);
@@ -377,6 +390,7 @@ export async function POST(request: Request) {
       userMessage,
       selectedNodeIds,
       workflowId: text(body.workflowId) || undefined,
+      executionModel,
     };
     const customSkill = customSkillFrom(body.customSkill);
     const conversation = messagesFrom(body.conversation);
@@ -405,6 +419,7 @@ export async function POST(request: Request) {
             memorySummary: agentMemorySummary(snapshot.agentMemory),
             conversation,
             selectedNodeIds,
+            executionModel,
           });
         } catch (routerError) {
           console.warn("Forced route semantic extraction failed; continuing with editable defaults.", routerError instanceof Error ? routerError.message : routerError);
@@ -432,6 +447,7 @@ export async function POST(request: Request) {
           memorySummary: agentMemorySummary(snapshot.agentMemory),
           conversation,
           selectedNodeIds,
+          executionModel,
         });
         semanticRoute = routed;
         resumePending = semanticRoute.resumePending && Boolean(pendingIntent && pendingRequest);
@@ -599,6 +615,7 @@ export async function POST(request: Request) {
         ].filter(Boolean).join("\n\n"),
         conversation,
         skillGuidance: requirementSkillGuidanceFrom(evidenceBundle),
+        executionModel,
       });
       run.add("clarifying", requirement.ready ? "The request is executable." : "Critical information is still missing.", {
         kind: "validation",
@@ -638,7 +655,7 @@ export async function POST(request: Request) {
     if (intent === "dialogue") {
       const dialogueStartedAt = Date.now();
       run.add("planning", "Developing a conversational response.", { kind: "model" });
-      const response = await runAgentDialogueLLM({ userMessage: guidedUserMessage, conversation });
+      const response = await runAgentDialogueLLM({ userMessage: guidedUserMessage, conversation, executionModel });
       run.add("planning", "Dialogue model completed.", { kind: "model", durationMs: Date.now() - dialogueStartedAt });
       run.finish("completed", "completed", response.title);
       return respond({ ok: true, intent, semanticRoute, response, summary: response.title });
@@ -651,7 +668,7 @@ export async function POST(request: Request) {
       }
       const organizeStartedAt = Date.now();
       run.add("planning", "Planning a deterministic canvas organization patch.", { kind: "model" });
-      const organizePlan = await runAgentOrganizeLLM({ userInstruction: guidedUserMessage, canvasSummary: canvasSummaryWithMemory(snapshot, selectedNodeIds) });
+      const organizePlan = await runAgentOrganizeLLM({ userInstruction: guidedUserMessage, canvasSummary: canvasSummaryWithMemory(snapshot, selectedNodeIds), executionModel });
       const patch = compileCanvasOrganizePlanToPatch({ organizePlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges });
       run.add("validating", "Compiled and validated the canvas organization patch.", { kind: "validation", durationMs: Date.now() - organizeStartedAt, metadata: { updatedNodes: patch.updateNodes.length } });
       run.finish("ready", "validating", "The canvas organization plan is ready to apply.");
@@ -683,6 +700,7 @@ export async function POST(request: Request) {
       canvasSummary: intent === "edit" ? canvasSummaryWithMemory(snapshot, semanticRoute.targetNodeIds) : plannerSummary(snapshot),
       semanticRoute,
       evidenceBundle,
+      executionModel,
     }));
     const editInputIssues = () => {
       if (intent !== "edit" || !semanticRoute.targetNodeIds.length) return [];
@@ -707,6 +725,7 @@ export async function POST(request: Request) {
         evidenceBundle,
         previousPlan: plan,
         repairFeedback: qualityIssues.join("\n"),
+        executionModel,
       }));
       qualityIssues = [...capabilityPlanGraphIssues(plan, evidenceBundle), ...capabilityPlanIssues(plan, evidenceBundle), ...editInputIssues()];
     }
@@ -716,7 +735,7 @@ export async function POST(request: Request) {
       const promptStartedAt = Date.now();
       run.add("planning", `Composing visual node prompts with ${promptProfiles.map((profile) => profile.name).join(", ")}.`, { kind: "model" });
       try {
-        const drafts = await runAgentPromptComposerLLM({ userPrompt: effectiveUserMessage, plan, profiles: promptProfiles });
+        const drafts = await runAgentPromptComposerLLM({ userPrompt: effectiveUserMessage, plan, profiles: promptProfiles, executionModel });
         const fallback = fallbackComposedPrompts(plan, promptProfiles);
         const draftIds = new Set(drafts.map((draft) => draft.id));
         plan = applyComposedPrompts(plan, [...drafts, ...fallback.filter((draft) => !draftIds.has(draft.id))]);

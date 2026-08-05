@@ -24,6 +24,7 @@ import type { AgentSkillUsage } from "@/shared/agent/capabilityTypes";
 import type { AgentImageSearchResult } from "@/shared/agent/agentTools";
 import { archiveRemoteImageUrl } from "@/features/canvas/services/mediaArchiveClient";
 import { apiErrorPayload } from "@/shared/api/client";
+import { agentExecutionModelFrom, agentExecutionModelOptions, DEFAULT_AGENT_EXECUTION_MODEL, type AgentExecutionModelId } from "@/shared/agent/executionModels";
 
 type AgentPreview =
   | { intent: "create"; plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }
@@ -61,6 +62,7 @@ const fixedSceneConstraints = [
 ];
 
 const LAST_AGENT_RUN_KEY = "mindverse:last-agent-run-id";
+const AGENT_EXECUTION_MODEL_KEY = "mindverse:agent-execution-model";
 
 const skillUsageLabel = (source: AgentSkillUsage["source"]) =>
   source === "active" ? "已启用" : source === "rag" ? "RAG 检索" : source === "system" ? "提示词规则" : "内置目录";
@@ -125,6 +127,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
   const [agentRunId, setAgentRunId] = useState<string | null>(null);
   const [agentRunStatus, setAgentRunStatus] = useState<AgentRunStatus | null>(null);
   const [agentRunExpanded, setAgentRunExpanded] = useState(false);
+  const [executionModel, setExecutionModel] = useState<AgentExecutionModelId>(DEFAULT_AGENT_EXECUTION_MODEL);
   const [usedSkills, setUsedSkills] = useState<AgentSkillUsage[]>([]);
   const [selectingImageId, setSelectingImageId] = useState<string | null>(null);
   const [selectedImageResultIds, setSelectedImageResultIds] = useState<string[]>([]);
@@ -180,6 +183,14 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
   }, []);
 
   useEffect(() => {
+    setExecutionModel(agentExecutionModelFrom(window.localStorage.getItem(AGENT_EXECUTION_MODEL_KEY)));
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(AGENT_EXECUTION_MODEL_KEY, executionModel);
+  }, [executionModel]);
+
+  useEffect(() => {
     const runId = window.localStorage.getItem(LAST_AGENT_RUN_KEY);
     if (!runId) return;
     let active = true;
@@ -189,6 +200,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
       setAgentRunStatus(run.status);
       setAutonomousEvents(run.events.slice(-24));
       setUsedSkills(skillUsageList(run.checkpoint?.skillUsage));
+      if (run.request?.executionModel) setExecutionModel(run.request.executionModel);
     }).catch(() => window.localStorage.removeItem(LAST_AGENT_RUN_KEY));
     return () => { active = false; };
   }, []);
@@ -346,6 +358,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
         resumeRunId,
         executionMode: "browser",
         workflowId,
+        executionModel,
       });
       const planningEvents = payload.agentRun?.events || [];
       setAgentRunId(payload.agentRun?.id || null);
@@ -373,6 +386,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
           initialEvents: planningEvents,
           signal: autonomousController?.signal,
           maxRepairAttempts: 2,
+          executionModel: payload.executionModel || executionModel,
           onEvent: (event) => setAutonomousEvents((current) => [...current, event].slice(-24)),
           persistUpdate: payload.agentRun?.id
             ? (update) => updateAgentRun(payload.agentRun!.id, update)
@@ -487,6 +501,8 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
       const response = run.checkpoint.planResponse as unknown as AgentRouterResponse;
       if (response.ok !== true || !response.intent) throw new Error("The stored Agent plan is incomplete.");
       const resumed = await resumeAgentRun(agentRunId);
+      const resumedExecutionModel = run.request?.executionModel || response.executionModel || executionModel;
+      setExecutionModel(resumedExecutionModel);
       setAgentRunStatus(resumed.run.status);
       setAutonomousEvents(resumed.run.events.slice(-24));
       const result = await runAutonomousAgent({
@@ -498,6 +514,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
         resumeCheckpoint: run.checkpoint,
         signal: controller.signal,
         maxRepairAttempts: 2,
+        executionModel: resumedExecutionModel,
         onEvent: (event) => setAutonomousEvents((current) => [...current, event].slice(-24)),
         persistUpdate: (update) => updateAgentRun(run.id, update),
       });
@@ -818,8 +835,25 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
             className="min-h-28 w-full resize-none rounded-t-[18px] bg-transparent px-4 py-4 text-[14px] leading-6 text-[#111827] outline-none placeholder:text-[#8a94a3]"
             aria-label="Agent instruction"
           />
-          <div className="flex items-center justify-between gap-2 border-t border-[#edf1f6] px-3 py-3">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#edf1f6] px-3 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="relative flex items-center rounded-full border border-[#dce2ea] bg-white text-xs font-semibold text-[#374151] transition focus-within:border-[#9aa8ba]">
+                <span className="pl-3 text-[10px] font-medium text-[#8a94a3]">模型</span>
+                <select
+                  value={executionModel}
+                  disabled={busy}
+                  onChange={(event) => setExecutionModel(agentExecutionModelFrom(event.target.value))}
+                  aria-label="Agent execution model"
+                  className="max-w-44 cursor-pointer appearance-none rounded-full bg-transparent py-2 pl-2 pr-7 text-xs font-semibold outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {agentExecutionModelOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label} · {option.providerLabel}
+                    </option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-2 text-[9px] text-[#8a94a3]">▾</span>
+              </label>
               <Button type="button" onClick={() => setAdvancedOpen((value) => !value)} className="rounded-full px-4">
                 高级
               </Button>

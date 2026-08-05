@@ -5,6 +5,7 @@ import { normalizeAIError } from "@/server/ai/errors";
 import { runAgentPlannerLLM, runAgentRouterLLM } from "@/server/ai/302aiLLMProvider";
 import { retrieveCapabilities } from "@/server/agent/capabilities/capabilityRetriever";
 import { approvalRequiredStepIds, bindPlanCapabilities, capabilityPlanGraphIssues, capabilityPlanIssues } from "@/server/agent/capabilities/capabilityValidator";
+import { optionalAgentExecutionModelFrom } from "@/shared/agent/executionModels";
 
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 
@@ -18,11 +19,12 @@ function summarizeCanvas(value: unknown) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { userPrompt?: unknown; canvasSnapshot?: unknown; mode?: unknown };
+    const body = await request.json() as { userPrompt?: unknown; canvasSnapshot?: unknown; mode?: unknown; executionModel?: unknown };
     const userPrompt = text(body.userPrompt);
     if (!userPrompt) return NextResponse.json({ ok: false, error: { message: "userPrompt is required." } }, { status: 400 });
     const canvasSummary = summarizeCanvas(body.canvasSnapshot);
-    const routed = await runAgentRouterLLM({ userMessage: userPrompt, canvasSummary: canvasSummary || "Canvas: empty", conversation: [], selectedNodeIds: [] });
+    const executionModel = optionalAgentExecutionModelFrom(body.executionModel);
+    const routed = await runAgentRouterLLM({ userMessage: userPrompt, canvasSummary: canvasSummary || "Canvas: empty", conversation: [], selectedNodeIds: [], executionModel });
     const semanticRoute = { ...routed, route: "plan" as const, operation: "create_workflow" as const, targetNodeIds: [] };
     const evidenceBundle = await retrieveCapabilities({
       query: semanticRoute.objective,
@@ -36,7 +38,7 @@ export async function POST(request: Request) {
       },
       limit: 10,
     });
-    let plan = bindPlanCapabilities(validateAgentPlan(await runAgentPlannerLLM({ userPrompt, canvasSummary, semanticRoute, evidenceBundle })), evidenceBundle);
+    let plan = bindPlanCapabilities(validateAgentPlan(await runAgentPlannerLLM({ userPrompt, canvasSummary, semanticRoute, evidenceBundle, executionModel })), evidenceBundle);
     let qualityIssues = [...capabilityPlanGraphIssues(plan, evidenceBundle), ...capabilityPlanIssues(plan, evidenceBundle)];
     if (qualityIssues.length) {
       plan = bindPlanCapabilities(validateAgentPlan(await runAgentPlannerLLM({
@@ -46,6 +48,7 @@ export async function POST(request: Request) {
         evidenceBundle,
         previousPlan: plan,
         repairFeedback: qualityIssues.join("\n"),
+        executionModel,
       })), evidenceBundle);
       qualityIssues = [...capabilityPlanGraphIssues(plan, evidenceBundle), ...capabilityPlanIssues(plan, evidenceBundle)];
     }

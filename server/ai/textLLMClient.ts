@@ -2,6 +2,7 @@ import "server-only";
 import { request302OpenAI } from "./302aiClient";
 import { requestHKGAIOpenAI } from "./hkgaiClient";
 import { AIProviderError } from "./errors";
+import type { AgentExecutionModelId } from "@/shared/agent/executionModels";
 
 export type TextLLMProvider = "302ai" | "hkgai";
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -18,10 +19,19 @@ const providerFrom = (value: unknown): TextLLMProvider => typeof value === "stri
 const isHKGAIModel = (value: string) => value.startsWith("t2_") || value === process.env.HKGAI_TEXT_MODEL || value === process.env.HKGAI_STORYBOARD_MODEL || value === process.env.HKGAI_AGENT_MODEL;
 
 export const textProvider = () => providerFrom(process.env.AI_TEXT_PROVIDER);
-export const agentProvider = () => providerFrom(process.env.AGENT_LLM_PROVIDER || process.env.AI_TEXT_PROVIDER);
+export const agentProvider = (executionModel?: AgentExecutionModelId) => executionModel === "302ai-gpt-5.6-terra"
+  ? "302ai"
+  : executionModel === "hkgai"
+    ? "hkgai"
+    : providerFrom(process.env.AGENT_LLM_PROVIDER || process.env.AI_TEXT_PROVIDER);
 export const textModel = (fallback302: string) => textProvider() === "hkgai" ? isHKGAIModel(fallback302) ? fallback302 : process.env.HKGAI_TEXT_MODEL || DEFAULT_HKGAI_MODEL : fallback302;
 export const storyboardModel = (fallback302: string) => textProvider() === "hkgai" ? process.env.HKGAI_STORYBOARD_MODEL || process.env.HKGAI_TEXT_MODEL || DEFAULT_HKGAI_MODEL : fallback302;
-export const agentModel = (fallback302: string) => agentProvider() === "hkgai" ? process.env.HKGAI_AGENT_MODEL || process.env.HKGAI_TEXT_MODEL || DEFAULT_HKGAI_MODEL : fallback302;
+export const agentModel = (fallback302: string, executionModel?: AgentExecutionModelId) => {
+  if (executionModel === "302ai-gpt-5.6-terra") return process.env.AGENT_302_TERRA_MODEL || "gpt-5.6-terra";
+  return agentProvider(executionModel) === "hkgai"
+    ? process.env.HKGAI_AGENT_MODEL || process.env.HKGAI_TEXT_MODEL || DEFAULT_HKGAI_MODEL
+    : fallback302;
+};
 
 export async function requestChatCompletion<T = ChatCompletionResponse>({
   provider,
@@ -30,15 +40,22 @@ export async function requestChatCompletion<T = ChatCompletionResponse>({
   provider: TextLLMProvider;
   body: Record<string, unknown>;
 }) {
+  const requestedModel = typeof body.model === "string" ? body.model : "";
+  const isTerra = provider === "302ai" && requestedModel === (process.env.AGENT_302_TERRA_MODEL || "gpt-5.6-terra");
+  const providerBody = { ...body };
+  if (isTerra) {
+    delete providerBody.temperature;
+    providerBody.reasoning_effort = process.env.AGENT_302_TERRA_REASONING_EFFORT || "medium";
+  }
   const requestBody = provider === "hkgai" && bool(process.env.HKGAI_ENABLE_THINKING)
     ? {
-      ...body,
+      ...providerBody,
       chat_template_kwargs: {
         thinking: true,
         thinking_budget: Number(process.env.HKGAI_THINKING_BUDGET || 8192),
       },
     }
-    : body;
+    : providerBody;
   const maxRetries = Math.max(0, Math.min(3, Number(process.env.TEXT_LLM_MAX_RETRIES || 1)));
   for (let attempt = 0; ; attempt += 1) {
     try {

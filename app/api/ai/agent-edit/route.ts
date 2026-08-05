@@ -7,6 +7,7 @@ import { retrieveCapabilities } from "@/server/agent/capabilities/capabilityRetr
 import { approvalRequiredStepIds, bindPlanCapabilities, bindRoutedCanvasInputs, capabilityPlanGraphIssues, capabilityPlanIssues } from "@/server/agent/capabilities/capabilityValidator";
 import type { CapabilityRetrievalRequest } from "@/shared/agent/capabilityTypes";
 import type { CanvasNode, WorkflowEdge } from "@/shared/canvas";
+import { optionalAgentExecutionModelFrom } from "@/shared/agent/executionModels";
 
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const stringArray = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : [];
@@ -27,7 +28,7 @@ const numberConstraint = (constraints: Record<string, unknown>, key: string) => 
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { userInstruction?: unknown; canvasSnapshot?: unknown; selectedNodeIds?: unknown };
+    const body = await request.json() as { userInstruction?: unknown; canvasSnapshot?: unknown; selectedNodeIds?: unknown; executionModel?: unknown };
     const userInstruction = text(body.userInstruction);
     if (!userInstruction) return NextResponse.json({ ok: false, error: { message: "userInstruction is required." } }, { status: 400 });
     const { nodes, edges } = snapshotFrom(body.canvasSnapshot);
@@ -36,7 +37,8 @@ export async function POST(request: Request) {
     const canvasIds = new Set(nodes.map((node) => node.id));
     const selectedNodeIds = stringArray(body.selectedNodeIds).filter((id) => canvasIds.has(id));
     const canvasSummary = summarizeCanvasForAgent({ nodes, edges, selectedNodeIds });
-    const routed = await runAgentRouterLLM({ userMessage: userInstruction, canvasSummary, conversation: [], selectedNodeIds });
+    const executionModel = optionalAgentExecutionModelFrom(body.executionModel);
+    const routed = await runAgentRouterLLM({ userMessage: userInstruction, canvasSummary, conversation: [], selectedNodeIds, executionModel });
     const routedTargets = routed.targetNodeIds.filter((id) => canvasIds.has(id));
     const targetNodeIds = routedTargets.length ? routedTargets : selectedNodeIds;
     if (!targetNodeIds.length) throw new Error("The edit request must select or identify at least one existing canvas node.");
@@ -78,7 +80,7 @@ export async function POST(request: Request) {
       const inputBound = bindRoutedCanvasInputs(providerBound, evidenceBundle, nodes, targetNodeIds, semanticRoute.requiredCapabilities);
       return bindPlanCapabilities(inputBound, evidenceBundle);
     };
-    let plan = normalizeCapabilityPlan(await runAgentPlannerLLM({ userPrompt: userInstruction, canvasSummary, semanticRoute, evidenceBundle }));
+    let plan = normalizeCapabilityPlan(await runAgentPlannerLLM({ userPrompt: userInstruction, canvasSummary, semanticRoute, evidenceBundle, executionModel }));
     let issues = [...capabilityPlanGraphIssues(plan, evidenceBundle), ...capabilityPlanIssues(plan, evidenceBundle), ...planInputIssues(plan)];
     if (issues.length) {
       plan = normalizeCapabilityPlan(await runAgentPlannerLLM({
@@ -88,6 +90,7 @@ export async function POST(request: Request) {
         evidenceBundle,
         previousPlan: plan,
         repairFeedback: issues.join("\n"),
+        executionModel,
       }));
       issues = [...capabilityPlanGraphIssues(plan, evidenceBundle), ...capabilityPlanIssues(plan, evidenceBundle), ...planInputIssues(plan)];
     }

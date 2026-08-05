@@ -1,6 +1,7 @@
 import type { CanvasEditPatch } from "./agentSchema";
 import type { CanvasSnapshot } from "../canvas";
 import type { AgentSkillUsage, CapabilityRetrievalRequest } from "./capabilityTypes";
+import type { AgentExecutionModelId } from "./executionModels";
 
 export type AgentRunPhase =
   | "received"
@@ -86,6 +87,7 @@ export type AgentRunRecord = AgentRunTrace & {
     userMessage: string;
     selectedNodeIds: string[];
     workflowId?: string;
+    executionModel?: AgentExecutionModelId;
   };
   checkpoint?: AgentRunCheckpoint;
   lease?: AgentRunLease;

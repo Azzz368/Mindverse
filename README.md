@@ -30,7 +30,7 @@ AGENT_LLM_MODEL=gpt-4o
 
 The API key is read only by server-side code in `lib/ai` and the Next.js `/api/ai/*` routes. It is never sent by a client component, included in browser storage, or exposed with a `NEXT_PUBLIC_` variable. `.env.local` is ignored by Git; do not commit or paste it into GitHub.
 
-`AI_302_TEXT_MODEL` is the default for regular Text/Script/Storyboard generation. `AGENT_LLM_MODEL` is reserved for the Agent planner and should default to `gpt-4o` when LLM-based workflow planning is enabled.
+`AI_302_TEXT_MODEL` is the default for regular Text/Script/Storyboard generation. `AGENT_LLM_MODEL` remains the environment-controlled Agent fallback. The Agent input model selector can explicitly keep the HKGAI MaaS model or route the complete Agent planning/verification chain through 302AI with `AGENT_302_TERRA_MODEL=gpt-5.6-terra`. `AGENT_302_TERRA_REASONING_EFFORT` defaults to `medium`. Both providers use server-only keys; the browser sends only an allowlisted model-selection ID.
 
 ### Supported 302.AI operations
 

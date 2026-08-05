@@ -6,6 +6,7 @@ import type { AgentRunCheckpoint, AgentRunEvent, AgentRunPhase, AgentRunStatus, 
 import type { AgentRouterResponse, CanvasSnapshotPayload } from "@/shared/api/aiContracts";
 import type { CanvasEditPatch, CanvasPatch } from "@/shared/agent/agentSchema";
 import type { CanvasNode, WorkflowEdge } from "@/shared/canvas";
+import type { AgentExecutionModelId } from "@/shared/agent/executionModels";
 
 export type AutonomousAgentResult = {
   status: "completed" | "blocked" | "cancelled";
@@ -24,6 +25,7 @@ type AutonomousAgentInput = {
   resumeCheckpoint?: AgentRunCheckpoint;
   signal?: AbortSignal;
   maxRepairAttempts?: number;
+  executionModel?: AgentExecutionModelId;
   onEvent?: (event: AgentRunEvent) => void;
   persistUpdate?: (update: AgentRunUpdate) => Promise<unknown>;
 };
@@ -288,6 +290,7 @@ export async function runAutonomousAgent(input: AutonomousAgentInput): Promise<A
         executedNodeIds: [...executedThisAttempt],
         attempt,
         maxRepairAttempts,
+        executionModel: input.executionModel,
       });
       if (observation.status === "completed") {
         emit("completed", observation.summary, undefined, attempt);

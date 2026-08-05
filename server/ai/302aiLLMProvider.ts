@@ -7,6 +7,7 @@ import { validateAgentVerificationDecision, type AgentObservationReport, type Ag
 import { validateAgentRequirementDecision, type AgentRequirementDecision } from "@/shared/agent/agentRequirements";
 import { validateComposedPromptDrafts } from "@/server/agent/composeWorkflowPrompts";
 import type { PromptProfile } from "@/shared/agent/promptProfiles";
+import type { AgentExecutionModelId } from "@/shared/agent/executionModels";
 
 type ChatResponse = {
   choices?: Array<{ message?: { content?: string }; delta?: { content?: string } }>;
@@ -20,6 +21,7 @@ export async function runAgentPlannerLLM({
   evidenceBundle,
   previousPlan,
   repairFeedback,
+  executionModel,
 }: {
   userPrompt: string;
   canvasSummary?: string;
@@ -27,11 +29,12 @@ export async function runAgentPlannerLLM({
   evidenceBundle?: CapabilityEvidenceBundle;
   previousPlan?: AgentWorkflowPlan;
   repairFeedback?: string;
+  executionModel?: AgentExecutionModelId;
 }): Promise<AgentWorkflowPlan> {
   const raw = await requestChatCompletion<ChatResponse>({
-    provider: agentProvider(),
+    provider: agentProvider(executionModel),
     body: {
-      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o", executionModel),
       messages: buildAgentPlannerMessages(
         userPrompt,
         canvasSummary,
@@ -52,15 +55,17 @@ export async function runAgentPromptComposerLLM({
   userPrompt,
   plan,
   profiles,
+  executionModel,
 }: {
   userPrompt: string;
   plan: AgentWorkflowPlan;
   profiles: PromptProfile[];
+  executionModel?: AgentExecutionModelId;
 }) {
   const raw = await requestChatCompletion<ChatResponse>({
-    provider: agentProvider(),
+    provider: agentProvider(executionModel),
     body: {
-      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o", executionModel),
       messages: buildAgentPromptComposerMessages({ userPrompt, plan, profiles }),
       temperature: 0.25,
       response_format: { type: "json_object" },
@@ -78,6 +83,7 @@ export async function runAgentRequirementLLM({
   canvasSummary,
   conversation,
   skillGuidance,
+  executionModel,
 }: {
   userMessage: string;
   pendingRequest?: string;
@@ -85,11 +91,12 @@ export async function runAgentRequirementLLM({
   canvasSummary: string;
   conversation: AgentDialogueMessage[];
   skillGuidance?: string;
+  executionModel?: AgentExecutionModelId;
 }): Promise<AgentRequirementDecision> {
   const raw = await requestChatCompletion<ChatResponse>({
-    provider: agentProvider(),
+    provider: agentProvider(executionModel),
     body: {
-      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o", executionModel),
       messages: buildAgentRequirementMessages({ userMessage, pendingRequest, intendedIntent, canvasSummary, conversation, skillGuidance }),
       temperature: 0,
       response_format: { type: "json_object" },
@@ -103,14 +110,16 @@ export async function runAgentRequirementLLM({
 export async function runAgentDialogueLLM({
   userMessage,
   conversation,
+  executionModel,
 }: {
   userMessage: string;
   conversation: AgentDialogueMessage[];
+  executionModel?: AgentExecutionModelId;
 }): Promise<AgentDialogueResponse> {
   const raw = await requestChatCompletion<ChatResponse>({
-    provider: agentProvider(),
+    provider: agentProvider(executionModel),
     body: {
-      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o", executionModel),
       messages: buildAgentDialogueMessages({ userMessage, conversation }),
       temperature: 0.55,
       response_format: { type: "json_object" },
@@ -125,15 +134,17 @@ export async function runAgentEditLLM({
   userInstruction,
   canvasSummary,
   repairFeedback,
+  executionModel,
 }: {
   userInstruction: string;
   canvasSummary: string;
   repairFeedback?: string;
+  executionModel?: AgentExecutionModelId;
 }): Promise<AgentCanvasEditPlan> {
   const raw = await requestChatCompletion<ChatResponse>({
-    provider: agentProvider(),
+    provider: agentProvider(executionModel),
     body: {
-      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o", executionModel),
       messages: buildAgentEditMessages({ userInstruction, canvasSummary, repairFeedback }),
       temperature: 0.15,
       response_format: { type: "json_object" },
@@ -147,14 +158,16 @@ export async function runAgentEditLLM({
 export async function runAgentOrganizeLLM({
   userInstruction,
   canvasSummary,
+  executionModel,
 }: {
   userInstruction: string;
   canvasSummary: string;
+  executionModel?: AgentExecutionModelId;
 }): Promise<AgentCanvasOrganizePlan> {
   const raw = await requestChatCompletion<ChatResponse>({
-    provider: agentProvider(),
+    provider: agentProvider(executionModel),
     body: {
-      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o", executionModel),
       messages: buildAgentOrganizeMessages({ userInstruction, canvasSummary }),
       temperature: 0.1,
       response_format: { type: "json_object" },
@@ -171,17 +184,19 @@ export async function runAgentRouterLLM({
   memorySummary,
   conversation,
   selectedNodeIds,
+  executionModel,
 }: {
   userMessage: string;
   canvasSummary: string;
   memorySummary?: string;
   conversation: AgentDialogueMessage[];
   selectedNodeIds?: string[];
+  executionModel?: AgentExecutionModelId;
 }): Promise<AgentSemanticRoute> {
   const raw = await requestChatCompletion<ChatResponse>({
-    provider: agentProvider(),
+    provider: agentProvider(executionModel),
     body: {
-      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o", executionModel),
       messages: buildAgentRouterMessages({ userMessage, canvasSummary, memorySummary, conversation }),
       temperature: 0,
       response_format: { type: "json_object" },
@@ -197,16 +212,18 @@ export async function runAgentVerifierLLM({
   observation,
   attempt,
   maxRepairAttempts,
+  executionModel,
 }: {
   userMessage: string;
   observation: AgentObservationReport;
   attempt: number;
   maxRepairAttempts: number;
+  executionModel?: AgentExecutionModelId;
 }): Promise<AgentVerificationDecision> {
   const raw = await requestChatCompletion<ChatResponse>({
-    provider: agentProvider(),
+    provider: agentProvider(executionModel),
     body: {
-      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o"),
+      model: agentModel(process.env.AGENT_LLM_MODEL || "gpt-4o", executionModel),
       messages: buildAgentVerifierMessages({ userMessage, observation, attempt, maxRepairAttempts }),
       temperature: 0,
       response_format: { type: "json_object" },

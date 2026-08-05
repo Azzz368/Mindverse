@@ -15,6 +15,7 @@ import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
 import type { AgentObserveResponse, AgentRunExecutionMode, AgentRunRecord, AgentRunTrace, AgentRunUpdate } from "@/shared/agent/agentAutonomy";
 import type { AgentToolCall, AgentToolResult } from "@/shared/agent/agentTools";
 import type { AgentSemanticRoute, AgentSkillUsage, CapabilityEvidenceBundle } from "@/shared/agent/capabilityTypes";
+import type { AgentExecutionModelId } from "@/shared/agent/executionModels";
 
 export type CanvasSnapshotPayload = { version: 1; projectName: string; nodes: CanvasNode[]; edges: WorkflowEdge[]; agentMemory?: AgentProjectMemory };
 
@@ -27,16 +28,16 @@ export type PollTaskResponse = RunNodeResponse;
 export type EditImageRequest = { sourceImageUrl: string; prompt: string; size?: string };
 export type EditImageResponse = { ok: true; output?: unknown };
 
-export type AgentPlanRequest = { userPrompt: string; canvasSnapshot: CanvasSnapshotPayload; mode: "create" | "edit" };
+export type AgentPlanRequest = { userPrompt: string; canvasSnapshot: CanvasSnapshotPayload; mode: "create" | "edit"; executionModel?: AgentExecutionModelId };
 export type AgentPlanResponse = { ok: true; plan?: AgentWorkflowPlan; patch?: CanvasPatch; semanticRoute?: AgentSemanticRoute; evidenceBundle?: CapabilityEvidenceBundle; approvalRequiredStepIds?: string[]; summary?: string };
 
-export type AgentEditRequest = { userInstruction: string; canvasSnapshot: CanvasSnapshotPayload; selectedNodeIds: string[] };
+export type AgentEditRequest = { userInstruction: string; canvasSnapshot: CanvasSnapshotPayload; selectedNodeIds: string[]; executionModel?: AgentExecutionModelId };
 export type AgentEditResponse = { ok: true; editPlan?: AgentCanvasEditPlan; patch?: CanvasEditPatch; semanticRoute?: AgentSemanticRoute; evidenceBundle?: CapabilityEvidenceBundle; approvalRequiredStepIds?: string[]; summary?: string };
 
 export type AgentOrganizeRequest = AgentEditRequest;
 export type AgentOrganizeResponse = { ok: true; organizePlan?: AgentCanvasOrganizePlan; patch?: CanvasEditPatch; summary?: string };
 
-export type AgentDialogueRequest = { userMessage: string; conversation: AgentDialogueMessage[] };
+export type AgentDialogueRequest = { userMessage: string; conversation: AgentDialogueMessage[]; executionModel?: AgentExecutionModelId };
 export type AgentDialogueApiResponse = { ok: true; response?: AgentDialogueResponse };
 
 export type AgentRouterIntent = "dialogue" | "create" | "edit" | "organize" | "skill" | "tool";
@@ -50,6 +51,7 @@ export type AgentRouterRequest = {
   resumeRunId?: string;
   executionMode?: AgentRunExecutionMode;
   workflowId?: string;
+  executionModel?: AgentExecutionModelId;
 };
 export type AgentRouterResponse = {
   ok: true;
@@ -74,6 +76,7 @@ export type AgentRouterResponse = {
   pendingRequest?: string;
   missingInformation?: string[];
   resolvedRequest?: string;
+  executionModel?: AgentExecutionModelId;
 };
 
 export type AgentObserveRequest = {
@@ -82,6 +85,7 @@ export type AgentObserveRequest = {
   executedNodeIds: string[];
   attempt: number;
   maxRepairAttempts: number;
+  executionModel?: AgentExecutionModelId;
 };
 
 export type AgentObserveApiResponse = AgentObserveResponse;
