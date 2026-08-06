@@ -6,16 +6,26 @@ import { pollSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
 import { archiveResultMedia } from "@/server/storage/mediaArchive";
 import { verifyCompletedVideoAspectRatio } from "@/server/ai/videoAspectRatio";
 import type { RunNodeResult } from "./runNodeUseCase";
+import { pollMotionJob } from "@/server/motion/motionJobRunner";
 
-export type PollableTaskType = "video" | "audio" | "image";
+export type PollableTaskType = "video" | "audio" | "image" | "motion";
 
 export const isPollableTaskType = (value: unknown): value is PollableTaskType =>
-  ["video", "audio", "image"].includes(String(value));
+  ["video", "audio", "image", "motion"].includes(String(value));
 
 export type PollTaskParams = { type: PollableTaskType; taskId: string; provider?: string; pollUrl?: string; pollAction?: string; expectedAspectRatio?: string };
 
 export async function pollTaskUseCase(params: PollTaskParams): Promise<RunNodeResult> {
   const { type, taskId, provider: videoProvider, pollUrl, pollAction, expectedAspectRatio } = params;
+
+  if (type === "motion") {
+    const job = await pollMotionJob(taskId);
+    if (!job) return { ok: false, error: { message: "Motion task was not found. It may have expired after a deployment.", code: "MOTION_TASK_NOT_FOUND", status: 404 } };
+    const output = job.status === "completed"
+      ? { ...job.output, status: "completed", taskId: job.id, phase: job.phase, progress: job.progress, message: job.message }
+      : { status: job.status, taskId: job.id, phase: job.phase, progress: job.progress, message: job.message, errorMessage: job.errorMessage };
+    return { ok: true, provider: "hyperframes", output, polling: { intervalMs: job.status === "completed" || job.status === "failed" ? 0 : 2500 } };
+  }
 
   if (type === "video" && videoProvider === "302-sora2") {
     if (!pollUrl) return { ok: false, error: { message: "Sora-2 task is missing its polling URL.", status: 400 } };

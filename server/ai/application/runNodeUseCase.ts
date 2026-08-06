@@ -6,8 +6,8 @@ import { generateTokenStarImage, generateTokenStarImageRevision, isTokenStarImag
 import { createKlingImageVideo as tsKlingImage, createKlingTextVideo, createKlingOmniVideo, createSeedanceAssetVideo, createSeedanceVideo } from "@/server/ai/tokenstar/tokenstarVideoProvider";
 import { createSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
 import { createFfmpegVideoEdit } from "@/server/video/ffmpegEditRunner";
-import { createMotionComposition } from "@/server/motion/motionCompositionRunner";
-import { parseScript, scriptInstruction } from "@/shared/workflow/storyPipeline";
+import { enqueueMotionJob } from "@/server/motion/motionJobRunner";
+import { clampStoryboardSceneCount, parseScript, scriptInstruction } from "@/shared/workflow/storyPipeline";
 import { archiveResultMedia } from "@/server/storage/mediaArchive";
 import { synthesizeWithClonedVoice } from "@/server/qwen/speechSynthesis";
 import { qwenErrorPayload } from "@/server/qwen/errors";
@@ -76,6 +76,13 @@ async function runKlingVideo(input: Record<string, unknown>): Promise<RunNodeRes
 async function runTokenstarVideo(rawInput: Record<string, unknown>): Promise<RunNodeResult> {
   const prompt = text(rawInput.prompt);
   if (!prompt) return fail("A video prompt is required.");
+  if (text(rawInput.videoModelPreset) === "digital-human-video") {
+    const imageCount = (urls(rawInput.referenceImageUrls)?.length || 0) + (optionalText(rawInput.referenceImageAssetUrl) ? 1 : 0);
+    const audioCount = (urls(rawInput.referenceAudioUrls)?.length || 0) + (optionalText(rawInput.referenceAudioAssetUrl) ? 1 : 0);
+    if (imageCount !== 1 || audioCount !== 1) {
+      return fail("数字人视频需要且仅支持一张人物图和一段音频。请分别连接图片节点与音频节点后重试。", 400, "DIGITAL_HUMAN_INPUT_REQUIRED");
+    }
+  }
   const elementIds = typeof rawInput.klingElementId === "string"
     ? rawInput.klingElementId.split(",").map((item) => item.trim()).filter(Boolean)
     : urls(rawInput.klingElementIds);
@@ -113,7 +120,7 @@ async function runScript(input: Record<string, unknown>) {
   const brief = text(input.storyBrief) || text(input.prompt);
   const defaultTone = /[\u3400-\u9fff]/.test(brief) ? "电影感、虚构、完整可拍摄剧本" : "Cinematic, fictional";
   const tone = text(input.scriptTone) || defaultTone;
-  const count = Math.max(1, Math.min(12, Number(input.numberOfScenes) || 3));
+  const count = clampStoryboardSceneCount(input.numberOfScenes);
   const result = await textProvider.generateText({ model: optionalText(input.model), temperature: 0.5, prompt: scriptInstruction(brief, tone, count) });
   return parseScript(result.text, brief, count);
 }
@@ -144,7 +151,7 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
 
   if (nodeType === "motion") {
     try {
-      const output = await createMotionComposition({
+      const job = await enqueueMotionJob({
         prompt: optionalText(rawInput.prompt),
         compositionJson: optionalText(rawInput.compositionJson),
         templateId: optionalText(rawInput.templateId),
@@ -155,7 +162,12 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
         referenceImageUrls: urls(rawInput.referenceImageUrls),
         referenceAudioUrls: urls(rawInput.referenceAudioUrls),
       });
-      return { ok: true, provider: "hyperframes", output, polling: { intervalMs: 0 } };
+      return {
+        ok: true,
+        provider: "hyperframes",
+        output: { status: job.status, taskId: job.id, phase: job.phase, progress: job.progress, message: job.message },
+        polling: { intervalMs: 2500 },
+      };
     } catch (error) {
       return fail(error instanceof Error ? error.message : "Motion render failed.", 500, "MOTION_RENDER_ERROR");
     }
@@ -229,7 +241,10 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
     : nodeType === "image-revision" ? await imageProvider.generateImageRevision(rawInput as GenerateImageRevisionInput)
     : nodeType === "video" ? await provider.generateVideo(rawInput as GenerateVideoInput)
     : nodeType === "audio" ? await provider.generateAudio(rawInput as GenerateAudioInput)
-    : await textProvider.generateStoryboard(rawInput as GenerateStoryboardInput);
+    : await textProvider.generateStoryboard({
+      ...(rawInput as GenerateStoryboardInput),
+      numberOfScenes: clampStoryboardSceneCount(rawInput.numberOfScenes),
+    });
   const verifiedOutput = nodeType === "video" ? await verifyCompletedVideoAspectRatio(output, rawInput.aspectRatio) : output;
   return {
     ok: true,

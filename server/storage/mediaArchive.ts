@@ -119,7 +119,26 @@ export async function archiveMedia(url: string, mediaType: MediaType, context: A
   try {
     if (!url) return null;
     const { buffer, mimeType } = await mediaFromUrl(url);
-    if (!buffer.byteLength) throw new Error("Downloaded media is empty.");
+    return archiveMediaBuffer(buffer, mediaType, mimeType, context, /^https:\/\//i.test(url) ? url : undefined);
+  } catch (error) {
+    console.error("Bunny media archive failed", { mediaType, originalUrl: url, error: errorForLog(error) });
+    return null;
+  }
+}
+
+/**
+ * Upload a browser file without first turning it into a base64 data URL.
+ * This avoids two extra in-memory copies of every uploaded asset.
+ */
+export async function archiveMediaBuffer(
+  buffer: Buffer,
+  mediaType: MediaType,
+  mimeType: string | undefined,
+  context: ArchiveContext = {},
+  originalUrl?: string,
+): Promise<ArchivedMedia | null> {
+  try {
+    if (!buffer.byteLength) throw new Error("Uploaded media is empty.");
     const extension = extensionFor(mimeType, mediaType);
     const projectPrefix = cleanSegment(context.projectId);
     const nodePrefix = cleanSegment(context.nodeId);
@@ -129,7 +148,7 @@ export async function archiveMedia(url: string, mediaType: MediaType, context: A
     return {
       storageProvider: "bunny",
       mediaType,
-      originalUrl: url,
+      originalUrl,
       cdnUrl,
       storageKey,
       mimeType,
@@ -138,14 +157,17 @@ export async function archiveMedia(url: string, mediaType: MediaType, context: A
       sourceTaskId: context.sourceTaskId,
     };
   } catch (error) {
-    console.error("Bunny media archive failed", { mediaType, originalUrl: url, error: errorForLog(error) });
+    console.error("Bunny media archive failed", { mediaType, originalUrl, error: errorForLog(error) });
     return null;
   }
 }
 
 async function archiveMediaForResponse(url: string, mediaType: MediaType, context: ArchiveContext = {}) {
   const archive = archiveMedia(url, mediaType, context);
-  if (mediaArchiveBlocking) return archive;
+  // Inline provider output must never be persisted in a workflow. Waiting for
+  // this one upload is cheaper than duplicating a base64 payload through the
+  // canvas, autosave request, and workflow JSON.
+  if (mediaArchiveBlocking || dataUrlPattern.test(url)) return archive;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -175,7 +197,9 @@ export async function archiveResultMedia<T>(result: T, context: ArchiveResultCon
     if (!archived) continue;
     output[field.key] = archived.cdnUrl;
     const originalKey = originalKeyFor(field, mediaType);
-    if (!output[originalKey]) output[originalKey] = value;
+    // A data URL is the binary payload itself. Keeping it as an "original"
+    // URL would reintroduce the memory problem after the CDN URL was written.
+    if (!output[originalKey] && /^https:\/\//i.test(value)) output[originalKey] = value;
     output.archivedMedia = Array.isArray(output.archivedMedia) ? [...output.archivedMedia, archived] : [archived];
   }
 

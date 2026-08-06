@@ -5,11 +5,15 @@ import os from "node:os";
 import path from "node:path";
 import { deleteBunnyFile, getJsonFromBunny, uploadJsonToBunny } from "./bunnyClient";
 import { isValidAccessCode } from "./workflowStorage";
+import { deactivateSkillDocument, indexSkillDocument } from "@/server/rag/sources/skillSource";
 import type { CanvasNode, CanvasSnapshot } from "@/shared/canvas";
 import {
   skillCategories,
+  skillRoles,
   type SkillCategory,
   type SkillDraft,
+  type PromptTarget,
+  type SkillRole,
   type SkillSummary,
   type SkillVisibility,
   type StoredSkill,
@@ -44,6 +48,31 @@ const asCategory = (value: unknown): SkillCategory => {
 
 const asVisibility = (value: unknown): SkillVisibility =>
   value === "public" || value === "unlisted" ? value : "private";
+
+const asSkillRole = (value: unknown): SkillRole =>
+  typeof value === "string" && skillRoles.includes(value as SkillRole) ? value as SkillRole : "workflow_recipe";
+
+const asPromptTargets = (value: unknown, role: SkillRole): PromptTarget[] => {
+  const targets = Array.isArray(value)
+    ? value.filter((item): item is PromptTarget => item === "image" || item === "video")
+    : [];
+  if (targets.length) return [...new Set(targets)];
+  return role === "base_prompt_policy" || role === "style_profile" ? ["image", "video"] : [];
+};
+
+const asTriggerPhrases = (value: unknown) => {
+  const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[,，\n]/) : [];
+  return [...new Set(raw.filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+    .map((item) => item.slice(0, 80)))].slice(0, 20);
+};
+
+const asPriority = (value: unknown, role: SkillRole) => {
+  const fallback = role === "style_profile" ? 200 : role === "base_prompt_policy" ? 150 : 100;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(1, Math.min(999, Math.floor(parsed))) : fallback;
+};
 
 const validateSkillMarkdown = (value: unknown) => {
   const markdown = asText(value, "SKILL.md", 50_000);
@@ -93,6 +122,7 @@ const cleanCanvasTemplate = (value: unknown): CanvasSnapshot | undefined => {
 const normalizeDraft = (value: unknown): SkillDraft => {
   if (!value || typeof value !== "object") throw new Error("Skill payload is required.");
   const draft = value as Partial<SkillDraft>;
+  const role = asSkillRole(draft.role);
   return {
     name: asText(draft.name, "Skill name", 80),
     tagline: asText(draft.tagline, "Tagline", 160),
@@ -102,6 +132,10 @@ const normalizeDraft = (value: unknown): SkillDraft => {
     expectedOutput: asText(draft.expectedOutput, "Expected output", 2_000),
     category: asCategory(draft.category),
     visibility: asVisibility(draft.visibility),
+    role,
+    appliesTo: asPromptTargets(draft.appliesTo, role),
+    triggerPhrases: asTriggerPhrases(draft.triggerPhrases),
+    priority: asPriority(draft.priority, role),
     canvasTemplate: cleanCanvasTemplate(draft.canvasTemplate),
   };
 };
@@ -114,6 +148,10 @@ const summaryFrom = (skill: StoredSkill): SkillSummary => ({
   visibility: skill.visibility,
   hasCanvasTemplate: Boolean(skill.canvasTemplate?.nodes.length),
   nodeCount: skill.canvasTemplate?.nodes.length || 0,
+  role: skill.role || "workflow_recipe",
+  appliesTo: skill.appliesTo || [],
+  triggerPhrases: skill.triggerPhrases || [],
+  priority: Number.isFinite(skill.priority) ? skill.priority : 100,
   createdAt: skill.createdAt,
   updatedAt: skill.updatedAt,
 });
@@ -171,13 +209,17 @@ export async function createSkill(accessCodeValue: unknown, draftValue: unknown)
     id: `skill-${crypto.randomUUID()}`,
     version: 1,
     visibility: draft.visibility || "private",
+    role: draft.role || "workflow_recipe",
+    appliesTo: draft.appliesTo || [],
+    triggerPhrases: draft.triggerPhrases || [],
+    priority: draft.priority || 100,
     hasCanvasTemplate: Boolean(draft.canvasTemplate?.nodes.length),
     nodeCount: draft.canvasTemplate?.nodes.length || 0,
     createdAt: now,
     updatedAt: now,
   };
   const summary = summaryFrom(skill);
-  return withLocalFallback(
+  const stored = await withLocalFallback(
     async () => {
       const index = await readRemoteIndex(accessCode);
       await uploadJsonToBunny(skillPath(accessCode, skill.id), skill);
@@ -191,6 +233,12 @@ export async function createSkill(accessCodeValue: unknown, draftValue: unknown)
       return skill;
     },
   );
+  try {
+    await indexSkillDocument(stored, "shared");
+  } catch (error) {
+    console.warn("Skill was saved but RAG indexing failed.", error instanceof Error ? error.message : error);
+  }
+  return stored;
 }
 
 export async function getSkill(accessCodeValue: unknown, skillId: string) {
@@ -210,10 +258,16 @@ export async function getSkill(accessCodeValue: unknown, skillId: string) {
 export async function updateSkill(accessCodeValue: unknown, skillId: string, draftValue: unknown) {
   const accessCode = requireAccessCode(accessCodeValue);
   const draft = normalizeDraft(draftValue);
-  return withLocalFallback(
+  const stored = await withLocalFallback(
     async () => updateSkillIn("bunny", accessCode, skillId, draft),
     async () => updateSkillIn("local", accessCode, skillId, draft),
   );
+  try {
+    await indexSkillDocument(stored, "shared");
+  } catch (error) {
+    console.warn("Skill was updated but RAG indexing failed.", error instanceof Error ? error.message : error);
+  }
+  return stored;
 }
 
 async function updateSkillIn(storage: "bunny" | "local", accessCode: string, skillId: string, draft: SkillDraft) {
@@ -224,8 +278,12 @@ async function updateSkillIn(storage: "bunny" | "local", accessCode: string, ski
     ...existing,
     ...draft,
     id: skillId,
-    version: 1,
+    version: Math.max(1, Number(existing.version) || 1) + 1,
     visibility: draft.visibility || existing.visibility,
+    role: draft.role || existing.role || "workflow_recipe",
+    appliesTo: draft.appliesTo || existing.appliesTo || [],
+    triggerPhrases: draft.triggerPhrases || existing.triggerPhrases || [],
+    priority: draft.priority || existing.priority || 100,
     hasCanvasTemplate: Boolean(draft.canvasTemplate?.nodes.length),
     nodeCount: draft.canvasTemplate?.nodes.length || 0,
     updatedAt: new Date().toISOString(),
@@ -256,4 +314,24 @@ export async function deleteSkill(accessCodeValue: unknown, skillId: string) {
       await uploadLocalJson(indexPath(accessCode), { skills: index.skills.filter((item) => item.id !== skillId) });
     },
   );
+  try {
+    await deactivateSkillDocument(skillId, "shared");
+  } catch (error) {
+    console.warn("Skill was deleted but its RAG document could not be deactivated.", error instanceof Error ? error.message : error);
+  }
+}
+
+export async function backfillSkillRagDocuments(accessCodeValue: unknown) {
+  const accessCode = requireAccessCode(accessCodeValue);
+  const { skills } = await listSkills(accessCode);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(4, skills.length) }, async () => {
+    while (cursor < skills.length) {
+      const summary = skills[cursor++];
+      const skill = await getSkill(accessCode, summary.id);
+      if (skill) await indexSkillDocument(skill, "shared");
+    }
+  });
+  await Promise.all(workers);
+  return skills.length;
 }

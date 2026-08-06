@@ -1,0 +1,18 @@
+# Build output and developer-only state
+.next
+node_modules
+.mindverse
+.mindverse-local
+*.log
+*.tsbuildinfo
+
+# Secrets must stay in Render Environment, never in the image build context.
+.env
+.env.*
+!.env.example
+
+# Local tooling and VCS metadata are not needed in the container.
+.git
+.agents
+.codex-dev-err.log
+.codex-dev-out.log

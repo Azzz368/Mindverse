@@ -144,7 +144,7 @@ const contentFor = (input: TokenStarCreateVideoInput, assetMode: boolean): Token
   return content;
 };
 const seedanceAssetModelFor = (inputModel?: string) => {
-  const envModel = process.env.TOKENSTAR_VIDEO_ASSET_MODEL?.trim() || "seedance-2.0-asset";
+  const envModel = process.env.TOKENSTAR_VIDEO_ASSET_MODEL?.trim() || "seedance-2.0-asset-fast";
   const model = inputModel?.trim();
   if (!model) return envModel;
   if (model === "seedance-asset-fast") return "seedance-2.0-asset-fast";

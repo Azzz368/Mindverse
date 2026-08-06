@@ -1,5 +1,20 @@
 import type { RawApiPayload } from "./response";
 
+export class ApiRequestError extends Error {
+  status: number;
+  payload?: unknown;
+
+  constructor(message: string, status: number, payload?: unknown) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
+export const apiErrorPayload = <T>(error: unknown): T | undefined =>
+  error instanceof ApiRequestError ? error.payload as T | undefined : undefined;
+
 async function parseApiPayload<T>(response: Response, fallbackMessage: string): Promise<T> {
   const raw = await response.text().catch(() => "");
   let payload = {} as RawApiPayload & T;
@@ -8,14 +23,14 @@ async function parseApiPayload<T>(response: Response, fallbackMessage: string): 
   } catch {
     if (!response.ok) {
       const detail = raw.trim().replace(/\s+/g, " ").slice(0, 160);
-      throw new Error(`${fallbackMessage} (${response.status}${detail ? `: ${detail}` : ""})`);
+      throw new ApiRequestError(`${fallbackMessage} (${response.status}${detail ? `: ${detail}` : ""})`, response.status, raw);
     }
   }
   if (!response.ok || !payload.ok) {
     const message = payload.error && typeof payload.error.message === "string" && payload.error.message
       ? payload.error.message
       : `${fallbackMessage}${response.ok ? "" : ` (${response.status})`}`;
-    throw new Error(message);
+    throw new ApiRequestError(message, response.status, payload);
   }
   return payload;
 }

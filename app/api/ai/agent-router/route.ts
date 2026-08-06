@@ -1,18 +1,27 @@
 import { NextResponse } from "next/server";
-import { compileCanvasEditPlanToPatch } from "@/server/agent/compileCanvasEditPlan";
 import { compileCanvasOrganizePlanToPatch } from "@/server/agent/compileCanvasOrganizePlan";
 import { compileWorkflowPlanToCanvas } from "@/server/agent/compileWorkflowPlan";
+import { capabilityPlanToEditPlan, compileCapabilityPlanToEditPatch } from "@/server/agent/compileCapabilityPlan";
 import { summarizeCanvasForAgent } from "@/server/agent/summarizeCanvas";
 import { normalizeAIError } from "@/server/ai/errors";
-import { runAgentDialogueLLM, runAgentEditLLM, runAgentOrganizeLLM, runAgentPlannerLLM, runAgentRequirementLLM, runAgentRouterLLM, runFixedSceneSkillLLM } from "@/server/ai/302aiLLMProvider";
+import { runAgentDialogueLLM, runAgentOrganizeLLM, runAgentPlannerLLM, runAgentPromptComposerLLM, runAgentRequirementLLM, runAgentRouterLLM } from "@/server/ai/302aiLLMProvider";
 import { agentMemorySummary, type AgentProjectMemory } from "@/shared/agent/projectMemory";
-import type { AgentCanvasEditPlan, AgentDialogueMessage } from "@/shared/agent/agentSchema";
+import { validateAgentSemanticRoute, type AgentDialogueMessage } from "@/shared/agent/agentSchema";
 import type { AgentRouterIntent } from "@/shared/api/aiContracts";
 import type { CanvasNode, WorkflowEdge } from "@/shared/canvas";
 import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
-import type { AgentToolCall } from "@/shared/agent/agentTools";
+import { validateAgentToolCall, type AgentToolCall } from "@/shared/agent/agentTools";
 import { executeAgentTool } from "@/server/agent/toolRegistry";
-import { stabilizeWorkflowPlanDependencies, workflowPlanQualityIssues } from "@/server/agent/workflowPlanQuality";
+import { createAgentRunRecorder } from "@/server/agent/agentRunRecorder";
+import { getAgentRun, persistAgentRunTrace } from "@/server/storage/agentRunStorage";
+import type { AgentRunCheckpoint, AgentRunExecutionMode } from "@/shared/agent/agentAutonomy";
+import type { AgentRunRetrievalTrace } from "@/shared/agent/agentAutonomy";
+import type { AgentSemanticRoute, AgentSkillUsage, CapabilityEvidenceBundle, CapabilityRetrievalRequest } from "@/shared/agent/capabilityTypes";
+import { retrieveCapabilities } from "@/server/agent/capabilities/capabilityRetriever";
+import { approvalRequiredStepIds, bindPlanCapabilities, bindRoutedCanvasInputs, capabilityPlanGraphIssues, capabilityPlanIssues } from "@/server/agent/capabilities/capabilityValidator";
+import { applyComposedPrompts, fallbackComposedPrompts } from "@/server/agent/composeWorkflowPrompts";
+import { resolvePromptProfiles } from "@/server/agent/promptProfiles/resolver";
+import { DEFAULT_AGENT_EXECUTION_MODEL, isAgentExecutionModelId, type AgentExecutionModelId } from "@/shared/agent/executionModels";
 
 type RouterSnapshot = {
   projectName: string;
@@ -24,7 +33,6 @@ type RouterSnapshot = {
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const stringArray = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : [];
 const validIntents: AgentRouterIntent[] = ["dialogue", "create", "edit", "organize", "skill", "tool"];
-const videoNodeTypes = new Set(["video", "videoEdit", "motion"]);
 
 const customSkillFrom = (value: unknown): ActiveSkillContext | undefined => {
   if (!value || typeof value !== "object") return undefined;
@@ -33,6 +41,10 @@ const customSkillFrom = (value: unknown): ActiveSkillContext | undefined => {
   const name = text(raw.name).slice(0, 120);
   const skillMd = text(raw.skillMd).slice(0, 12_000);
   if (!id || !name || !skillMd) return undefined;
+  const role = raw.role === "base_prompt_policy" || raw.role === "style_profile" || raw.role === "repair_playbook" ? raw.role : "workflow_recipe";
+  const appliesTo = Array.isArray(raw.appliesTo) ? raw.appliesTo.filter((item): item is "image" | "video" => item === "image" || item === "video") : [];
+  const triggerPhrases = Array.isArray(raw.triggerPhrases) ? raw.triggerPhrases.filter((item): item is string => typeof item === "string").slice(0, 20) : [];
+  const priority = Number.isFinite(Number(raw.priority)) ? Math.max(1, Math.min(999, Number(raw.priority))) : 100;
   return {
     id,
     name,
@@ -41,6 +53,10 @@ const customSkillFrom = (value: unknown): ActiveSkillContext | undefined => {
     usageScenario: text(raw.usageScenario).slice(0, 2_000),
     howToUse: text(raw.howToUse).slice(0, 2_000),
     expectedOutput: text(raw.expectedOutput).slice(0, 2_000),
+    role,
+    appliesTo,
+    triggerPhrases,
+    priority,
   };
 };
 
@@ -51,6 +67,7 @@ const userMessageWithCustomSkill = (userMessage: string, skill?: ActiveSkillCont
   `Usage scenario: ${skill.usageScenario}`,
   `How to use: ${skill.howToUse}`,
   `Expected output: ${skill.expectedOutput}`,
+  `Skill role: ${skill.role}. Prompt targets: ${skill.appliesTo.join(", ") || "none"}. Trigger phrases: ${skill.triggerPhrases.join(", ") || "none"}.`,
   `Latest user request:\n${userMessage}`,
 ].join("\n\n") : userMessage;
 
@@ -126,23 +143,6 @@ const cn = {
   selected: "\u9009\u4e2d",
 };
 
-const isFixedSceneSkillRequest = (value: string, memory?: AgentProjectMemory) => {
-  const input = value.toLowerCase();
-  const explicitActivation = includesAnyText(input, [cn.fixedScene, cn.fourViewA, cn.fourViewB, cn.fourSide, cn.designSheet, cn.nineGridA, cn.nineGridB, cn.nineGridC]) ||
-    includesAnyPattern(input, [/character\s*(?:turnaround|sheet)|scene\s*(?:nine|9)[-\s]?grid|fixed[-\s]?scene/i]);
-  const explicitWorkflowAsk = includesAnyText(input, [cn.workflow, cn.generate, cn.create, cn.build]) || includesAnyPattern(input, [/workflow|create|generate|build/]);
-  const explicitProductionAsk = includesAnyText(input, [cn.video]) ||
-    includesAnyPattern(input, [/(?:\u5236\u4f5c|\u505a\u4e00\u4e2a|\u4f7f\u7528).{0,16}(?:\u6280\u80fd|skill|\u77ed\u7247|\u89c6\u9891)|\b(?:make|produce|use)\b.{0,24}(?:skill|video|clip)/i]);
-  const asksToReusePreferredSkill =
-    memory?.preferredWorkflowSkill === "fixed-scene-action-video" &&
-    includesAnyPattern(input, [
-      /(?:\u7ee7\u7eed|\u6cbf\u7528|\u518d\u7528|\u4f7f\u7528).{0,16}(?:\u521a\u624d|\u4e4b\u524d|\u4e0a\u6b21|\u56fa\u5b9a\u573a\u666f|\u6280\u80fd|\u5de5\u4f5c\u6d41|skill)/i,
-      /(?:continue|reuse|use).{0,24}(?:previous|same|fixed[-\s]?scene|skill|workflow)/i,
-    ]);
-
-  return (explicitActivation && (explicitWorkflowAsk || explicitProductionAsk)) || asksToReusePreferredSkill;
-};
-
 const isImageSearchToolRequest = (value: string) => {
   const input = value.trim();
   const asksToSearch = /(?:帮我|请|能否|可以)?\s*(?:找|搜索|搜一下|查找|检索).{0,80}(?:图片|照片|肖像|剧照|素材)|(?:search|find|look\s*up).{0,80}(?:image|photo|portrait|picture)/i.test(input);
@@ -164,7 +164,6 @@ const imageSearchQueryFrom = (value: string) => value
 const inferIntent = (message: string, snapshot: RouterSnapshot, selectedCount: number): AgentRouterIntent => {
   const input = message.toLowerCase();
   if (isImageSearchToolRequest(input)) return "tool";
-  const fixedSceneRequest = isFixedSceneSkillRequest(input, snapshot.agentMemory);
   const organizeRequest = includesAnyText(input, [cn.organize, cn.arrange, cn.group]) || includesAnyPattern(input, [/organize|arrange|layout|group/]);
   const notEditRequest = includesAnyPattern(input, [/不是\s*(?:修改|编辑)|不(?:要)?(?:修改|编辑|改)(?:画布|节点)?|只(?:要)?构思|仅(?:构思|讨论)|不要动(?:画布|节点)|not\s+(?:edit|modify|change)/i]);
   const editRequest =
@@ -180,12 +179,10 @@ const inferIntent = (message: string, snapshot: RouterSnapshot, selectedCount: n
   const strongDialogueRequest = dialogueRequest || notEditRequest;
   const continueIdeation =
     snapshot.agentMemory?.lastIntent === "dialogue" &&
-    !fixedSceneRequest &&
     !organizeRequest &&
     !editRequest &&
     !createRequest;
 
-  if (fixedSceneRequest) return "skill";
   if (organizeRequest) return "organize";
   if (strongDialogueRequest && !createRequest) return "dialogue";
   if (editRequest) {
@@ -209,23 +206,6 @@ const plannerSummary = (snapshot: RouterSnapshot) =>
 const canvasSummaryWithMemory = (snapshot: RouterSnapshot, selectedNodeIds: string[]) =>
   `${summarizeCanvasForAgent({ nodes: snapshot.nodes, edges: snapshot.edges, selectedNodeIds })}${memoryContext(snapshot.agentMemory)}`;
 
-const patchHasChanges = (patch: ReturnType<typeof compileCanvasEditPlanToPatch>) =>
-  patch.createNodes.length > 0 ||
-  patch.updateNodes.length > 0 ||
-  patch.deleteNodeIds.length > 0 ||
-  patch.createEdges.length > 0 ||
-  patch.deleteEdgeIds.length > 0;
-
-const patchNeedsRepair = (patch: ReturnType<typeof compileCanvasEditPlanToPatch>, selectedNodeIds: string[]) => {
-  if (!patchHasChanges(patch) || (patch.warnings || []).length > 0) return true;
-  const createdVideoEditIds = new Set(patch.createNodes.filter((node) => node.data.nodeType === "videoEdit").map((node) => node.id));
-  if (!createdVideoEditIds.size || !selectedNodeIds.length) return false;
-  return !patch.createEdges.some((edge) => createdVideoEditIds.has(edge.target));
-};
-
-const editSummary = (title: string, patch: ReturnType<typeof compileCanvasEditPlanToPatch>) =>
-  `${title}: ${patch.createNodes.length} nodes to create, ${patch.updateNodes.length} nodes to update, ${patch.deleteNodeIds.length} nodes to delete, ${patch.createEdges.length} connections to create, ${patch.deleteEdgeIds.length} connections to delete.`;
-
 const routingCanvasSummary = (snapshot: RouterSnapshot, selectedNodeIds: string[]) =>
   [
     `Canvas: ${snapshot.nodes.length} nodes, ${snapshot.edges.length} edges.`,
@@ -233,145 +213,139 @@ const routingCanvasSummary = (snapshot: RouterSnapshot, selectedNodeIds: string[
     snapshot.nodes.length ? summarizeCanvasForAgent({ nodes: snapshot.nodes, edges: snapshot.edges, selectedNodeIds }).slice(0, 1600) : "",
   ].filter(Boolean).join("\n");
 
-const skillBriefFrom = (userMessage: string, memory: AgentProjectMemory | undefined) => {
-  const rememberedBrief = memory?.storyBrief?.trim();
-  if (!rememberedBrief) return userMessage;
-  if (userMessage.length <= 24 || isFixedSceneSkillRequest(userMessage, memory)) {
+const numberConstraint = (constraints: Record<string, unknown>, key: string) => {
+  const value = Number(constraints[key]);
+  return Number.isFinite(value) ? value : undefined;
+};
+
+const retrievalRequestFrom = (
+  route: AgentSemanticRoute,
+  snapshot: RouterSnapshot,
+  workflowId?: string,
+  rawUserMessage?: string,
+): CapabilityRetrievalRequest => {
+  const targetIds = new Set(route.targetNodeIds);
+  const targets = snapshot.nodes.filter((node) => targetIds.has(node.id));
+  const count = (types: string[]) => targets.filter((node) => types.includes(node.data.nodeType)).length;
+  const constraintText = (key: string) => typeof route.constraints[key] === "string" ? route.constraints[key] as string : undefined;
+  const textToVideoRequested = /text[\s-]*to[\s-]*video|文生视频|文本生成视频/i.test(route.objective)
+    || route.requiredCapabilities.includes("text_to_video");
+  const hyperframesRequested = /codex[\s+&-]*hyperframes|hyperframes|动态包装|动效包装/i.test(route.objective)
+    || route.requiredCapabilities.includes("motion_graphics");
+  const digitalHumanRequested = /digital[\s_-]*human|talking[\s_-]*avatar|lip[\s_-]*sync|数字人|口型同步|人物.{0,6}说话/i.test([route.objective, rawUserMessage].filter(Boolean).join("\n"))
+    || route.requiredCapabilities.includes("digital_human_video");
+  return {
+    // Preserve user wording as well as the Router abstraction: visual-style
+    // terms (for example 日系动画) are meaningful retrieval evidence.
+    query: [route.objective, rawUserMessage].filter(Boolean).join("\n"),
+    domains: workflowId ? ["capability", "workflow", "project", "repair"] : ["capability", "workflow", "repair"],
+    requiredCapabilities: [...new Set([
+      ...route.requiredCapabilities,
+      ...(textToVideoRequested ? ["text_to_video"] : []),
+      ...(hyperframesRequested ? ["motion_graphics"] : []),
+      ...(digitalHumanRequested ? ["digital_human_video"] : []),
+    ])],
+    filters: {
+      inputImages: numberConstraint(route.constraints, "inputImages") ?? count(["image", "reference"]),
+      inputVideos: numberConstraint(route.constraints, "inputVideos") ?? count(["video", "videoEdit", "motion"]),
+      inputAudios: numberConstraint(route.constraints, "inputAudios") ?? count(["audio", "voiceTTS"]),
+      duration: numberConstraint(route.constraints, "duration"),
+      aspectRatio: constraintText("aspectRatio"),
+      resolution: constraintText("resolution"),
+      projectId: workflowId,
+      tenantId: "shared",
+      availability: ["available"],
+    },
+    limit: 10,
+  };
+};
+
+const skillUsageFrom = (bundle: CapabilityEvidenceBundle, customSkill?: ActiveSkillContext): AgentSkillUsage[] =>
+  bundle.skills.map((skill) => {
+    const evidenceIds = skill.evidenceIds;
+    const isActive = Boolean(customSkill && skill.id === `skill:${customSkill.id}`);
+    const source = isActive
+      ? "active"
+      : evidenceIds.some((id) => id.startsWith("catalog:"))
+        ? "catalog"
+        : "rag";
+    return {
+      id: skill.id,
+      name: skill.name,
+      source,
+      evidenceIds,
+      supports: skill.supports,
+    };
+  });
+
+const promptProfileUsageFrom = (bundle: CapabilityEvidenceBundle): AgentSkillUsage[] =>
+  (bundle.promptProfiles || []).map((profile) => ({
+    id: profile.id,
+    name: profile.name,
+    source: profile.source,
+    evidenceIds: profile.evidenceIds,
+    supports: profile.appliesTo.map((target) => `${target}_prompt`),
+    role: profile.role,
+  }));
+
+const mergeSkillUsage = (...lists: AgentSkillUsage[][]): AgentSkillUsage[] => {
+  const merged = new Map<string, AgentSkillUsage>();
+  lists.flat().forEach((usage) => merged.set(usage.id, usage));
+  return [...merged.values()];
+};
+
+const requirementSkillGuidanceFrom = (bundle?: CapabilityEvidenceBundle) => {
+  if (!bundle?.skills.length) return "";
+  const evidenceById = new Map(bundle.evidence.map((item) => [item.id, item]));
+  return bundle.skills.slice(0, 4).map((skill) => {
+    const excerpts = skill.evidenceIds
+      .map((id) => evidenceById.get(id)?.excerpt)
+      .filter((item): item is string => Boolean(item))
+      .join("\n")
+      .slice(0, 4_000);
     return [
-      `story_goal: ${rememberedBrief}`,
-      `video_action_plan: ${rememberedBrief}`,
-      `workflow_request: ${userMessage}`,
-      "continuity_rules: Use the fixed-scene video workflow with character turnaround references, an empty scene nine-grid reference, and one final video node. Keep every shot inside the same location and make the action continue naturally.",
-    ].join("\n");
-  }
-  return userMessage;
-};
-
-const hasVideoOutput = (node: CanvasNode) => {
-  const value = node.data.output && typeof node.data.output.value === "object" ? node.data.output.value as Record<string, unknown> : {};
-  return videoNodeTypes.has(node.data.nodeType) || Boolean(text(value.videoUrl) || text(value.resultUrl) || text(value.finalVideoUrl) || text(node.data.resultUrl));
-};
-
-const selectedVideoNodesFrom = (snapshot: RouterSnapshot, selectedNodeIds: string[]) => {
-  const selected = new Set(selectedNodeIds);
-  return snapshot.nodes.filter((node) => selected.has(node.id) && hasVideoOutput(node));
-};
-
-const sourceDurationFromNode = (node: CanvasNode | undefined) => {
-  if (!node) return undefined;
-  const value = node.data.output && typeof node.data.output.value === "object"
-    ? node.data.output.value as Record<string, unknown>
-    : {};
-  const motionDuration = node.data.motionComposition?.canvas.duration;
-  const candidates = [value.duration, value.durationSeconds, value.duration_seconds, motionDuration, node.data.duration];
-  for (const candidate of candidates) {
-    const parsed = Number(candidate);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  }
-  return undefined;
-};
-
-const durationFromInstruction = (message: string, sourceNode?: CanvasNode) => {
-  const match = message.match(/(\d{1,3}(?:\.\d+)?)\s*(?:s|sec|second|seconds|\u79d2)/i);
-  const requested = match ? Number(match[1]) : undefined;
-  const value = requested ?? sourceDurationFromNode(sourceNode) ?? 15;
-  return Math.max(1, Math.min(60, Number.isFinite(value) ? value : 15));
-};
-
-const aspectRatioFromInstruction = (message: string) =>
-  /(?:9\s*:\s*16|\u7ad6\u5c4f|\u77ed\u89c6\u9891|\u6296\u97f3|\u5feb\u624b|tiktok|reels|shorts|vertical)/i.test(message)
-    ? "9:16"
-    : /(?:1\s*:\s*1|\u65b9\u5f62|square)/i.test(message)
-      ? "1:1"
-      : "16:9";
-
-const titleFromInstruction = (message: string, fallback: string) => {
-  const match = message.match(/(?:\u6807\u9898|title|\u7247\u540d|\u4e3b\u6807\u9898)\s*(?:\u4e3a|\u662f|\u53eb|:|\uff1a)?\s*[\u201c\u201d"']?([^\u201c\u201d"'\n\uff0c\u3002,.]{2,32})/i);
-  return match?.[1]?.trim() || fallback;
-};
-
-const isShortVideoHyperframesEditRequest = (message: string, snapshot: RouterSnapshot, selectedNodeIds: string[]) => {
-  if (!selectedVideoNodesFrom(snapshot, selectedNodeIds).length) return false;
-  return includesAnyPattern(message, [
-    /\u77ed\u89c6\u9891|\u6296\u97f3|\u5feb\u624b|\u5c0f\u7ea2\u4e66|\u7ad6\u5c4f|\u526a\u8f91|\u88c1\u526a|\u8282\u594f|\u9ad8\u5149|\u6807\u9898|\u7247\u5934|\u5f00\u573a|\u52a8\u6548|\u52a8\u6001|\u5b57\u5e55|\u5305\u88c5|\u8fdb\u5ea6\u6761|\u8f6c\u573a|hyperframes/i,
-    /shorts?|reels?|tiktok|vertical|edit|trim|cut|caption|title|motion|overlay|lower[-\s]?third|progress/i,
-  ]);
-};
-
-const canvasForAspectRatio = (aspectRatio: string) =>
-  aspectRatio === "9:16"
-    ? { width: 1080, height: 1920 }
-    : aspectRatio === "1:1"
-      ? { width: 1080, height: 1080 }
-      : { width: 1920, height: 1080 };
-
-const codexBaselineCompositionJson = (title: string, duration: number, aspectRatio: string, prompt: string) => {
-  const canvas = canvasForAspectRatio(aspectRatio);
-  return {
-    version: 1,
-    title,
-    provider: "hyperframes",
-    canvas: { ...canvas, fps: 30, duration, background: "#05070a" },
-    assets: [],
-    elements: [],
-    notes: prompt,
-  };
-};
-
-const buildShortVideoHyperframesEditPlan = (message: string, snapshot: RouterSnapshot, selectedNodeIds: string[]): AgentCanvasEditPlan => {
-  const selectedVideos = selectedVideoNodesFrom(snapshot, selectedNodeIds);
-  const duration = durationFromInstruction(message, selectedVideos[0]);
-  const aspectRatio = aspectRatioFromInstruction(message);
-  const title = titleFromInstruction(message, selectedVideos[0]?.data.title || "Highlight");
-  const baselineComposition = codexBaselineCompositionJson(title, duration, aspectRatio, message);
-  return {
-    title: "Codex HyperFrames video edit",
-    description: "Send selected video nodes directly to a Codex-authored HyperFrames motion composition.",
-    userInstruction: message,
-    intent: "add_nodes",
-    targetNodeIds: selectedVideos.map((node) => node.id),
-    operations: [
-      {
-        id: "make-motion-package",
-        type: "createNode",
-        nodeType: "motion",
-        label: "Motion* Codex HyperFrames edit",
-        dependsOn: selectedVideos.map((node) => node.id),
-        params: {
-          motionMode: "codex-hyperframes",
-          compositionJson: baselineComposition,
-          codexInstruction: [
-            `User request: ${message}`,
-            `Requested title: ${title}`,
-            `Output aspect ratio: ${aspectRatio}`,
-            `Output duration: ${duration}s`,
-            "Use the connected source video directly as the base media.",
-            "Author the HyperFrames index.html: trim/reframe in the composition, add visible title animation, kinetic captions or overlay beats, subtle vignette, progress motion, and short-video transitions.",
-            "Keep the footage full-bleed and inspectable; do not bury the subject behind a large card.",
-            "Do not rely on a preselected template or motion variables. Rewrite the composition HTML/CSS/JS as needed.",
-          ].join("\n"),
-          prompt: message,
-        },
-        dataPatch: {
-          templateId: "",
-          motionVariablesJson: "",
-        },
-      },
-      {
-        id: "make-output",
-        type: "createNode",
-        nodeType: "output",
-        label: "Output* Codex HyperFrames render",
-        dependsOn: ["make-motion-package"],
-        params: { format: "Creative package" },
-      },
-    ],
-    warnings: [],
-    requiresConfirmation: true,
-  };
+      `Skill: ${skill.name}`,
+      `Capabilities: ${skill.supports.join(", ")}`,
+      excerpts ? `Instructions:\n${excerpts}` : "",
+    ].filter(Boolean).join("\n");
+  }).join("\n\n---\n\n");
 };
 
 export async function POST(request: Request) {
+  let run = createAgentRunRecorder();
+  let executionMode: AgentRunExecutionMode = "browser";
+  let executionModel: AgentExecutionModelId = DEFAULT_AGENT_EXECUTION_MODEL;
+  let resumedExecutionModel: AgentExecutionModelId | undefined;
+  let runRequest: { userMessage: string; selectedNodeIds: string[]; workflowId?: string; executionModel?: AgentExecutionModelId } | undefined;
+  let checkpointSnapshot: RouterSnapshot | undefined;
+  let checkpointSelectedNodeIds: string[] = [];
+  let checkpointRetrieval: AgentRunRetrievalTrace | undefined;
+  let checkpointSkillUsage: AgentSkillUsage[] | undefined;
+  const respond = async (payload: Record<string, unknown>, init?: ResponseInit) => {
+    const trace = run.snapshot();
+    const basePayload = checkpointSkillUsage?.length && !Array.isArray(payload.skillUsage)
+      ? { ...payload, skillUsage: checkpointSkillUsage }
+      : payload;
+    const responsePayload: Record<string, unknown> = { ...basePayload, executionModel };
+    const hasExecutablePlan = responsePayload.ok === true && ["create", "edit", "organize", "skill"].includes(String(responsePayload.intent || ""));
+    const checkpoint: AgentRunCheckpoint | undefined = checkpointSnapshot ? {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      canvasSnapshot: { version: 1, ...checkpointSnapshot },
+      selectedNodeIds: checkpointSelectedNodeIds,
+      executedNodeIds: [],
+      repairAttempts: 0,
+      planResponse: hasExecutablePlan ? responsePayload : undefined,
+      retrieval: checkpointRetrieval,
+      skillUsage: checkpointSkillUsage,
+    } : undefined;
+    try {
+      await persistAgentRunTrace(trace, { executionMode, request: runRequest, checkpoint });
+    } catch (storageError) {
+      console.warn("Unable to persist Agent run checkpoint.", storageError instanceof Error ? storageError.message : storageError);
+    }
+    return NextResponse.json({ ...responsePayload, agentRun: trace }, init);
+  };
   try {
     const body = await request.json() as {
       userMessage?: unknown;
@@ -380,68 +354,177 @@ export async function POST(request: Request) {
       conversation?: unknown;
       forceIntent?: unknown;
       customSkill?: unknown;
+      resumeRunId?: unknown;
+      executionMode?: unknown;
+      workflowId?: unknown;
+      executionModel?: unknown;
     };
     const userMessage = text(body.userMessage);
-    if (!userMessage) return NextResponse.json({ ok: false, error: { message: "userMessage is required." } }, { status: 400 });
+    const resumeRunId = text(body.resumeRunId);
+    if (resumeRunId) {
+      const existingRun = await getAgentRun(resumeRunId);
+      if (existingRun) {
+        run = createAgentRunRecorder(existingRun);
+        resumedExecutionModel = existingRun.request?.executionModel;
+        run.add("received", "Resumed the existing Agent run with new user input.", { kind: "decision" });
+      }
+    }
+    if (!userMessage) {
+      run.finish("blocked", "blocked", "The Agent request did not include a user message.");
+      return respond({ ok: false, error: { message: "userMessage is required." } }, { status: 400 });
+    }
+    if (body.executionModel !== undefined && !isAgentExecutionModelId(body.executionModel)) {
+      run.finish("blocked", "blocked", "Unsupported Agent execution model.");
+      return respond({ ok: false, error: { message: "Unsupported Agent execution model." } }, { status: 400 });
+    }
+    executionModel = isAgentExecutionModelId(body.executionModel)
+      ? body.executionModel
+      : resumedExecutionModel || DEFAULT_AGENT_EXECUTION_MODEL;
+    run.add("received", "Received the user request and canvas context.", {
+      metadata: { messageLength: userMessage.length, executionModel },
+    });
 
     const snapshot = snapshotFrom(body.canvasSnapshot);
     const selectedNodeIds = stringArray(body.selectedNodeIds);
+    executionMode = body.executionMode === "worker" ? "worker" : "browser";
+    checkpointSnapshot = snapshot;
+    checkpointSelectedNodeIds = selectedNodeIds;
+    runRequest = {
+      userMessage,
+      selectedNodeIds,
+      workflowId: text(body.workflowId) || undefined,
+      executionModel,
+    };
     const customSkill = customSkillFrom(body.customSkill);
     const conversation = messagesFrom(body.conversation);
     const forced = validIntents.includes(body.forceIntent as AgentRouterIntent) ? body.forceIntent as AgentRouterIntent : undefined;
-    let routedSkillId: "fixed-scene-action-video" | undefined;
     let routedToolCall: AgentToolCall | undefined;
     let resumePending = false;
     const pendingRequest = snapshot.agentMemory?.pendingRequest;
     const rawPendingIntent = snapshot.agentMemory?.pendingIntent;
     const fallbackWorkflowIntent: AgentRouterIntent = selectedNodeIds.length ? "edit" : "create";
-    const pendingIntent = rawPendingIntent === "skill" && pendingRequest && !isFixedSceneSkillRequest(pendingRequest, snapshot.agentMemory)
-      ? fallbackWorkflowIntent
-      : rawPendingIntent;
+    const pendingIntent = rawPendingIntent === "skill" ? fallbackWorkflowIntent : rawPendingIntent;
+    run.add("routing", "Determining the next Agent route from the conversation, memory, selection, and canvas state.", {
+      kind: "model",
+      metadata: { selectedNodes: selectedNodeIds.length, canvasNodes: snapshot.nodes.length, hasPendingRequest: Boolean(pendingRequest) },
+    });
+    let semanticRoute: AgentSemanticRoute;
     let intent: AgentRouterIntent;
+    let routeReason: string | undefined;
     if (forced) {
-      intent = forced;
-      resumePending = pendingIntent === forced;
+      const route = forced === "dialogue" ? "dialogue" : forced === "organize" ? "organize" : forced === "tool" ? "tool" : "plan";
+      let extracted: AgentSemanticRoute | undefined;
+      if (route === "plan") {
+        try {
+          extracted = await runAgentRouterLLM({
+            userMessage,
+            canvasSummary: routingCanvasSummary(snapshot, selectedNodeIds),
+            memorySummary: agentMemorySummary(snapshot.agentMemory),
+            conversation,
+            selectedNodeIds,
+            executionModel,
+          });
+        } catch (routerError) {
+          console.warn("Forced route semantic extraction failed; continuing with editable defaults.", routerError instanceof Error ? routerError.message : routerError);
+        }
+      }
+      semanticRoute = validateAgentSemanticRoute({
+        ...(extracted || {}),
+        route,
+        operation: forced === "edit" ? "transform_media" : forced === "organize" ? "organize_canvas" : forced === "tool" ? "retrieve_reference" : forced === "dialogue" ? "develop_idea" : "create_workflow",
+        objective: extracted?.objective || userMessage,
+        targetNodeIds: forced === "edit" ? selectedNodeIds : [],
+        confidence: extracted?.confidence ?? 1,
+      }, userMessage, selectedNodeIds);
+      resumePending = pendingIntent === forced || (forced === "skill" && pendingIntent === fallbackWorkflowIntent);
+      routeReason = "The route was explicitly selected by the user interface.";
     } else if (pendingIntent && isImageSearchToolRequest(userMessage)) {
-      intent = "tool";
+      semanticRoute = validateAgentSemanticRoute({ route: "tool", operation: "retrieve_reference", objective: userMessage, requiredCapabilities: ["search_image"], toolName: "image_search", toolArguments: { query: imageSearchQueryFrom(userMessage), limit: 8 }, confidence: 0.9 }, userMessage, selectedNodeIds);
+      routeReason = "An image search tool request temporarily interrupts the pending workflow.";
     } else {
       try {
+        const routedAt = Date.now();
         const routed = await runAgentRouterLLM({
           userMessage,
           canvasSummary: `${routingCanvasSummary(snapshot, selectedNodeIds)}${customSkill ? `\n\nSelected custom skill: ${customSkill.name}\n${customSkill.tagline}` : ""}`,
           memorySummary: agentMemorySummary(snapshot.agentMemory),
           conversation,
+          selectedNodeIds,
+          executionModel,
         });
-        resumePending = routed.resumePending && Boolean(pendingIntent && pendingRequest);
-        intent = resumePending && pendingIntent
-          ? pendingIntent
-          : routed.intent;
-        routedSkillId = routed.skillId;
-        routedToolCall = routed.toolCall;
+        semanticRoute = routed;
+        resumePending = semanticRoute.resumePending && Boolean(pendingIntent && pendingRequest);
+        routeReason = semanticRoute.reason;
+        run.add("routing", "Router model completed.", { kind: "model", durationMs: Date.now() - routedAt });
       } catch (routerError) {
         console.warn("Agent router LLM failed; using heuristic fallback", routerError instanceof Error ? routerError.message : routerError);
         resumePending = Boolean(pendingIntent && pendingRequest);
-        intent = resumePending && pendingIntent ? pendingIntent : inferIntent(userMessage, snapshot, selectedNodeIds.length);
+        const fallbackIntent = resumePending && pendingIntent ? pendingIntent : inferIntent(userMessage, snapshot, selectedNodeIds.length);
+        semanticRoute = validateAgentSemanticRoute({
+          route: fallbackIntent === "dialogue" ? "dialogue" : fallbackIntent === "organize" ? "organize" : fallbackIntent === "tool" ? "tool" : "plan",
+          operation: fallbackIntent === "edit" ? "transform_media" : fallbackIntent === "organize" ? "organize_canvas" : fallbackIntent === "tool" ? "retrieve_reference" : fallbackIntent === "dialogue" ? "develop_idea" : "create_workflow",
+          objective: userMessage,
+          targetNodeIds: fallbackIntent === "edit" ? selectedNodeIds : [],
+          requiredCapabilities: fallbackIntent === "tool" ? ["search_image"] : [],
+          constraints: {},
+          successCriteria: [],
+          confidence: 0.25,
+          resumePending,
+        }, userMessage, selectedNodeIds);
+        routeReason = "The router model failed, so the deterministic fallback selected the route.";
+        run.add("routing", routeReason, { kind: "validation" });
       }
     }
-
-    const skillRequestContext = resumePending && pendingRequest
-      ? `${pendingRequest}\n${userMessage}`
-      : userMessage;
-    if (intent === "skill") {
-      if (isFixedSceneSkillRequest(skillRequestContext, snapshot.agentMemory)) {
-        routedSkillId = "fixed-scene-action-video";
-      } else {
-        intent = fallbackWorkflowIntent;
-        routedSkillId = undefined;
-      }
+    const validCanvasIds = new Set(snapshot.nodes.map((node) => node.id));
+    const selectedCanvasNodeIds = selectedNodeIds.filter((id) => validCanvasIds.has(id));
+    const routedTargets = semanticRoute.targetNodeIds.filter((id) => validCanvasIds.has(id));
+    const routeEditsCanvas = semanticRoute.operation === "transform_media";
+    semanticRoute = {
+      ...semanticRoute,
+      targetNodeIds: routeEditsCanvas
+        ? (routedTargets.length ? routedTargets : selectedCanvasNodeIds)
+        : [],
+    };
+    if (semanticRoute.route === "clarify") {
+      run.add("routing", "Router requested clarification; deferring the decision until relevant Skill guidance has been retrieved.", { kind: "decision" });
+      semanticRoute = {
+        ...semanticRoute,
+        route: "plan",
+        operation: semanticRoute.targetNodeIds.length ? "transform_media" : "create_workflow",
+        missingInformation: [],
+        questions: [],
+      };
     }
+    intent = resumePending && pendingIntent
+      ? pendingIntent
+      : semanticRoute.route === "dialogue" ? "dialogue"
+          : semanticRoute.route === "organize" ? "organize"
+          : semanticRoute.route === "tool" ? "tool"
+            : semanticRoute.operation === "transform_media" && semanticRoute.targetNodeIds.length ? "edit" : "create";
+    if (semanticRoute.route === "tool") {
+      routedToolCall = validateAgentToolCall({ name: semanticRoute.toolName, arguments: semanticRoute.toolArguments });
+    }
+    run.setIntent(intent, routeReason);
 
-    // Store skills are instruction packages, not hard-coded workflow skill IDs.
-    // Route them through the normal planner/editor so their SKILL.md guides an executable patch.
-    if (customSkill && intent === "skill") {
-      intent = snapshot.nodes.length ? "edit" : "create";
-      routedSkillId = undefined;
+    if (semanticRoute.route === "clarify") {
+      const zh = /[\u3400-\u9fff]/.test(userMessage);
+      run.finish("awaiting_user", "awaiting_user", "Waiting for semantic routing clarification.");
+      return respond({
+        ok: true,
+        intent: "dialogue",
+        semanticRoute,
+        requiresClarification: true,
+        pendingIntent: semanticRoute.targetNodeIds.length ? "edit" : "create",
+        pendingRequest: semanticRoute.objective,
+        missingInformation: semanticRoute.missingInformation,
+        response: {
+          stage: "ask",
+          title: zh ? "还需要确认几项关键信息" : "A few critical details are missing",
+          message: semanticRoute.questions.map((question, index) => `${index + 1}. ${question}`).join("\n"),
+          suggestedNext: semanticRoute.missingInformation,
+        },
+        summary: zh ? "补充关键信息后，Agent 会继续检索能力并生成计划。" : "The Agent will retrieve capabilities and plan after these details are supplied.",
+      });
     }
 
     if (intent === "tool") {
@@ -449,6 +532,11 @@ export async function POST(request: Request) {
         name: "image_search" as const,
         arguments: { query: imageSearchQueryFrom(userMessage), limit: 8 },
       };
+      const toolStartedAt = Date.now();
+      run.add("tooling", `Calling tool ${toolCall.name}.`, {
+        kind: "tool",
+        metadata: { tool: toolCall.name, risk: "read" },
+      });
       const toolResult = await executeAgentTool(toolCall);
       const zh = /[\u3400-\u9fff]/.test(userMessage);
       const count = toolResult.results.length;
@@ -456,9 +544,19 @@ export async function POST(request: Request) {
         : toolResult.provider === "serpapi-bing" ? "Bing Images"
           : toolResult.provider === "google-cse" ? "Google CSE"
             : "Wikimedia Commons";
-      return NextResponse.json({
+      const toolSummary = count
+        ? `Tool ${toolCall.name} returned ${count} candidates via ${providerLabel}.`
+        : `Tool ${toolCall.name} returned no candidates via ${providerLabel}.`;
+      run.add("tooling", toolSummary, {
+        kind: "tool",
+        durationMs: Date.now() - toolStartedAt,
+        metadata: { tool: toolCall.name, provider: toolResult.provider, resultCount: count },
+      });
+      run.finish("awaiting_user", "awaiting_user", "Waiting for the user to choose a reference image.");
+      return respond({
         ok: true,
         intent: "tool",
+        semanticRoute,
         toolCall,
         toolResult,
         resolvedRequest: userMessage,
@@ -468,8 +566,47 @@ export async function POST(request: Request) {
       });
     }
 
+    let evidenceBundle: CapabilityEvidenceBundle | undefined;
+    if (intent === "create" || intent === "edit") {
+      const retrievalStartedAt = Date.now();
+      const retrievalQuery = retrievalRequestFrom(semanticRoute, snapshot, runRequest?.workflowId, userMessage);
+      run.add("tooling", "Retrieving Skills, Tools, models, and workflow evidence before evaluating missing requirements.", {
+        kind: "tool",
+        metadata: { requiredCapabilities: retrievalQuery.requiredCapabilities.length, targetNodes: semanticRoute.targetNodeIds.length },
+      });
+      evidenceBundle = await retrieveCapabilities(retrievalQuery, { customSkill });
+      checkpointRetrieval = {
+        query: retrievalQuery,
+        retrievalMode: evidenceBundle.retrievalMode,
+        candidateIds: evidenceBundle.capabilities.map((candidate) => candidate.id),
+        selectedCapabilityIds: [],
+        evidenceIds: evidenceBundle.evidence.map((evidence) => evidence.id),
+        generatedAt: evidenceBundle.generatedAt,
+      };
+      checkpointSkillUsage = mergeSkillUsage(skillUsageFrom(evidenceBundle, customSkill), promptProfileUsageFrom(evidenceBundle));
+      run.add("tooling", `Capability retrieval returned ${evidenceBundle.capabilities.length} executable candidates and ${checkpointSkillUsage.length} matching Skills.`, {
+        kind: "tool",
+        durationMs: Date.now() - retrievalStartedAt,
+        metadata: {
+          retrievalMode: evidenceBundle.retrievalMode,
+          candidateCount: evidenceBundle.capabilities.length,
+          evidenceCount: evidenceBundle.evidence.length,
+          skillCount: checkpointSkillUsage.length,
+        },
+      });
+      if (checkpointSkillUsage.length) {
+        run.add("tooling", `Using Skill guidance: ${checkpointSkillUsage.map((skill) => skill.name).join(", ")}.`, {
+          kind: "decision",
+          metadata: { skillCount: checkpointSkillUsage.length },
+        });
+      }
+      if (!evidenceBundle.capabilities.length) throw new Error("No configured capability satisfies the routed requirements and constraints.");
+    }
+
     let effectiveUserMessage = userMessage;
-    if (intent === "create" || intent === "edit" || intent === "skill") {
+    if (intent === "create" || intent === "edit") {
+      const requirementStartedAt = Date.now();
+      run.add("clarifying", "Checking whether critical execution information is missing.", { kind: "model" });
       const requirement = await runAgentRequirementLLM({
         userMessage,
         pendingRequest: resumePending ? snapshot.agentMemory?.pendingRequest : undefined,
@@ -480,13 +617,23 @@ export async function POST(request: Request) {
           customSkill ? `Selected custom skill: ${customSkill.name}\nUsage: ${customSkill.howToUse}\nExpected output: ${customSkill.expectedOutput}` : "",
         ].filter(Boolean).join("\n\n"),
         conversation,
+        skillGuidance: requirementSkillGuidanceFrom(evidenceBundle),
+        executionModel,
+      });
+      run.add("clarifying", requirement.ready ? "The request is executable." : "Critical information is still missing.", {
+        kind: "validation",
+        durationMs: Date.now() - requirementStartedAt,
+        metadata: { ready: requirement.ready, missingCount: requirement.missingInformation.length, assumptionCount: requirement.assumptions.length },
       });
       if (!requirement.ready) {
         const zh = /[\u3400-\u9fff]/.test([snapshot.agentMemory?.pendingRequest, userMessage].filter(Boolean).join("\n"));
         const message = requirement.questions.map((question, index) => `${index + 1}. ${question}`).join("\n");
-        return NextResponse.json({
+        run.finish("awaiting_user", "awaiting_user", "Waiting for the user to answer the blocking clarification questions.");
+        return respond({
           ok: true,
           intent: "dialogue",
+          semanticRoute: { ...semanticRoute, route: "clarify", missingInformation: requirement.missingInformation, questions: requirement.questions },
+          evidenceBundle,
           requiresClarification: true,
           pendingIntent: intent,
           pendingRequest: requirement.resolvedRequest,
@@ -506,50 +653,32 @@ export async function POST(request: Request) {
       ].filter(Boolean).join("\n\n");
     }
 
-    if (intent === "skill" && !isFixedSceneSkillRequest(effectiveUserMessage, snapshot.agentMemory)) {
-      intent = fallbackWorkflowIntent;
-      routedSkillId = undefined;
-    }
-
     const guidedUserMessage = userMessageWithCustomSkill(effectiveUserMessage, customSkill);
 
-    if (intent === "edit" && !customSkill && isShortVideoHyperframesEditRequest(effectiveUserMessage, snapshot, selectedNodeIds)) {
-      const editPlan = buildShortVideoHyperframesEditPlan(effectiveUserMessage, snapshot, selectedNodeIds);
-      const patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds });
-      return NextResponse.json({
-        ok: true,
-        intent: "edit",
-        editPlan,
-        patch,
-        resolvedRequest: effectiveUserMessage,
-        summary: "已为选中的视频创建 Codex + HyperFrames 直接剪辑包装工作流。",
-      });
-    }
-
-    if (intent === "skill") {
-      const skillBrief = await runFixedSceneSkillLLM({ userBrief: skillBriefFrom(effectiveUserMessage, snapshot.agentMemory) });
-      return NextResponse.json({
-        ok: true,
-        intent,
-        skillId: routedSkillId || "fixed-scene-action-video",
-        skillBrief,
-        resolvedRequest: effectiveUserMessage,
-        summary: "Use the fixed-scene video skill: character turnaround images + scene nine-grid image + video node.",
-      });
-    }
-
     if (intent === "dialogue") {
-      const response = await runAgentDialogueLLM({ userMessage: guidedUserMessage, conversation });
-      return NextResponse.json({ ok: true, intent, response, summary: response.title });
+      const dialogueStartedAt = Date.now();
+      run.add("planning", "Developing a conversational response.", { kind: "model" });
+      const response = await runAgentDialogueLLM({ userMessage: guidedUserMessage, conversation, executionModel });
+      run.add("planning", "Dialogue model completed.", { kind: "model", durationMs: Date.now() - dialogueStartedAt });
+      run.finish("completed", "completed", response.title);
+      return respond({ ok: true, intent, semanticRoute, response, summary: response.title });
     }
 
     if (intent === "organize") {
-      if (!snapshot.nodes.length) return NextResponse.json({ ok: false, error: { message: "Canvas must include at least one node before organizing." } }, { status: 400 });
-      const organizePlan = await runAgentOrganizeLLM({ userInstruction: guidedUserMessage, canvasSummary: canvasSummaryWithMemory(snapshot, selectedNodeIds) });
+      if (!snapshot.nodes.length) {
+        run.finish("blocked", "blocked", "Canvas organization requires at least one node.");
+        return respond({ ok: false, error: { message: "Canvas must include at least one node before organizing." } }, { status: 400 });
+      }
+      const organizeStartedAt = Date.now();
+      run.add("planning", "Planning a deterministic canvas organization patch.", { kind: "model" });
+      const organizePlan = await runAgentOrganizeLLM({ userInstruction: guidedUserMessage, canvasSummary: canvasSummaryWithMemory(snapshot, selectedNodeIds), executionModel });
       const patch = compileCanvasOrganizePlanToPatch({ organizePlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges });
-      return NextResponse.json({
+      run.add("validating", "Compiled and validated the canvas organization patch.", { kind: "validation", durationMs: Date.now() - organizeStartedAt, metadata: { updatedNodes: patch.updateNodes.length } });
+      run.finish("ready", "validating", "The canvas organization plan is ready to apply.");
+      return respond({
         ok: true,
         intent,
+        semanticRoute,
         organizePlan,
         patch,
         resolvedRequest: effectiveUserMessage,
@@ -557,60 +686,117 @@ export async function POST(request: Request) {
       });
     }
 
-    if (intent === "edit" && snapshot.nodes.length) {
-      const editCanvasSummary = canvasSummaryWithMemory(snapshot, selectedNodeIds);
-      let editPlan = await runAgentEditLLM({ userInstruction: guidedUserMessage, canvasSummary: editCanvasSummary });
-      let patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds });
-      if (patchNeedsRepair(patch, selectedNodeIds)) {
-        editPlan = await runAgentEditLLM({
-          userInstruction: guidedUserMessage,
-          canvasSummary: editCanvasSummary,
-          repairFeedback: [
-            "The previous edit plan compiled to an empty or incomplete canvas patch, so the user would see no usable graph change.",
-            "Re-read the selected nodes and the user instruction.",
-            "Return executable graph operations with exact node ids: create/update nodes and connect/disconnect edges as needed.",
-            "If the user asks to edit selected media, make the graph runnable by creating or updating the appropriate node and connecting selected source nodes.",
-            "If you create a videoEdit node from selected videos/audio, it must have incoming edges from those selected source nodes.",
-            "Schema reminder: createNode requires nodeType. Later operations must reference new nodes by the createNode operation id, not placeholder node ids.",
-            `Compiler warnings: ${JSON.stringify(patch.warnings || [])}`,
-            `Previous operations: ${JSON.stringify(editPlan.operations)}`,
-          ].join("\n"),
+    semanticRoute = { ...semanticRoute, objective: effectiveUserMessage };
+    if (!evidenceBundle) throw new Error("Capability retrieval did not run for this planning request.");
+
+    const planStartedAt = Date.now();
+    run.add("planning", "Planning only with capabilities from the retrieved Evidence Bundle.", { kind: "model" });
+    const normalizeCapabilityPlan = (candidatePlan: Awaited<ReturnType<typeof runAgentPlannerLLM>>) => {
+      const providerBound = bindPlanCapabilities(candidatePlan, evidenceBundle);
+      const inputBound = intent === "edit"
+        ? bindRoutedCanvasInputs(providerBound, evidenceBundle, snapshot.nodes, semanticRoute.targetNodeIds, semanticRoute.requiredCapabilities)
+        : providerBound;
+      return bindPlanCapabilities(inputBound, evidenceBundle);
+    };
+    let plan = normalizeCapabilityPlan(await runAgentPlannerLLM({
+      userPrompt: guidedUserMessage,
+      canvasSummary: intent === "edit" ? canvasSummaryWithMemory(snapshot, semanticRoute.targetNodeIds) : plannerSummary(snapshot),
+      semanticRoute,
+      evidenceBundle,
+      executionModel,
+    }));
+    const editInputIssues = () => {
+      if (intent !== "edit" || !semanticRoute.targetNodeIds.length) return [];
+      const referenced = plan.steps.flatMap((step) => (step.inputs || [])
+        .filter((input) => input.source === "canvas_node" && input.nodeId)
+        .map((input) => input.nodeId!));
+      const canvasIds = new Set(snapshot.nodes.map((node) => node.id));
+      const invalid = referenced.filter((id) => !canvasIds.has(id));
+      const missingTargets = semanticRoute.targetNodeIds.filter((id) => !referenced.includes(id));
+      return [
+        ...invalid.map((id) => `The capability plan references unknown canvas node ${id}.`),
+        ...(missingTargets.length ? [`The capability plan does not consume routed target nodes: ${missingTargets.join(", ")}.`] : []),
+      ];
+    };
+    let qualityIssues = [...capabilityPlanGraphIssues(plan, evidenceBundle), ...capabilityPlanIssues(plan, evidenceBundle), ...editInputIssues()];
+    if (qualityIssues.length) {
+      run.add("validating", "The first capability plan failed deterministic graph or capability checks; requesting one repair.", { kind: "validation", metadata: { issueCount: qualityIssues.length } });
+      plan = normalizeCapabilityPlan(await runAgentPlannerLLM({
+        userPrompt: guidedUserMessage,
+        canvasSummary: intent === "edit" ? canvasSummaryWithMemory(snapshot, semanticRoute.targetNodeIds) : plannerSummary(snapshot),
+        semanticRoute,
+        evidenceBundle,
+        previousPlan: plan,
+        repairFeedback: qualityIssues.join("\n"),
+        executionModel,
+      }));
+      qualityIssues = [...capabilityPlanGraphIssues(plan, evidenceBundle), ...capabilityPlanIssues(plan, evidenceBundle), ...editInputIssues()];
+    }
+    if (qualityIssues.length) throw new Error(`Agent planner returned an invalid capability plan: ${qualityIssues.join(" ")}`);
+    const promptProfiles = resolvePromptProfiles(evidenceBundle.query, evidenceBundle.evidence, customSkill).profiles;
+    if (promptProfiles.length && plan.steps.some((step) => step.kind === "image" || step.kind === "video")) {
+      const promptStartedAt = Date.now();
+      run.add("planning", `Composing visual node prompts with ${promptProfiles.map((profile) => profile.name).join(", ")}.`, { kind: "model" });
+      try {
+        const drafts = await runAgentPromptComposerLLM({ userPrompt: effectiveUserMessage, plan, profiles: promptProfiles, executionModel });
+        const fallback = fallbackComposedPrompts(plan, promptProfiles);
+        const draftIds = new Set(drafts.map((draft) => draft.id));
+        plan = applyComposedPrompts(plan, [...drafts, ...fallback.filter((draft) => !draftIds.has(draft.id))]);
+        run.add("planning", `Composed prompts for ${plan.steps.filter((step) => step.kind === "image" || step.kind === "video").length} image/video nodes.`, {
+          kind: "model",
+          durationMs: Date.now() - promptStartedAt,
+          metadata: { promptProfileCount: promptProfiles.length },
         });
-        patch = compileCanvasEditPlanToPatch({ editPlan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds });
+      } catch (error) {
+        plan = applyComposedPrompts(plan, fallbackComposedPrompts(plan, promptProfiles));
+        run.add("planning", "Prompt Composer was unavailable; applied deterministic Skill-guided prompts instead.", {
+          kind: "validation",
+          durationMs: Date.now() - promptStartedAt,
+          metadata: { promptProfileCount: promptProfiles.length },
+        });
       }
-      return NextResponse.json({
+    }
+    if (checkpointRetrieval) {
+      checkpointRetrieval.selectedCapabilityIds = [...new Set(plan.steps.map((step) => step.providerCapabilityId).filter((id): id is string => Boolean(id)))];
+    }
+    const approvalSteps = approvalRequiredStepIds(plan, evidenceBundle);
+
+    if (intent === "edit") {
+      const patch = compileCapabilityPlanToEditPatch({ plan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds: semanticRoute.targetNodeIds });
+      const editPlan = capabilityPlanToEditPlan(plan, semanticRoute.targetNodeIds);
+      run.add("validating", "Validated capability evidence and compiled the edit branch into a canvas patch.", { kind: "validation", durationMs: Date.now() - planStartedAt, metadata: { stepCount: plan.steps.length, edgeCount: patch.createEdges.length } });
+      run.finish("ready", "validating", "The capability edit plan is ready to apply.");
+      return respond({
         ok: true,
-        intent,
+        intent: "edit",
+        semanticRoute,
+        evidenceBundle,
+        approvalRequiredStepIds: approvalSteps,
+        plan,
         editPlan,
         patch,
         resolvedRequest: effectiveUserMessage,
-        summary: editSummary(editPlan.title, patch),
+        summary: `${plan.title}: ${plan.steps.length} evidence-backed steps prepared for the selected canvas media.${approvalSteps.length ? " Cost-bearing capabilities require preview approval before execution." : ""}`,
       });
     }
 
-    let plan = stabilizeWorkflowPlanDependencies(await runAgentPlannerLLM({ userPrompt: guidedUserMessage, canvasSummary: plannerSummary(snapshot) }));
-    let qualityIssues = workflowPlanQualityIssues(plan);
-    if (qualityIssues.length) {
-      plan = stabilizeWorkflowPlanDependencies(await runAgentPlannerLLM({
-        userPrompt: guidedUserMessage,
-        canvasSummary: plannerSummary(snapshot),
-        previousPlan: plan,
-        repairFeedback: qualityIssues.join("\n"),
-      }));
-      qualityIssues = workflowPlanQualityIssues(plan);
-    }
-    if (qualityIssues.length) throw new Error(`Agent planner returned an incomplete workflow template: ${qualityIssues.join(" ")}`);
     const patch = compileWorkflowPlanToCanvas(plan);
-    return NextResponse.json({
+    run.add("validating", "Validated capability evidence and compiled the workflow plan into a canvas patch.", { kind: "validation", durationMs: Date.now() - planStartedAt, metadata: { stepCount: plan.steps.length, edgeCount: patch.edges.length } });
+    run.finish("ready", "validating", "The evidence-backed workflow is ready to apply.");
+    return respond({
       ok: true,
       intent: "create",
+      semanticRoute,
+      evidenceBundle,
+      approvalRequiredStepIds: approvalSteps,
       plan,
       patch,
       resolvedRequest: effectiveUserMessage,
-      summary: `${plan.title}: ${plan.steps.length} editable steps prepared.`,
+      summary: `${plan.title}: ${plan.steps.length} editable steps prepared.${approvalSteps.length ? " Cost-bearing capabilities require preview approval before execution." : ""}`,
     });
   } catch (error) {
     const normalized = normalizeAIError(error);
-    return NextResponse.json({ ok: false, error: { message: normalized.message } }, { status: normalized.status >= 400 && normalized.status < 600 ? normalized.status : 500 });
+    run.finish("blocked", "blocked", normalized.message);
+    return respond({ ok: false, error: { message: normalized.message } }, { status: normalized.status >= 400 && normalized.status < 600 ? normalized.status : 500 });
   }
 }

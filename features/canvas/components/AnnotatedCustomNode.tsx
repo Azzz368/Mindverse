@@ -9,7 +9,9 @@ import { VoiceCloneNodeLayout, VoiceTTSNodeLayout } from "./VoiceNodes";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
 import { motionTemplateIds } from "@/shared/motion/templates";
-import { videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
+import { DIGITAL_HUMAN_VIDEO_PROMPT, videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, videoReferenceLimitForPreset, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
+import { DEFAULT_STORYBOARD_SCENE_COUNT, clampStoryboardSceneCount } from "@/shared/workflow/storyPipeline";
+import { audioUrlFrom, imageUrlFrom, videoUrlFrom } from "@/features/canvas/domain/nodeInputCompiler";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
@@ -40,10 +42,19 @@ const videoPortStyles: Record<VideoInputPortKind, { border: string; connected: s
 };
 const videoDurationOptions = Array.from({ length: 11 }, (_, index) => index + 5);
 const nodeImageUrl = (node: CanvasNode) => {
-  const value = record(node.data.output?.value);
-  return text(value.imageUrl || value.revisedImageUrl || node.data.imageUrl || "");
+  return imageUrlFrom(node);
 };
-const materialLabel = (node: CanvasNode) => node.data.title || (node.data.nodeType === "reference" ? "Reference" : "Image");
+const materialLabel = (node: CanvasNode) => node.data.title || (({ reference: "Reference", image: "Image", video: "Video", videoEdit: "Video", motion: "Video", audio: "Audio", voiceTTS: "Audio" } as Partial<Record<CanvasNodeData["nodeType"], string>>)[node.data.nodeType] || "Material");
+type VideoMaterialKind = "image" | "video" | "audio";
+type VideoMaterialOption = { node: CanvasNode; kind: VideoMaterialKind; url: string; label: string };
+
+const videoMaterialKind = (node: CanvasNode): VideoMaterialKind | undefined => {
+  if (node.data.nodeType === "image" || node.data.nodeType === "reference") return "image";
+  if (node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") return "video";
+  if (node.data.nodeType === "audio" || node.data.nodeType === "voiceTTS") return "audio";
+  return undefined;
+};
+const videoMaterialUrl = (node: CanvasNode, kind: VideoMaterialKind) => kind === "image" ? nodeImageUrl(node) : kind === "video" ? videoUrlFrom(node) : audioUrlFrom(node);
 const imageModelValue = (model?: string) => {
   const value = (model || "").trim().toLowerCase();
   if (!value || value === "gpt image 2" || value === "gpt-image-2") return "gpt-image-2(tokenstar)";
@@ -101,7 +112,7 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
         <label className={wrap}><span className={lbl}>标题</span>{textInput("title", data.title)}</label>
         {data.nodeType === "prompt" && <><label className={wrap}><span className={lbl}>提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>排除</span>{textArea("negativePrompt", data.negativePrompt, 2)}</label><label className={wrap}><span className={lbl}>风格</span>{textInput("style", data.style)}</label><label className={wrap}><span className={lbl}>宽高比</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}>{["1:1","16:9","9:16","4:5"].map(o=><option key={o}>{o}</option>)}</select></label></>}
         {data.nodeType === "text" && <><label className={wrap}><span className={lbl}>指令</span>{textArea("instruction", data.instruction, 3)}</label><label className={wrap}><span className={lbl}>起始文本</span>{textArea("inputText", data.inputText, 2)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>温度</span><input className={inp} type="number" step="0.1" min="0" max="2" value={data.temperature ?? 0.7} onChange={e => set({ temperature: Number(e.target.value) })} /></label></>}
-        {data.nodeType === "script" && <><label className={wrap}><span className={lbl}>创意概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>语调</span>{textInput("scriptTone", data.scriptTone)}</label><label className={wrap}><span className={lbl}>目标场景数</span><select className={sel} value={String(data.numberOfScenes ?? 3)} onChange={e => set({ numberOfScenes: Number(e.target.value) })}>{[1,2,3,4,5,6,8,10,12].map(n=><option key={n}>{n}</option>)}</select></label></>}
+        {data.nodeType === "script" && <><label className={wrap}><span className={lbl}>创意概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>语调</span>{textInput("scriptTone", data.scriptTone)}</label><label className={wrap}><span className={lbl}>目标场景数</span><select className={sel} value={String(clampStoryboardSceneCount(data.numberOfScenes))} onChange={e => set({ numberOfScenes: clampStoryboardSceneCount(e.target.value) })}>{[1,2,3].map(n=><option key={n}>{n}</option>)}</select></label></>}
         {data.nodeType === "image" && <><label className={wrap}><span className={lbl}>图像提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>尺寸</span><select className={sel} value={data.size ?? "1024x1024"} onChange={e => set({ size: e.target.value })}>{["1024x1024","1536x1024","1024x1536","auto"].map(o=><option key={o}>{o}</option>)}</select></label></>}
         {data.nodeType === "video" && <>
           <label className={wrap}><span className={lbl}>模型</span><select className={sel} value={activeVideoModel} onChange={e => set(videoModelSelectionPatch(e.target.value as VideoModelPresetId, data.aspectRatio))}>{videoModelOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
@@ -134,7 +145,7 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
           <label className={wrap}><span className={lbl}>Motion prompt</span>{textArea("prompt", data.prompt, 3)}</label>
         </>}
         {data.nodeType === "audio" && <><label className={wrap}><span className={lbl}>音频提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>音色</span>{textInput("voice", data.voice)}</label><label className={wrap}><span className={lbl}>情绪</span>{textInput("emotion", data.emotion)}</label><label className={wrap}><span className={lbl}>时长（秒）</span><select className={sel} value={String(data.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}><option value="">默认</option>{[5,10,15,20,30,60].map(n=><option key={n} value={n}>{n}s</option>)}</select></label></>}
-        {data.nodeType === "storyboard" && <><label className={wrap}><span className={lbl}>故事概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>目标镜头数</span><select className={sel} value={String(data.targetShotCount ?? data.numberOfScenes ?? 3)} onChange={e => set({ targetShotCount: Number(e.target.value) })}>{[1,2,3,4,5,6,8,10,12,16,20,24,30].map(n=><option key={n}>{n}</option>)}</select></label></>}
+        {data.nodeType === "storyboard" && <><label className={wrap}><span className={lbl}>故事概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>目标镜头数</span><select className={sel} value={String(clampStoryboardSceneCount(data.targetShotCount ?? data.numberOfScenes))} onChange={e => set({ targetShotCount: clampStoryboardSceneCount(e.target.value) })}>{[1,2,3].map(n=><option key={n}>{n}</option>)}</select></label></>}
         {data.nodeType === "storyboardImage" && <><label className={wrap}><span className={lbl}>宽高比</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}>{["16:9","9:16","1:1"].map(o=><option key={o}>{o}</option>)}</select></label><label className={wrap}><span className={lbl}>排除</span>{textArea("negativePrompt", data.negativePrompt, 2)}</label></>}
         {data.nodeType === "reference" && <label className={wrap}><span className={lbl}>备注</span>{textArea("notes", data.notes, 4)}</label>}
         {data.nodeType === "output" && <label className={wrap}><span className={lbl}>交付格式</span><select className={sel} value={data.format ?? "Creative package"} onChange={e => set({ format: e.target.value })}>{["Creative package","Storyboard package","Campaign brief","Production sheet","JSON"].map(o=><option key={o}>{o}</option>)}</select></label>}
@@ -185,12 +196,16 @@ function NodePreview({ node, t, onView, onViewVideo, onAnnotate }: { node: Canva
     const canvas = record(composition.canvas);
     const elements = Array.isArray(composition.elements) ? composition.elements.length : 0;
     const assets = Array.isArray(composition.assets) ? composition.assets.length : 0;
+    const phase = text(details.phase);
+    const message = text(details.message);
+    const progress = Number(details.progress);
     return (
       <div className="mt-2 rounded-md border border-blue-100 bg-blue-50 p-2 dark:border-blue-400/20 dark:bg-blue-400/10">
         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-700 dark:text-blue-200">HyperFrames DSL</p>
         <p className="mt-1 text-[11px] leading-4 text-[#1a1a1a] dark:text-slate-200">{text(composition.title) || node.data.title}</p>
         <p className="mt-1 text-[10px] text-[#676f7b] dark:text-slate-400">{String(canvas.width || 1280)}x{String(canvas.height || 720)} · {String(canvas.fps || 30)}fps · {String(canvas.duration || 10)}s</p>
-        <p className="mt-1 text-[10px] text-[#676f7b] dark:text-slate-400">{elements} elements · {assets} assets · render pending</p>
+        <p className="mt-1 text-[10px] text-[#676f7b] dark:text-slate-400">{elements} elements · {assets} assets · {phase || "render pending"}</p>
+        {message && <p className="mt-1 text-[10px] leading-4 text-blue-700 dark:text-blue-200">{message}{Number.isFinite(progress) ? ` (${Math.round(progress)}%)` : ""}</p>}
       </div>
     );
   }
@@ -375,6 +390,16 @@ function ImagePlaceholderIcon() {
   );
 }
 
+function AudioMaterialIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 18V5l10-2v13" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="16" cy="16" r="3" />
+    </svg>
+  );
+}
+
 
 function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
@@ -448,9 +473,9 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
               onChange={(v) => updateNodeData(id, { model: String(v) })}
             />
             <PillDropdown
-              value={isScript ? data.numberOfScenes || 3 : data.wordCount || 200}
-              options={(isScript ? [3, 4, 5, 6, 7, 8] : [100, 200, 500, 1000]).map((n) => ({ value: n, label: isScript ? `${n} scene` : `${n} words` }))}
-              onChange={(v) => updateNodeData(id, isScript ? { numberOfScenes: Number(v) } : { wordCount: Number(v) })}
+              value={isScript ? clampStoryboardSceneCount(data.numberOfScenes) : data.wordCount || 200}
+              options={(isScript ? [1, 2, 3] : [100, 200, 500, 1000]).map((n) => ({ value: n, label: isScript ? `${n} scene` : `${n} words` }))}
+              onChange={(v) => updateNodeData(id, isScript ? { numberOfScenes: clampStoryboardSceneCount(v) } : { wordCount: Number(v) })}
             />
             <button type="button" title="语音输入（即将支持）" className="nodrag grid h-9 w-9 place-items-center rounded-full bg-[#f0f1f3] text-[#404040] dark:bg-slate-800 dark:text-slate-300">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
@@ -485,7 +510,7 @@ function StoryboardPlaceholderIcon() {
 function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
-  const sceneCount = data.targetShotCount ?? data.numberOfScenes ?? 3;
+  const sceneCount = clampStoryboardSceneCount(data.targetShotCount ?? data.numberOfScenes ?? DEFAULT_STORYBOARD_SCENE_COUNT);
   const scenes = Array.isArray(data.output?.value) ? data.output.value.map(record) : [];
 
   return (
@@ -546,8 +571,8 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
             />
             <PillDropdown
               value={sceneCount}
-              options={[3, 4, 5, 6, 7, 8].map((value) => ({ value, label: `${value} scene` }))}
-              onChange={(value) => { const count = Number(value); updateNodeData(id, { numberOfScenes: count, targetShotCount: count }); }}
+              options={[1, 2, 3].map((value) => ({ value, label: `${value} scene` }))}
+              onChange={(value) => { const count = clampStoryboardSceneCount(value); updateNodeData(id, { numberOfScenes: count, targetShotCount: count }); }}
             />
           </div>
           <button
@@ -793,21 +818,34 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
       ]
     : videoInputPortsForPreset(activeVideoModel);
   const inputPortKey = inputPorts.map((port) => port.id).join(",");
-  const supportsImageInput = inputPorts.some((port) => port.kind === "image");
-  const imageSourceIds = new Set(incomingEdges
-    .filter((edge) => !edge.targetHandle || edge.targetHandle === "image" || edge.targetHandle === "start-frame" || edge.targetHandle === "ref-image" || edge.targetHandle.startsWith("ref-image-"))
-    .map((edge) => edge.source));
-  const materialOptions = allNodes
-    .filter((item: CanvasNode) => imageSourceIds.has(item.id))
-    .filter((item: CanvasNode) => item.id !== id && ["image", "reference"].includes(item.data.nodeType) && nodeImageUrl(item))
-    .map((item: CanvasNode) => ({ node: item, imageUrl: nodeImageUrl(item), label: materialLabel(item) }));
+  const supportedMaterialKinds = new Set(inputPorts.map((port) => port.kind).filter((kind): kind is VideoMaterialKind => kind === "image" || kind === "video" || kind === "audio"));
+  const connectedSourceIds = [...new Set(incomingEdges.map((edge) => edge.source))];
+  const materialOptions = connectedSourceIds
+    .map((sourceId) => allNodes.find((item: CanvasNode) => item.id === sourceId))
+    .filter((item): item is CanvasNode => item !== undefined && item.id !== id)
+    .map((item): VideoMaterialOption | undefined => {
+      const kind = videoMaterialKind(item);
+      if (!kind || !supportedMaterialKinds.has(kind)) return undefined;
+      const url = videoMaterialUrl(item, kind);
+      return url ? { node: item, kind, url, label: materialLabel(item) } : undefined;
+    })
+    .filter((item): item is VideoMaterialOption => Boolean(item));
   const selectedReferenceIds = (data.videoReferenceNodeIds || []).filter((refId: string) => materialOptions.some((item) => item.node.id === refId));
   const selectedMaterials = selectedReferenceIds.map((refId: string) => materialOptions.find((item) => item.node.id === refId)).filter(Boolean) as typeof materialOptions;
   const toggleMaterial = (nodeId: string) => {
-    const current = data.videoReferenceNodeIds || [];
-    updateNodeData(id, { videoReferenceNodeIds: current.includes(nodeId) ? current.filter((item: string) => item !== nodeId) : [...current, nodeId].slice(0, 7) });
+    const current = selectedReferenceIds;
+    if (current.includes(nodeId)) {
+      updateNodeData(id, { videoReferenceNodeIds: current.filter((item: string) => item !== nodeId), videoReferenceSelectionActive: true });
+      return;
+    }
+    const material = materialOptions.find((item) => item.node.id === nodeId);
+    const kindLimit = material ? videoReferenceLimitForPreset(activeVideoModel, material.kind) : undefined;
+    const withoutReplacedKind = material && kindLimit === 1
+      ? current.filter((itemId: string) => materialOptions.find((item) => item.node.id === itemId)?.kind !== material.kind)
+      : current;
+    const next = [...withoutReplacedKind, nodeId].slice(0, 7);
+    updateNodeData(id, { videoReferenceNodeIds: next, videoReferenceSelectionActive: true });
   };
-
   useEffect(() => {
     updateNodeInternals(id);
   }, [id, inputPortKey, updateNodeInternals]);
@@ -830,7 +868,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const renderHandle = (label: string, handleId: string, borderColorClass: string, bgColorClass: string, connectedBgColorClass: string) => {
     const isConnected = connectedHandles.has(handleId);
     return (
-       <div className="flex items-center justify-end gap-3" style={{ width: "125px" }}>
+       <div key={handleId} className="flex items-center justify-end gap-3" style={{ width: "125px" }}>
          <span className={`whitespace-nowrap font-bold text-[14px] text-[#030303] dark:text-slate-200 transition-opacity duration-300 ${selected ? "opacity-100" : "opacity-0"}`}>
            {label}
          </span>
@@ -893,7 +931,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
 
       <div className={`nodrag nowheel absolute left-1/2 top-[calc(100%+8px)] z-50 flex max-h-[560px] w-[800px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
          <div className="min-h-0 flex-1 overflow-y-auto p-6 pb-4">
-            {supportsImageInput && <div className="mb-3 flex items-center gap-2">
+            {supportedMaterialKinds.size > 0 && <div className="mb-3 flex items-center gap-2">
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setMaterialPickerOpen((open) => !open); }}
@@ -910,14 +948,14 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                     className="nodrag relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-[#c9ccd1] bg-[#f0f1f3] dark:border-slate-600 dark:bg-slate-800"
                     title={`${index + 1}: ${item.label}`}
                   >
-                    <img src={item.imageUrl} alt={item.label} className="h-full w-full object-cover" />
+                    {item.kind === "image" ? <img src={item.url} alt={item.label} className="h-full w-full object-cover" /> : item.kind === "video" ? <video src={item.url} muted playsInline preload="metadata" className="h-full w-full object-cover" /> : <span className="grid h-full w-full place-items-center bg-orange-50 text-orange-600 dark:bg-orange-950/40 dark:text-orange-300"><AudioMaterialIcon /></span>}
                     <span className="absolute right-0.5 top-0.5 rounded-full bg-[#030303]/85 px-1.5 py-0.5 text-[10px] font-bold text-white">@{index + 1}</span>
                   </button>
                 ))}
-                {!selectedMaterials.length && <span className="text-[12px] text-[#676f7b] dark:text-slate-400">选择素材后可在提示词中写 @1、@2 指定图片</span>}
+                {!selectedMaterials.length && <span className="text-[12px] text-[#676f7b] dark:text-slate-400">{activeVideoModel === "digital-human-video" ? "请选择一张人物图和一段音频" : "输入 @ 可选择连接的图片、视频或音频素材"}</span>}
               </div>
             </div>}
-            {supportsImageInput && materialPickerOpen && (
+            {supportedMaterialKinds.size > 0 && materialPickerOpen && (
               <div className="nodrag mb-3 grid max-h-44 grid-cols-6 gap-2 overflow-y-auto rounded-xl border border-[#e7eaf0] bg-[#f8f9fa] p-2 dark:border-slate-700 dark:bg-[#071019]" onClick={(e) => e.stopPropagation()}>
                 {materialOptions.map((item) => {
                   const selectedIndex = selectedReferenceIds.indexOf(item.node.id);
@@ -929,13 +967,14 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                       className={`relative h-20 overflow-hidden rounded-lg border text-left ${selectedIndex >= 0 ? "border-[#030303] ring-2 ring-[#030303]/15 dark:border-cyan-300 dark:ring-cyan-300/20" : "border-[#dfe3ea] hover:border-[#030303] dark:border-slate-700 dark:hover:border-cyan-300"}`}
                       title={item.label}
                     >
-                      <img src={item.imageUrl} alt={item.label} className="h-full w-full object-cover" />
+                      {item.kind === "image" ? <img src={item.url} alt={item.label} className="h-full w-full object-cover" /> : item.kind === "video" ? <video src={item.url} muted playsInline preload="metadata" className="h-full w-full object-cover" /> : <span className="grid h-full w-full place-items-center bg-orange-50 text-orange-600 dark:bg-orange-950/40 dark:text-orange-300"><AudioMaterialIcon /></span>}
+                      <span className={`absolute left-1 top-1 rounded px-1 py-0.5 text-[9px] font-bold ${item.kind === "image" ? "bg-lime-100/95 text-lime-800" : item.kind === "video" ? "bg-violet-100/95 text-violet-800" : "bg-orange-100/95 text-orange-800"}`}>{item.kind === "image" ? "图片" : item.kind === "video" ? "视频" : "音频"}</span>
                       <div className="absolute inset-x-0 bottom-0 truncate bg-black/65 px-1.5 py-1 text-[10px] font-medium text-white">{item.label}</div>
                       {selectedIndex >= 0 && <span className="absolute right-1 top-1 rounded-full bg-[#030303] px-1.5 py-0.5 text-[10px] font-bold text-white dark:bg-cyan-400 dark:text-[#030303]">@{selectedIndex + 1}</span>}
                     </button>
                   );
                 })}
-                {!materialOptions.length && <div className="col-span-6 px-2 py-6 text-center text-[12px] text-[#676f7b] dark:text-slate-400">请先把图片或素材节点连到这个 VideoNode</div>}
+                {!materialOptions.length && <div className="col-span-6 px-2 py-6 text-center text-[12px] text-[#676f7b] dark:text-slate-400">{activeVideoModel === "digital-human-video" ? "请先连接一张人物图和一段音频" : "请先把图片、视频或音频节点连到这个 VideoNode"}</div>}
               </div>
             )}
             <AutoGrowTextarea
@@ -953,7 +992,14 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
               {!isVideoEdit && <PillDropdown
                 value={activeVideoModel}
                 options={videoModelOptions.map(option => ({ value: option.id, label: option.label }))}
-                onChange={v => updateNodeData(id, videoModelSelectionPatch(String(v) as VideoModelPresetId, data.aspectRatio))}
+                 onChange={v => {
+                   const presetId = String(v) as VideoModelPresetId;
+                   updateNodeData(id, {
+                     ...videoModelSelectionPatch(presetId, data.aspectRatio),
+                     ...(presetId === "digital-human-video" && (!data.prompt || data.prompt === "A gentle cinematic movement") ? { prompt: DIGITAL_HUMAN_VIDEO_PROMPT } : {}),
+                     ...(presetId === "digital-human-video" ? { videoReferenceNodeIds: [], videoReferenceSelectionActive: false } : {}),
+                   });
+                 }}
               />}
               <PillDropdown 
                  value={isVideoEdit ? data.aspectRatio || "16:9" : videoAspectRatio}

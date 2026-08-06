@@ -11,7 +11,7 @@ import {
   getSkillRemote,
   listSkillsRemote,
 } from "@/features/skills/services/skillClient";
-import { skillCategoryLabels, type SkillSummary } from "@/shared/skills/skillTypes";
+import { skillCategoryLabels, skillRoleLabels, type SkillSummary } from "@/shared/skills/skillTypes";
 
 const safeReturnPath = (value: string | null) => value?.startsWith("/") && !value.startsWith("//") ? value : "";
 
@@ -59,6 +59,10 @@ export function SkillLibrary() {
         usageScenario: payload.output.usageScenario,
         howToUse: payload.output.howToUse,
         expectedOutput: payload.output.expectedOutput,
+        role: payload.output.role,
+        appliesTo: payload.output.appliesTo,
+        triggerPhrases: payload.output.triggerPhrases,
+        priority: payload.output.priority,
       }));
       window.sessionStorage.setItem(PENDING_SKILL_KEY, JSON.stringify(payload.output));
       window.location.href = returnTo || "/workspace/local";
@@ -122,6 +126,10 @@ export function SkillLibrary() {
                 </div>
                 <h2 className="mt-5 truncate text-lg font-semibold">{skill.name}</h2>
                 <p className="mt-2 line-clamp-3 text-sm leading-6 text-[#9d9d9d]">{skill.tagline}</p>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  <span className="rounded-md bg-[#243043] px-2 py-1 text-[#bed4f5]">{skillRoleLabels[skill.role || "workflow_recipe"]}</span>
+                  {skill.triggerPhrases?.slice(0, 2).map((phrase) => <span key={phrase} className="rounded-md bg-[#2d2d2d] px-2 py-1 text-[#a9a9a9]">{phrase}</span>)}
+                </div>
                 <div className="mt-5 text-xs text-[#707070]">{skill.hasCanvasTemplate ? `${skill.nodeCount} 个画布节点` : "纯指令 Skill"}</div>
                 <div className="mt-auto flex items-center gap-2 border-t border-[#303030] pt-5">
                   <button onClick={() => void useSkill(skill)} className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#e6e6e6]">使用</button>

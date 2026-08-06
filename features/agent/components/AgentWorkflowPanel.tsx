@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { requestAgentRouter } from "@/features/agent/services/agentClient";
+import { cancelAgentRun, getAgentRun, requestAgentRouter, resumeAgentRun, updateAgentRun } from "@/features/agent/services/agentClient";
 import { runAutonomousAgent } from "@/features/agent/services/autonomousAgent";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
-import { agentMemorySummary, type AgentReferenceAsset } from "@/shared/agent/projectMemory";
+import { type AgentReferenceAsset } from "@/shared/agent/projectMemory";
 import { agentWorkflowSkills, buildFixedSceneVideoSkill, type AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 import type {
   AgentCanvasEditPlan,
@@ -15,13 +15,16 @@ import type {
   CanvasEditPatch,
   CanvasPatch,
 } from "@/shared/agent/agentSchema";
-import type { AgentRouterIntent } from "@/shared/api/aiContracts";
+import type { AgentRouterIntent, AgentRouterResponse } from "@/shared/api/aiContracts";
 import type { CanvasNode } from "@/shared/canvas";
 import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
 import { ACTIVE_SKILL_KEY } from "@/features/skills/services/skillClient";
-import type { AgentRunEvent } from "@/shared/agent/agentAutonomy";
+import type { AgentRunEvent, AgentRunStatus, AgentRunTrace } from "@/shared/agent/agentAutonomy";
+import type { AgentSkillUsage } from "@/shared/agent/capabilityTypes";
 import type { AgentImageSearchResult } from "@/shared/agent/agentTools";
 import { archiveRemoteImageUrl } from "@/features/canvas/services/mediaArchiveClient";
+import { apiErrorPayload } from "@/shared/api/client";
+import { agentExecutionModelFrom, agentExecutionModelOptions, DEFAULT_AGENT_EXECUTION_MODEL, type AgentExecutionModelId } from "@/shared/agent/executionModels";
 
 type AgentPreview =
   | { intent: "create"; plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }
@@ -50,12 +53,42 @@ type ChatEntry = {
   };
 };
 
-const suggestions = [
-  "和我一起构思一个骑士寻找公主的悲情短片",
-  "用人物四象图和场景九宫图生成一个10秒固定场景视频工作流",
-  "把选中的视频剪成15秒预告片，节奏快一点，保留原声",
-  "整理当前画布，把同一故事的节点分组并排整齐",
-];
+type BrowserSpeechRecognitionResult = {
+  isFinal: boolean;
+  0: { transcript: string };
+};
+
+type BrowserSpeechRecognitionEvent = Event & {
+  resultIndex: number;
+  results: ArrayLike<BrowserSpeechRecognitionResult>;
+};
+
+type BrowserSpeechRecognitionErrorEvent = Event & {
+  error: string;
+};
+
+type BrowserSpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onstart: ((event: Event) => void) | null;
+  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
+  onerror: ((event: BrowserSpeechRecognitionErrorEvent) => void) | null;
+  onend: ((event: Event) => void) | null;
+};
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
+const browserSpeechRecognition = () => {
+  const browserWindow = window as Window & {
+    SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+  };
+  return browserWindow.SpeechRecognition || browserWindow.webkitSpeechRecognition;
+};
 
 const operationTarget = (operation: AgentCanvasEditPlan["operations"][number]) =>
   operation.targetNodeId || operation.sourceNodeId || operation.targetNodeIdForConnection || operation.targetEdgeId || operation.nodeType || "canvas";
@@ -64,6 +97,41 @@ const fixedSceneConstraints = [
   "Use character turnaround images and a scene nine-grid image.",
   "Avoid storyboard-only workflow for fixed-scene video requests.",
 ];
+
+const LAST_AGENT_RUN_KEY = "mindverse:last-agent-run-id";
+const AGENT_EXECUTION_MODEL_KEY = "mindverse:agent-execution-model";
+
+const skillUsageLabel = (source: AgentSkillUsage["source"]) =>
+  source === "active" ? "已启用" : source === "rag" ? "RAG 检索" : source === "system" ? "提示词规则" : "内置目录";
+
+const skillUsageClassName = (source: AgentSkillUsage["source"]) =>
+  source === "active"
+    ? "border-violet-200 bg-violet-50 text-violet-700"
+    : source === "rag"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : source === "system"
+        ? "border-amber-200 bg-amber-50 text-amber-800"
+      : "border-sky-200 bg-sky-50 text-sky-700";
+
+const skillUsageList = (value: unknown): AgentSkillUsage[] => {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const raw = item as Record<string, unknown>;
+    const id = typeof raw.id === "string" ? raw.id.trim() : "";
+    const name = typeof raw.name === "string" ? raw.name.trim() : "";
+    const source = raw.source === "active" || raw.source === "rag" || raw.source === "catalog" || raw.source === "system" ? raw.source : "rag";
+    if (!id || !name) return [];
+    return [{
+      id,
+      name,
+      source,
+      evidenceIds: Array.isArray(raw.evidenceIds) ? raw.evidenceIds.filter((id): id is string => typeof id === "string") : [],
+      supports: Array.isArray(raw.supports) ? raw.supports.filter((capability): capability is string => typeof capability === "string") : [],
+      role: raw.role === "base_policy" || raw.role === "style_profile" ? raw.role : undefined,
+    }];
+  });
+};
 
 const valueRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -82,7 +150,7 @@ const selectedNodeMeta = (node: CanvasNode) => {
   return [node.data.nodeType, node.data.status, ...media].join(" · ");
 };
 
-export function AgentWorkflowPanel() {
+export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -93,9 +161,24 @@ export function AgentWorkflowPanel() {
   const [customSkill, setCustomSkill] = useState<ActiveSkillContext | null>(null);
   const [autonomousEnabled, setAutonomousEnabled] = useState(false);
   const [autonomousEvents, setAutonomousEvents] = useState<AgentRunEvent[]>([]);
+  const [agentRunId, setAgentRunId] = useState<string | null>(null);
+  const [agentRunStatus, setAgentRunStatus] = useState<AgentRunStatus | null>(null);
+  const [agentRunExpanded, setAgentRunExpanded] = useState(false);
+  const [executionModel, setExecutionModel] = useState<AgentExecutionModelId>(DEFAULT_AGENT_EXECUTION_MODEL);
+  const [usedSkills, setUsedSkills] = useState<AgentSkillUsage[]>([]);
   const [selectingImageId, setSelectingImageId] = useState<string | null>(null);
   const [selectedImageResultIds, setSelectedImageResultIds] = useState<string[]>([]);
+  const [suggestionsVisible, setSuggestionsVisible] = useState(true);
+  const [suggestionsLeaving, setSuggestionsLeaving] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [speechError, setSpeechError] = useState<string | null>(null);
   const autonomousControllerRef = useRef<AbortController | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const speechInputBaseRef = useRef("");
+  const speechFinalRef = useRef("");
+  const suggestionTimerRef = useRef<number | null>(null);
 
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
@@ -119,16 +202,111 @@ export function AgentWorkflowPanel() {
   const addStoryChainNode = useCanvasStore((state) => state.addStoryChainNode);
 
   const workflowSkills = Object.values(agentWorkflowSkills);
-  const selectedNodeIds = useMemo(
-    () => [...new Set([...nodes.filter((node) => node.selected).map((node) => node.id), ...(selectedNodeId ? [selectedNodeId] : [])])],
-    [nodes, selectedNodeId],
-  );
+  const selectedNodeIds = useMemo(() => {
+    const existingIds = new Set(nodes.map((node) => node.id));
+    return [...new Set([
+      ...nodes.filter((node) => node.selected).map((node) => node.id),
+      ...(selectedNodeId && existingIds.has(selectedNodeId) ? [selectedNodeId] : []),
+    ])];
+  }, [nodes, selectedNodeId]);
   const selectedNodes = useMemo(
     () => selectedNodeIds.map((id) => nodes.find((node) => node.id === id)).filter((node): node is CanvasNode => Boolean(node)),
     [nodes, selectedNodeIds],
   );
-  const memoryText = useMemo(() => agentMemorySummary(agentMemory), [agentMemory]);
   const canSubmit = input.trim().length > 0 && !busy;
+  const clearProjectMemory = () => {
+    clearAgentMemory();
+    setLocalError(null);
+  };
+
+  const primeComposer = (prompt: string) => {
+    setInput(prompt);
+    composerRef.current?.focus();
+  };
+
+  const chooseSuggestion = (prompt: string) => {
+    if (suggestionsLeaving) return;
+    primeComposer(prompt);
+    setSuggestionsLeaving(true);
+    if (suggestionTimerRef.current) window.clearTimeout(suggestionTimerRef.current);
+    suggestionTimerRef.current = window.setTimeout(() => {
+      setSuggestionsVisible(false);
+      setSuggestionsLeaving(false);
+      composerRef.current?.focus();
+    }, 240);
+  };
+
+  const stopSpeechInput = () => {
+    recognitionRef.current?.stop();
+    setIsListening(false);
+  };
+
+  const toggleSpeechInput = () => {
+    if (isListening) {
+      stopSpeechInput();
+      return;
+    }
+
+    const SpeechRecognition = browserSpeechRecognition();
+    if (!SpeechRecognition) {
+      setSpeechError("当前浏览器不支持语音输入，请使用最新版 Chrome 或 Edge。");
+      return;
+    }
+
+    recognitionRef.current?.abort();
+    const recognition = new SpeechRecognition();
+    recognition.lang = "zh-CN";
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    speechInputBaseRef.current = input;
+    speechFinalRef.current = "";
+    setSpeechError(null);
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onresult = (event) => {
+      let interimTranscript = "";
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result?.[0]?.transcript || "";
+        if (result?.isFinal) speechFinalRef.current += transcript;
+        else interimTranscript += transcript;
+      }
+      setInput(`${speechInputBaseRef.current}${speechFinalRef.current}${interimTranscript}`);
+    };
+    recognition.onerror = (event) => {
+      const message = event.error === "not-allowed" || event.error === "service-not-allowed"
+        ? "麦克风权限未开启，请在浏览器地址栏允许访问后重试。"
+        : event.error === "audio-capture"
+          ? "没有检测到可用麦克风，请检查设备连接。"
+          : event.error === "no-speech"
+            ? "没有听到清晰语音，请靠近麦克风再试一次。"
+            : "语音输入暂时不可用，请稍后重试。";
+      setSpeechError(message);
+      setIsListening(false);
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+      composerRef.current?.focus();
+    };
+    recognitionRef.current = recognition;
+
+    try {
+      recognition.start();
+    } catch {
+      recognitionRef.current = null;
+      setSpeechError("语音输入启动失败，请稍后重试。");
+      setIsListening(false);
+    }
+  };
+
+  useEffect(() => {
+    setSpeechSupported(Boolean(browserSpeechRecognition()));
+    return () => {
+      recognitionRef.current?.abort();
+      if (suggestionTimerRef.current) window.clearTimeout(suggestionTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const raw = window.localStorage.getItem(ACTIVE_SKILL_KEY);
@@ -139,6 +317,52 @@ export function AgentWorkflowPanel() {
       window.localStorage.removeItem(ACTIVE_SKILL_KEY);
     }
   }, []);
+
+  useEffect(() => {
+    setExecutionModel(agentExecutionModelFrom(window.localStorage.getItem(AGENT_EXECUTION_MODEL_KEY)));
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(AGENT_EXECUTION_MODEL_KEY, executionModel);
+  }, [executionModel]);
+
+  useEffect(() => {
+    const runId = window.localStorage.getItem(LAST_AGENT_RUN_KEY);
+    if (!runId) return;
+    let active = true;
+    void getAgentRun(runId).then(({ run }) => {
+      if (!active) return;
+      setAgentRunId(run.id);
+      setAgentRunStatus(run.status);
+      setAutonomousEvents(run.events.slice(-24));
+      setUsedSkills(skillUsageList(run.checkpoint?.skillUsage));
+      if (run.request?.executionModel) setExecutionModel(run.request.executionModel);
+    }).catch(() => window.localStorage.removeItem(LAST_AGENT_RUN_KEY));
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (agentRunId) window.localStorage.setItem(LAST_AGENT_RUN_KEY, agentRunId);
+  }, [agentRunId]);
+
+  useEffect(() => {
+    if (!agentRunId || busy || agentRunStatus !== "running") return;
+    let active = true;
+    const refresh = () => {
+      void getAgentRun(agentRunId).then(({ run }) => {
+        if (!active) return;
+        setAgentRunStatus(run.status);
+        setAutonomousEvents(run.events.slice(-24));
+        setUsedSkills(skillUsageList(run.checkpoint?.skillUsage));
+      }).catch(() => undefined);
+    };
+    const timer = window.setInterval(refresh, 3000);
+    refresh();
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [agentRunId, agentRunStatus, busy]);
 
   const clearCustomSkill = () => {
     window.localStorage.removeItem(ACTIVE_SKILL_KEY);
@@ -194,6 +418,7 @@ export function AgentWorkflowPanel() {
         x: store.nodes.length ? Math.max(...store.nodes.map((node) => node.position.x)) + 420 : 80,
         y: store.nodes.length ? Math.min(...store.nodes.map((node) => node.position.y)) : 80,
       };
+      store.recordCanvasMutation();
       store.addMediaNode(canvasImageUrl, position);
       const nodeId = useCanvasStore.getState().selectedNodeId;
       if (!nodeId) throw new Error("Reference node was not created.");
@@ -244,6 +469,7 @@ export function AgentWorkflowPanel() {
   const runUnifiedAgent = async (forceIntent?: AgentRouterIntent, messageOverride?: string) => {
     const message = (messageOverride ?? input).trim();
     if (!message || busy) return;
+    const resumeRunId = agentRunStatus === "awaiting_user" ? agentRunId || undefined : undefined;
     setBusy(true);
     setLocalError(null);
     setPreview(null);
@@ -252,7 +478,10 @@ export function AgentWorkflowPanel() {
     setInput("");
     const autonomousController = autonomousEnabled ? new AbortController() : null;
     autonomousControllerRef.current = autonomousController;
-    if (autonomousEnabled) setAutonomousEvents([]);
+    setAutonomousEvents([]);
+    setUsedSkills([]);
+    setAgentRunId(null);
+    setAgentRunStatus("running");
 
     try {
       const payload = await requestAgentRouter({
@@ -262,10 +491,20 @@ export function AgentWorkflowPanel() {
         conversation: chat.map((item) => ({ role: item.role, content: item.content })),
         forceIntent,
         customSkill: customSkill || undefined,
+        resumeRunId,
+        executionMode: "browser",
+        workflowId,
+        executionModel,
       });
+      const planningEvents = payload.agentRun?.events || [];
+      setAgentRunId(payload.agentRun?.id || null);
+      setAgentRunStatus(payload.agentRun?.status || null);
+      setAutonomousEvents(planningEvents.slice(-24));
+      setUsedSkills(skillUsageList(payload.skillUsage));
       const resolvedRequest = payload.resolvedRequest || message;
 
-      if (autonomousEnabled && ["create", "edit", "organize", "skill"].includes(payload.intent)) {
+      const requiresCapabilityApproval = Boolean(payload.approvalRequiredStepIds?.length);
+      if (autonomousEnabled && !requiresCapabilityApproval && ["create", "edit", "organize", "skill"].includes(payload.intent)) {
         updateAgentMemory({
           storyBrief: resolvedRequest,
           lastIntent: payload.intent,
@@ -274,14 +513,22 @@ export function AgentWorkflowPanel() {
           pendingRequest: undefined,
           pendingQuestions: undefined,
         });
+        setAgentRunStatus("running");
         const result = await runAutonomousAgent({
           userMessage: resolvedRequest,
           response: payload,
           selectedNodeIds,
+          runId: payload.agentRun?.id,
+          initialEvents: planningEvents,
           signal: autonomousController?.signal,
           maxRepairAttempts: 2,
+          executionModel: payload.executionModel || executionModel,
           onEvent: (event) => setAutonomousEvents((current) => [...current, event].slice(-24)),
+          persistUpdate: payload.agentRun?.id
+            ? (update) => updateAgentRun(payload.agentRun!.id, update)
+            : undefined,
         });
+        setAgentRunStatus(result.status);
         setChat([...nextChat, { role: "assistant", content: result.summary, intent: payload.intent }]);
         if (result.status === "blocked") setLocalError(result.summary);
         return;
@@ -349,10 +596,73 @@ export function AgentWorkflowPanel() {
       }
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "Agent request failed.";
+      const failedRun = apiErrorPayload<{ agentRun?: AgentRunTrace }>(error)?.agentRun;
+      if (failedRun) {
+        setAgentRunId(failedRun.id);
+        setAgentRunStatus(failedRun.status);
+        setAutonomousEvents(failedRun.events.slice(-24));
+      } else {
+        setAgentRunStatus("blocked");
+      }
       setLocalError(messageText);
       setChat([...nextChat, { role: "assistant", content: messageText }]);
     } finally {
       if (autonomousControllerRef.current === autonomousController) autonomousControllerRef.current = null;
+      setBusy(false);
+    }
+  };
+
+  const stopAgentRun = async () => {
+    autonomousControllerRef.current?.abort();
+    if (!agentRunId) return;
+    setAgentRunStatus("cancelled");
+    try {
+      const { run } = await cancelAgentRun(agentRunId);
+      setAutonomousEvents(run.events.slice(-24));
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "Unable to cancel the Agent run.");
+    }
+  };
+
+  const resumePersistedRun = async () => {
+    if (!agentRunId || busy) return;
+    setBusy(true);
+    setLocalError(null);
+    const controller = new AbortController();
+    autonomousControllerRef.current = controller;
+    try {
+      const { run } = await getAgentRun(agentRunId);
+      if (run.executionMode !== "browser") throw new Error("This Agent run is assigned to a server worker.");
+      if (!run.checkpoint?.planResponse) throw new Error("This Agent run does not have a resumable plan checkpoint.");
+      const response = run.checkpoint.planResponse as unknown as AgentRouterResponse;
+      if (response.ok !== true || !response.intent) throw new Error("The stored Agent plan is incomplete.");
+      const resumed = await resumeAgentRun(agentRunId);
+      const resumedExecutionModel = run.request?.executionModel || response.executionModel || executionModel;
+      setExecutionModel(resumedExecutionModel);
+      setAgentRunStatus(resumed.run.status);
+      setAutonomousEvents(resumed.run.events.slice(-24));
+      const result = await runAutonomousAgent({
+        userMessage: run.request?.userMessage || "Resume the stored Agent run.",
+        response,
+        selectedNodeIds: run.checkpoint.selectedNodeIds,
+        runId: run.id,
+        initialEvents: run.events,
+        resumeCheckpoint: run.checkpoint,
+        signal: controller.signal,
+        maxRepairAttempts: 2,
+        executionModel: resumedExecutionModel,
+        onEvent: (event) => setAutonomousEvents((current) => [...current, event].slice(-24)),
+        persistUpdate: (update) => updateAgentRun(run.id, update),
+      });
+      setAgentRunStatus(result.status);
+      setChat((current) => [...current, { role: "assistant", content: result.summary, intent: response.intent }]);
+      if (result.status === "blocked") setLocalError(result.summary);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to resume the Agent run.";
+      setAgentRunStatus("blocked");
+      setLocalError(message);
+    } finally {
+      if (autonomousControllerRef.current === controller) autonomousControllerRef.current = null;
       setBusy(false);
     }
   };
@@ -365,6 +675,8 @@ export function AgentWorkflowPanel() {
       void runAgentSkill(preview.skillId, preview.brief);
     }
     else applyAgentEditPatch({ ...preview.patch, selectedNodeIds: preview.patch.selectedNodeIds?.length ? preview.patch.selectedNodeIds : selectedNodeIds });
+    setAgentRunStatus("completed");
+    if (agentRunId) void updateAgentRun(agentRunId, { status: "completed", currentPhase: "completed", summary: "The approved canvas plan was applied." });
     setLocalError(null);
   };
 
@@ -391,33 +703,40 @@ export function AgentWorkflowPanel() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full border border-[#dce2ea] bg-white text-[#111827] shadow-[0_18px_48px_rgba(15,23,42,0.18)] transition hover:-translate-y-0.5 hover:border-[#b9c4d2] hover:bg-[#f7f9fc]"
+        className="mindverse-agent-launcher group fixed bottom-6 right-6 z-50 grid h-14 w-14 place-items-center rounded-2xl border transition duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
         aria-label="Open Agent"
       >
-        <span className="text-[13px] font-semibold">AI</span>
+        <svg aria-hidden="true" className="h-6 w-6 transition-transform duration-200 group-hover:scale-105" viewBox="0 0 24 24" fill="none">
+          <path d="M12 3.5c.35 5.18 3.32 8.15 8.5 8.5-5.18.35-8.15 3.32-8.5 8.5-.35-5.18-3.32-8.15-8.5-8.5 5.18-.35 8.15-3.32 8.5-8.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+        </svg>
       </button>
     );
   }
 
   return (
-    <section className="fixed bottom-5 right-5 z-50 flex h-[min(760px,calc(100vh-40px))] w-[min(520px,calc(100vw-24px))] flex-col overflow-hidden rounded-[20px] border border-[#dce2ea] bg-[#f7f9fc] text-[#111827] shadow-[0_24px_80px_rgba(15,23,42,0.24)]">
-      <header className="flex h-14 items-center justify-between border-b border-[#e3e8ef] bg-white px-4">
-        <div>
-          <div className="text-[15px] font-semibold text-[#111827]">Mindverse Agent</div>
-          <div className="text-[11px] text-[#7b8794]">{nodes.length} nodes · {selectedNodeIds.length} selected</div>
+    <section className="mindverse-agent-panel fixed bottom-3 right-3 top-3 z-50 flex w-[min(520px,calc(100vw-24px))] flex-col overflow-hidden rounded-[30px] border border-white/[0.09] bg-[#101214] text-[#f5f7fa] shadow-[0_28px_100px_rgba(2,6,23,0.48)]">
+      <header className="flex h-[64px] shrink-0 items-center justify-between border-b border-white/[0.07] bg-[#101214]/95 px-4 backdrop-blur-xl sm:px-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[14px] border border-white/[0.08] bg-white/[0.05] text-sky-300">
+            <svg aria-hidden="true" className="h-[18px] w-[18px]" viewBox="0 0 20 20" fill="none"><path d="M10 2.5c.3 4.58 2.92 7.2 7.5 7.5-4.58.3-7.2 2.92-7.5 7.5-.3-4.58-2.92-7.2-7.5-7.5 4.58-.3 7.2-2.92 7.5-7.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>
+          </span>
+          <div className="min-w-0">
+            <div className="truncate text-[14px] font-semibold text-white">{projectName || "新建创作"}</div>
+            <div className="mt-0.5 text-[10px] font-medium tracking-[0.12em] text-[#7f878f]">AGENT · {nodes.length} 个画布节点</div>
+          </div>
         </div>
-        <button type="button" onClick={() => setOpen(false)} className="grid h-9 w-9 place-items-center rounded-full text-[#6b7280] hover:bg-[#f7f9fc]" aria-label="Close Agent">
-          <span className="text-[20px] leading-none">x</span>
+        <button type="button" onClick={() => setOpen(false)} className="grid h-11 w-11 place-items-center rounded-xl text-[#9aa1a9] transition duration-200 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300" aria-label="Close Agent">
+          <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 20 20" fill="none"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>
         </button>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-5">
-        <div>
+      <div className="mindverse-agent-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4 pt-4 sm:px-5">
+        <div className="hidden">
           <h2 className="text-[24px] font-semibold leading-tight tracking-normal text-[#111827]">直接描述你想做什么</h2>
           <p className="mt-1 text-[12px] leading-5 text-[#6b7280]">Agent 会结合当前画布和项目记忆，自动判断是构思、生成工作流、修改画布、整理画布还是调用专用 skill。</p>
         </div>
 
-        <div className="rounded-[16px] border border-[#dce2ea] bg-white px-3 py-3 text-[12px] leading-5 text-[#5f6b7a] shadow-sm">
+        <div className="hidden rounded-[16px] border border-[#dce2ea] bg-white px-3 py-3 text-[12px] leading-5 text-[#5f6b7a] shadow-sm">
           <div className="mb-2 flex items-center justify-between gap-3">
             <span className="font-semibold text-[#111827]">Selected context</span>
             <div className="flex items-center gap-2">
@@ -460,7 +779,7 @@ export function AgentWorkflowPanel() {
         </div>
 
         {customSkill && (
-          <div className="rounded-[16px] border border-[#cfd9e6] bg-white px-3 py-3 text-[12px] leading-5 text-[#5f6b7a] shadow-sm">
+          <div className="hidden rounded-[16px] border border-[#cfd9e6] bg-white px-3 py-3 text-[12px] leading-5 text-[#5f6b7a] shadow-sm">
             <div className="mb-1 flex items-center justify-between gap-3">
               <span className="font-semibold text-[#111827]">当前 Skill</span>
               <button type="button" onClick={clearCustomSkill} className="text-[11px] font-semibold text-[#6b7280] hover:text-[#111827]">清除</button>
@@ -470,26 +789,57 @@ export function AgentWorkflowPanel() {
           </div>
         )}
 
-        {memoryText && (
-          <div className="rounded-[16px] border border-[#dce2ea] bg-white px-3 py-3 text-[12px] leading-5 text-[#5f6b7a] shadow-sm">
-            <div className="mb-1 flex items-center justify-between gap-3">
-              <span className="font-semibold text-[#111827]">项目记忆</span>
-              <button type="button" onClick={clearAgentMemory} className="text-[11px] font-semibold text-[#6b7280] hover:text-[#111827]">
-                清除
+        {chat.length === 0 && !preview && suggestionsVisible && (
+          <div className={`mindverse-agent-welcome flex min-h-[270px] flex-1 flex-col justify-center py-5 sm:min-h-[320px] ${suggestionsLeaving ? "mindverse-agent-suggestions--leaving" : ""}`}>
+            <div className="mb-6">
+              <div className="flex items-center gap-3 text-[15px] font-medium text-[#9aa3ad]">
+                <span className="grid h-8 w-8 place-items-center rounded-full border border-white/[0.09] bg-white/[0.05] text-sky-300">
+                  <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 20 20" fill="none"><path d="M10 2.5c.3 4.58 2.92 7.2 7.5 7.5-4.58.3-7.2 2.92-7.5 7.5-.3-4.58-2.92-7.2-7.5-7.5 4.58-.3 7.2-2.92 7.5-7.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>
+                </span>
+                Hi，{projectName || "创作者"}
+              </div>
+              <h2 className="mt-4 max-w-[11em] text-[clamp(2rem,4.4vw,2.75rem)] font-medium leading-[1.08] tracking-[-0.045em] text-[#f3f4f6]">从画布的哪一处开始？</h2>
+            </div>
+
+            <div className="mindverse-agent-suggestion-deck grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => chooseSuggestion("请先阅读当前画布，把散落的想法、素材和工作流梳理成一条清晰的创作路径，并给出下一步建议。")}
+                className="mindverse-agent-task-card group min-h-[138px] cursor-pointer rounded-[24px] border p-4 text-left transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+              >
+                <div className="flex items-center justify-between text-[#89929d]">
+                  <span className="flex items-center gap-2 text-[12px] font-semibold text-sky-200/70">
+                    <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 20 20" fill="none"><path d="M4 5.5h12M4 10h8M4 14.5h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /><path d="m14.5 9 1.5 1.5-1.5 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    理清画布
+                  </span>
+                  <span className="text-[10px] font-medium opacity-70 transition-transform duration-200 group-hover:translate-x-1">写入 →</span>
+                </div>
+                <p className="mt-4 text-[15px] font-semibold leading-[1.45] text-[#e7e9ec]">把散落节点编成一条创作路径</p>
+                <p className="mt-1.5 text-[11px] leading-[1.65] text-[#777f88]">识别主题、素材关系与下一步动作。</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => chooseSuggestion("基于当前项目搭建一份可编辑的视觉蓝图，明确世界观、角色、场景和镜头之间的关系，并在画布中组织出来。")}
+                className="mindverse-agent-task-card group min-h-[138px] cursor-pointer rounded-[24px] border p-4 text-left transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+              >
+                <div className="flex items-center justify-between text-[#89929d]">
+                  <span className="flex items-center gap-2 text-[12px] font-semibold text-sky-200/70">
+                    <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 20 20" fill="none"><circle cx="5" cy="6" r="2" stroke="currentColor" strokeWidth="1.4" /><circle cx="15" cy="5" r="2" stroke="currentColor" strokeWidth="1.4" /><circle cx="13" cy="15" r="2" stroke="currentColor" strokeWidth="1.4" /><path d="m7 6 6-1M6.4 7.5l5.2 6M14.7 7l-1.4 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
+                    搭建视觉结构
+                  </span>
+                  <span className="text-[10px] font-medium opacity-70 transition-transform duration-200 group-hover:translate-x-1">写入 →</span>
+                </div>
+                <p className="mt-4 text-[15px] font-semibold leading-[1.45] text-[#e7e9ec]">把故事变成可编辑的视觉蓝图</p>
+                <p className="mt-1.5 text-[11px] leading-[1.65] text-[#777f88]">连接世界观、角色、场景和镜头。</p>
               </button>
             </div>
-            <p className="line-clamp-4 whitespace-pre-wrap">{memoryText}</p>
           </div>
         )}
 
-        <div className="space-y-3">
-          {chat.length === 0 && (
-            <div className="rounded-[16px] border border-[#e1e6ee] bg-white px-3 py-3 text-[12px] leading-5 text-[#5f6b7a] shadow-sm">
-              你可以先和 Agent 聊故事方向，再说“生成一个新工作流”。如果前面已经确认了固定场景短片，它会优先调用人物四象图 + 场景九宫图的 skill。
-            </div>
-          )}
+        <div className="mindverse-agent-chat space-y-3">
           {chat.map((item, index) => (
-            <div key={`${item.role}-${index}`} className={`rounded-[16px] border px-3 py-3 shadow-sm ${item.role === "user" ? "ml-12 border-[#111827] bg-[#111827] text-white" : "mr-8 border-[#e1e6ee] bg-white text-[#111827]"}`}>
+            <div key={`${item.role}-${index}`} className={`mindverse-agent-message rounded-[20px] border px-4 py-3.5 ${item.role === "user" ? "mindverse-agent-message--user ml-12" : "mindverse-agent-message--assistant mr-8"}`}>
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] opacity-60">{item.role === "user" ? "You" : item.intent || "Agent"}</div>
               <p className="whitespace-pre-wrap text-[13px] leading-6">{item.content}</p>
               {item.response?.options?.length ? (
@@ -500,17 +850,17 @@ export function AgentWorkflowPanel() {
                       type="button"
                       disabled={busy}
                       onClick={() => void runUnifiedAgent("dialogue", `我选择 ${option.id}: ${option.title}。请继续完善这个方向。`)}
-                      className="block w-full rounded-xl border border-[#edf1f6] bg-[#f7f9fc] p-3 text-left transition hover:border-[#c8d2df] hover:bg-white"
+                      className="block w-full rounded-xl border border-white/[0.08] bg-white/[0.04] p-3 text-left transition hover:border-sky-300/20 hover:bg-white/[0.07]"
                     >
-                      <span className="block text-[12px] font-semibold text-[#111827]">{option.id}. {option.title}</span>
-                      <span className="mt-1 block text-[12px] leading-5 text-[#5f6b7a]">{option.summary}</span>
+                      <span className="block text-[12px] font-semibold text-[#eef0f2]">{option.id}. {option.title}</span>
+                      <span className="mt-1 block text-[12px] leading-5 text-[#89919a]">{option.summary}</span>
                     </button>
                   ))}
                 </div>
               ) : null}
               {item.response?.brief ? (
                 <div className="mt-3 flex gap-2">
-                  <Button type="button" disabled={busy} onClick={() => void runUnifiedAgent(nodes.length ? "edit" : "create", item.response?.brief)} className="rounded-full border-[#111827] bg-[#111827] px-3 py-1 text-[11px] text-white hover:border-[#263244] hover:bg-[#263244]">
+                  <Button type="button" disabled={busy} onClick={() => void runUnifiedAgent(nodes.length ? "edit" : "create", item.response?.brief)} className="rounded-full !border-[#111827] !bg-[#111827] px-3 py-1 text-[11px] !text-white hover:!border-[#263244] hover:!bg-[#263244]">
                     生成工作流
                   </Button>
                   <Button type="button" disabled={busy} onClick={() => useWorkflowSkill("fixed-scene-action-video", item.response?.brief || item.content)} className="rounded-full px-3 py-1 text-[11px]">
@@ -528,7 +878,7 @@ export function AgentWorkflowPanel() {
                         <div className="relative aspect-[4/3] overflow-hidden rounded-md bg-[#eef1f5]">
                           <img src={result.thumbnailUrl} alt={result.title} className="h-full w-full object-cover" loading="lazy" />
                         </div>
-                        <p className="mt-2 truncate text-[11px] font-semibold text-[#111827]" title={result.title}>{result.title}</p>
+                        <p className="mt-2 truncate text-[11px] font-semibold text-[#eef0f2]" title={result.title}>{result.title}</p>
                         <p className="mt-0.5 truncate text-[10px] text-[#7b8794]">{[result.creator || result.sourceName, result.license || "授权状态未知"].filter(Boolean).join(" · ")}</p>
                         <div className="mt-2 flex items-center justify-between gap-2">
                           <button
@@ -550,27 +900,14 @@ export function AgentWorkflowPanel() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 gap-2">
-          {suggestions.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setInput(item)}
-              className="rounded-xl border border-[#e1e6ee] bg-white px-3 py-2 text-left text-[12px] font-medium leading-5 text-[#374151] shadow-sm transition hover:border-[#c8d2df] hover:bg-[#fbfcfe]"
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-
         {(agentMessage || localError || agentStatus !== "idle") && (
-          <div className="flex items-start gap-2 rounded-xl border border-[#e1e6ee] bg-white px-3 py-2 text-[12px] text-[#5f6b7a] shadow-sm">
+          <div className="mindverse-agent-status flex items-start gap-2 rounded-xl border px-3 py-2 text-[12px]">
             <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${localError || agentStatus === "error" ? "bg-rose-500" : agentStatus === "completed" ? "bg-emerald-500" : "bg-sky-500"}`} />
             <span className={localError || agentStatus === "error" ? "text-rose-600" : ""}>{localError || agentMessage || "Ready."}</span>
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-[#dce2ea] bg-white px-3 py-2 shadow-sm">
+        <div className="hidden items-center justify-between gap-3 rounded-xl border border-[#dce2ea] bg-white px-3 py-2 shadow-sm">
           <div>
             <div className="text-[12px] font-semibold text-[#111827]">自主执行</div>
             <div className="text-[10px] leading-4 text-[#7b8794]">自动应用、运行、观察并最多修复两轮，可能触发付费生成。</div>
@@ -579,7 +916,7 @@ export function AgentWorkflowPanel() {
             {busy && autonomousEnabled && (
               <button
                 type="button"
-                onClick={() => autonomousControllerRef.current?.abort()}
+                onClick={() => void stopAgentRun()}
                 className="px-2 py-1 text-[11px] font-semibold text-rose-600 hover:text-rose-700"
               >
                 停止
@@ -599,22 +936,118 @@ export function AgentWorkflowPanel() {
           </div>
         </div>
 
-        {autonomousEvents.length > 0 && (
-          <div className="max-h-44 overflow-y-auto rounded-xl border border-[#dce2ea] bg-white px-3 py-2 shadow-sm">
-            <div className="mb-1 text-[11px] font-semibold text-[#111827]">执行记录</div>
-            <div className="space-y-1">
-              {autonomousEvents.slice(-10).map((event) => (
-                <div key={event.id} className="flex gap-2 text-[11px] leading-4 text-[#5f6b7a]">
-                  <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${event.phase === "blocked" ? "bg-rose-500" : event.phase === "completed" ? "bg-emerald-500" : event.phase === "repairing" ? "bg-amber-500" : "bg-sky-500"}`} />
-                  <span><strong className="font-semibold text-[#374151]">{event.phase}</strong> {event.message}</span>
-                </div>
+        {usedSkills.length > 0 && (
+          <div className="mindverse-agent-used-skills rounded-xl border px-3 py-2">
+            <div className="mb-2 text-[11px] font-semibold text-[#dfe3e7]">本次已使用的 Skill / 提示词规则</div>
+            <div className="flex flex-wrap gap-1.5">
+              {usedSkills.map((skill) => (
+                <span
+                  key={skill.id}
+                  title={skill.supports.length ? `能力：${skill.supports.join(", ")}` : undefined}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold ${skillUsageClassName(skill.source)}`}
+                >
+                  <span>{skill.name}</span>
+                  <span className="font-normal opacity-75">{skill.role === "base_policy" ? "基础规范" : skill.role === "style_profile" ? "风格" : skillUsageLabel(skill.source)}</span>
+                </span>
               ))}
             </div>
           </div>
         )}
 
-        <div className="rounded-[18px] border border-[#dce2ea] bg-white shadow-[0_8px_28px_rgba(15,23,42,0.08)]">
+        {autonomousEvents.length > 0 && (
+          <div className="mindverse-agent-run rounded-xl border px-3 py-2">
+            <div className="flex items-center justify-between gap-2 text-[11px] font-semibold text-[#e7e9ec]">
+              <span>Agent Run</span>
+              <div className="flex items-center gap-2">
+                {!busy && agentRunId && agentRunStatus && ["ready", "running"].includes(agentRunStatus) && (
+                  <button
+                    type="button"
+                    onClick={() => void stopAgentRun()}
+                    className="font-sans text-[10px] font-semibold text-rose-600 hover:text-rose-700"
+                  >
+                    Cancel
+                  </button>
+                )}
+                {!busy && agentRunId && agentRunStatus && ["ready", "running", "blocked", "cancelled"].includes(agentRunStatus) && (
+                  <button
+                    type="button"
+                    onClick={() => void resumePersistedRun()}
+                    className="font-sans text-[10px] font-semibold text-sky-700 hover:text-sky-800"
+                  >
+                    Resume
+                  </button>
+                )}
+                <span className="font-mono text-[10px] font-normal text-[#7b8794]">
+                  {agentRunId ? agentRunId.slice(0, 8) : "local"} · {agentRunStatus || "running"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAgentRunExpanded((value) => !value)}
+                    className="font-sans text-[10px] font-semibold text-[#929aa4] hover:text-white"
+                >
+                  {agentRunExpanded ? "收起" : "详情"}
+                </button>
+              </div>
+            </div>
+            {agentRunExpanded ? (
+              <div className="mt-2 max-h-40 space-y-1 overflow-y-auto border-t border-white/[0.07] pt-2">
+                {autonomousEvents.slice(-10).map((event) => (
+                  <div key={event.id} className="flex gap-2 text-[11px] leading-4 text-[#5f6b7a]">
+                    <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${event.phase === "blocked" ? "bg-rose-500" : event.phase === "completed" ? "bg-emerald-500" : event.phase === "repairing" ? "bg-amber-500" : "bg-sky-500"}`} />
+                    <span>
+                      <strong className="font-semibold text-[#374151]">{event.phase}</strong> {event.message}
+                      {(event.kind || event.durationMs !== undefined) && (
+                        <span className="ml-1 text-[10px] text-[#9aa4b2]">
+                          {[event.kind, event.durationMs !== undefined ? `${event.durationMs}ms` : ""].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1 truncate text-[10px] text-[#7b8794]">{autonomousEvents.at(-1)?.message || "等待执行"}</p>
+            )}
+          </div>
+        )}
+
+        <div className="mindverse-agent-composer mindverse-agent-composer-activate sticky bottom-0 z-30 order-[99] mt-auto shrink-0 overflow-hidden rounded-[24px] border border-white/[0.11] bg-[#191b1e] shadow-[0_18px_60px_rgba(0,0,0,0.34)] focus-within:border-sky-300/35 focus-within:shadow-[0_18px_60px_rgba(0,0,0,0.34),0_0_0_1px_rgba(125,211,252,0.18)]">
+          <div className="relative z-[1] flex flex-wrap items-center gap-2 border-b border-white/[0.07] px-4 py-2.5">
+            <button
+              type="button"
+              onClick={() => setSelectionMode(!selectionMode)}
+              aria-pressed={selectionMode}
+              className="mindverse-agent-context-button inline-flex h-8 items-center gap-2 rounded-full border px-3 text-[11px] font-semibold transition"
+            >
+              <svg aria-hidden="true" className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none"><path d="M3 3h4v4H3V3Zm6 0h4v4H9V3ZM3 9h4v4H3V9Zm6 0h4v4H9V9Z" stroke="currentColor" strokeWidth="1.2" /></svg>
+              {selectionMode ? "完成选择" : `${selectedNodes.length} 个画布节点`}
+            </button>
+            {selectedNodes.length > 0 && (
+              <button type="button" onClick={() => setSelectedNode(null)} className="mindverse-agent-clear-button h-8 rounded-full px-2 text-[10px] font-semibold transition">清除</button>
+            )}
+            {customSkill && (
+              <button type="button" onClick={clearCustomSkill} title="清除当前 Skill" className="mindverse-agent-skill-chip inline-flex h-8 max-w-44 items-center gap-1.5 rounded-full border px-3 text-[10px] font-semibold transition">
+                <span className="truncate">{customSkill.name}</span><span aria-hidden="true">×</span>
+              </button>
+            )}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autonomousEnabled}
+              aria-label="自主执行"
+              disabled={busy}
+              onClick={() => setAutonomousEnabled((value) => !value)}
+              className="mindverse-agent-autonomy-toggle ml-auto inline-flex h-8 items-center gap-2 rounded-full px-2 text-[10px] font-semibold transition disabled:opacity-50"
+            >
+              <span>自主执行</span>
+              <span className={`relative h-5 w-9 rounded-full transition ${autonomousEnabled ? "bg-sky-300" : "bg-white/[0.12]"}`}>
+                <span className={`absolute top-1 h-3 w-3 rounded-full transition ${autonomousEnabled ? "left-5 bg-[#101214]" : "left-1 bg-[#9aa2ab]"}`} />
+              </span>
+            </button>
+          </div>
           <textarea
+            ref={composerRef}
+            autoFocus
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
@@ -623,31 +1056,91 @@ export function AgentWorkflowPanel() {
                 void runUnifiedAgent();
               }
             }}
-            rows={4}
-            placeholder="描述你的需求，比如：继续用刚才的骑士故事生成固定场景视频工作流"
-            className="min-h-28 w-full resize-none rounded-t-[18px] bg-transparent px-4 py-4 text-[14px] leading-6 text-[#111827] outline-none placeholder:text-[#8a94a3]"
+            rows={3}
+            placeholder="描述创意或需求，使用 / 技能，@ 引用画布内容…"
+            className="relative z-[1] min-h-24 w-full resize-none bg-transparent px-5 pb-3 pt-4 text-[15px] leading-6 text-[#edf0f3] outline-none placeholder:text-[#6e757d]"
             aria-label="Agent instruction"
           />
-          <div className="flex items-center justify-between gap-2 border-t border-[#edf1f6] px-3 py-3">
-            <Button type="button" onClick={() => setAdvancedOpen((value) => !value)} className="rounded-full px-4">
-              高级
-            </Button>
-            <Button type="button" disabled={!canSubmit} onClick={() => void runUnifiedAgent()} className="rounded-full border-[#111827] bg-[#111827] px-4 text-white hover:border-[#263244] hover:bg-[#263244]">
-              {busy ? "处理中..." : "发送"}
-            </Button>
+          {(isListening || speechError) && (
+            <div className={`mindverse-agent-speech-status relative z-[1] flex items-center gap-2 px-5 pb-2 text-[11px] ${speechError ? "text-rose-500" : ""}`} role="status" aria-live="polite">
+              {isListening && (
+                <span className="mindverse-agent-speech-wave flex h-3 items-center gap-0.5" aria-hidden="true">
+                  <span /><span /><span />
+                </span>
+              )}
+              <span>{speechError || "正在听，把想法直接说出来…"}</span>
+            </div>
+          )}
+          <div className="relative z-[1] grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 px-3 pb-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="mindverse-agent-model relative flex h-10 items-center rounded-full border text-xs font-semibold transition">
+                <span className="pl-3 text-[10px] font-medium text-[#777f88]">模型</span>
+                <select
+                  value={executionModel}
+                  disabled={busy}
+                  onChange={(event) => setExecutionModel(agentExecutionModelFrom(event.target.value))}
+                  aria-label="Agent execution model"
+                  className="max-w-44 cursor-pointer appearance-none rounded-full bg-transparent py-2 pl-2 pr-7 text-xs font-semibold text-[#dfe3e7] outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {agentExecutionModelOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label} · {option.providerLabel}
+                    </option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-2 text-[9px] text-[#7d858e]">▾</span>
+              </label>
+              <button type="button" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((value) => !value)} className="mindverse-agent-advanced-button h-10 rounded-full border px-4 text-xs font-semibold transition">
+                高级
+              </button>
+              <button
+                type="button"
+                disabled={!agentMemory}
+                onClick={clearProjectMemory}
+                title="清空项目记忆"
+                className="mindverse-agent-memory-button h-10 rounded-full border px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-35"
+              >
+                清空
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                aria-label={isListening ? "停止语音输入" : "开始语音输入"}
+                aria-pressed={isListening}
+                disabled={!speechSupported || busy}
+                onClick={toggleSpeechInput}
+                title={speechSupported ? (isListening ? "停止语音输入" : "使用浏览器语音输入") : "当前浏览器不支持语音输入"}
+                className="mindverse-agent-voice-button grid h-11 w-11 place-items-center rounded-full border transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 disabled:cursor-not-allowed disabled:opacity-35"
+              >
+                {isListening ? (
+                  <span className="h-3.5 w-3.5 rounded-[4px] bg-current" aria-hidden="true" />
+                ) : (
+                  <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 20 20" fill="none"><rect x="7" y="2.5" width="6" height="10" rx="3" stroke="currentColor" strokeWidth="1.5" /><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5M7.5 17.5h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                )}
+              </button>
+              <button type="button" aria-label="发送" disabled={!canSubmit} onClick={() => void runUnifiedAgent()} className="mindverse-agent-send-button grid h-11 w-11 place-items-center rounded-full transition duration-200 hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 disabled:cursor-not-allowed">
+                {busy ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                ) : (
+                  <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 20 20" fill="none"><path d="M10 15V4m0 0L5.5 8.5M10 4l4.5 4.5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                )}
+                <span className="sr-only">发送</span>
+              </button>
+            </div>
           </div>
         </div>
 
         {advancedOpen && (
-          <div className="rounded-[18px] border border-[#dce2ea] bg-white p-4 shadow-[0_8px_28px_rgba(15,23,42,0.08)]">
+          <div className="mindverse-agent-advanced rounded-[18px] border p-4">
             <div className="grid grid-cols-2 gap-2">
-              <Button type="button" disabled={!input.trim() || busy} onClick={() => void runUnifiedAgent("dialogue")} className="rounded-full">只构思</Button>
-              <Button type="button" disabled={!input.trim() || busy} onClick={() => void runUnifiedAgent("create")} className="rounded-full">生成工作流</Button>
-              <Button type="button" disabled={!input.trim() || busy} onClick={() => void runUnifiedAgent("edit")} className="rounded-full">修改画布</Button>
-              <Button type="button" disabled={!input.trim() || busy} onClick={() => void runUnifiedAgent("organize")} className="rounded-full">整理画布</Button>
-              <Button type="button" disabled={!selectedNodeIds.length} onClick={() => markSelectedWorkflow(1, "Workflow 1")} className="rounded-full">标记选中</Button>
-              <Button type="button" disabled={!nodes.length} onClick={arrangeWorkflows} className="rounded-full">本地排列</Button>
-              <Button type="button" disabled={!selectedNodeIds.length} onClick={clearSelectedWorkflowMark} className="rounded-full">清除标记</Button>
+              <Button type="button" disabled={!input.trim() || busy} onClick={() => void runUnifiedAgent("dialogue")} className="rounded-full !border-white/[0.08] !bg-white/[0.04] !text-[#d9dde2] hover:!bg-white/[0.08]">只构思</Button>
+              <Button type="button" disabled={!input.trim() || busy} onClick={() => void runUnifiedAgent("create")} className="rounded-full !border-white/[0.08] !bg-white/[0.04] !text-[#d9dde2] hover:!bg-white/[0.08]">生成工作流</Button>
+              <Button type="button" disabled={!input.trim() || busy} onClick={() => void runUnifiedAgent("edit")} className="rounded-full !border-white/[0.08] !bg-white/[0.04] !text-[#d9dde2] hover:!bg-white/[0.08]">修改画布</Button>
+              <Button type="button" disabled={!input.trim() || busy} onClick={() => void runUnifiedAgent("organize")} className="rounded-full !border-white/[0.08] !bg-white/[0.04] !text-[#d9dde2] hover:!bg-white/[0.08]">整理画布</Button>
+              <Button type="button" disabled={!selectedNodeIds.length} onClick={() => markSelectedWorkflow(1, "Workflow 1")} className="rounded-full !border-white/[0.08] !bg-white/[0.04] !text-[#d9dde2] hover:!bg-white/[0.08]">标记选中</Button>
+              <Button type="button" disabled={!nodes.length} onClick={arrangeWorkflows} className="rounded-full !border-white/[0.08] !bg-white/[0.04] !text-[#d9dde2] hover:!bg-white/[0.08]">本地排列</Button>
+              <Button type="button" disabled={!selectedNodeIds.length} onClick={clearSelectedWorkflowMark} className="rounded-full !border-white/[0.08] !bg-white/[0.04] !text-[#d9dde2] hover:!bg-white/[0.08]">清除标记</Button>
             </div>
             <div className="mt-3 grid gap-2">
               {workflowSkills.map((skill) => (
@@ -656,10 +1149,10 @@ export function AgentWorkflowPanel() {
                   type="button"
                   disabled={busy}
                   onClick={() => useWorkflowSkill(skill.id)}
-                  className="rounded-xl border border-[#e1e6ee] bg-[#f7f9fc] px-3 py-3 text-left transition hover:border-[#c8d2df] hover:bg-white disabled:opacity-50"
+                  className="rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 py-3 text-left transition hover:border-sky-300/20 hover:bg-white/[0.07] disabled:opacity-50"
                 >
-                  <span className="block text-[13px] font-semibold text-[#111827]">{skill.label}</span>
-                  <span className="mt-1 block text-[12px] leading-5 text-[#5f6b7a]">{skill.description}</span>
+                  <span className="block text-[13px] font-semibold text-[#e8ebef]">{skill.label}</span>
+                  <span className="mt-1 block text-[12px] leading-5 text-[#858e98]">{skill.description}</span>
                 </button>
               ))}
             </div>
@@ -667,7 +1160,7 @@ export function AgentWorkflowPanel() {
         )}
 
         {preview?.intent === "skill" && (
-          <div className="rounded-[18px] border border-[#dce2ea] bg-white p-4 shadow-[0_8px_28px_rgba(15,23,42,0.08)]">
+          <div className="mindverse-agent-preview-card rounded-[18px] border p-4">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-[16px] font-semibold text-[#111827]">{preview.title}</h3>
@@ -693,14 +1186,14 @@ export function AgentWorkflowPanel() {
               </div>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <Button type="button" onClick={choosePlacement} className="rounded-full border-[#111827] bg-[#111827] text-white hover:border-[#263244] hover:bg-[#263244]">选择位置</Button>
+              <Button type="button" onClick={choosePlacement} className="rounded-full !border-[#111827] !bg-[#111827] !text-white hover:!border-[#263244] hover:!bg-[#263244]">选择位置</Button>
               <Button type="button" onClick={() => setPreview(null)} className="rounded-full">取消</Button>
             </div>
           </div>
         )}
 
         {preview?.intent === "create" && (
-          <div className="rounded-[18px] border border-[#dce2ea] bg-white p-4 shadow-[0_8px_28px_rgba(15,23,42,0.08)]">
+          <div className="mindverse-agent-preview-card rounded-[18px] border p-4">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-[16px] font-semibold text-[#111827]">{preview.plan.title}</h3>
@@ -720,14 +1213,14 @@ export function AgentWorkflowPanel() {
               ))}
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <Button type="button" onClick={choosePlacement} className="rounded-full border-[#111827] bg-[#111827] text-white hover:border-[#263244] hover:bg-[#263244]">选择位置</Button>
+              <Button type="button" onClick={choosePlacement} className="rounded-full !border-[#111827] !bg-[#111827] !text-white hover:!border-[#263244] hover:!bg-[#263244]">选择位置</Button>
               <Button type="button" onClick={applyPreview} className="rounded-full">直接应用</Button>
             </div>
           </div>
         )}
 
         {preview?.intent === "edit" && (
-          <div className="rounded-[18px] border border-[#dce2ea] bg-white p-4 shadow-[0_8px_28px_rgba(15,23,42,0.08)]">
+          <div className="mindverse-agent-preview-card rounded-[18px] border p-4">
             <h3 className="text-[16px] font-semibold text-[#111827]">{preview.editPlan.title}</h3>
             <p className="mt-1 text-[12px] leading-5 text-[#5f6b7a]">{preview.summary}</p>
             <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-[#5f6b7a]">
@@ -765,7 +1258,7 @@ export function AgentWorkflowPanel() {
                 !preview.patch.deleteEdgeIds.length
               }
               onClick={applyPreview}
-              className="mt-4 w-full rounded-full border-[#111827] bg-[#111827] text-white hover:border-[#263244] hover:bg-[#263244]"
+              className="mt-4 w-full rounded-full !border-[#111827] !bg-[#111827] !text-white hover:!border-[#263244] hover:!bg-[#263244]"
             >
               应用修改
             </Button>
@@ -773,7 +1266,7 @@ export function AgentWorkflowPanel() {
         )}
 
         {preview?.intent === "organize" && (
-          <div className="rounded-[18px] border border-[#dce2ea] bg-white p-4 shadow-[0_8px_28px_rgba(15,23,42,0.08)]">
+          <div className="mindverse-agent-preview-card rounded-[18px] border p-4">
             <h3 className="text-[16px] font-semibold text-[#111827]">{preview.organizePlan.title}</h3>
             <p className="mt-1 text-[12px] leading-5 text-[#5f6b7a]">{preview.summary}</p>
             <div className="mt-3 max-h-52 overflow-y-auto rounded-xl border border-[#edf1f6]">
@@ -787,7 +1280,7 @@ export function AgentWorkflowPanel() {
                 </div>
               ))}
             </div>
-            <Button type="button" onClick={applyPreview} className="mt-4 w-full rounded-full border-[#111827] bg-[#111827] text-white hover:border-[#263244] hover:bg-[#263244]">应用整理</Button>
+            <Button type="button" onClick={applyPreview} className="mt-4 w-full rounded-full !border-[#111827] !bg-[#111827] !text-white hover:!border-[#263244] hover:!bg-[#263244]">应用整理</Button>
           </div>
         )}
       </div>

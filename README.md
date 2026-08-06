@@ -30,7 +30,7 @@ AGENT_LLM_MODEL=gpt-4o
 
 The API key is read only by server-side code in `lib/ai` and the Next.js `/api/ai/*` routes. It is never sent by a client component, included in browser storage, or exposed with a `NEXT_PUBLIC_` variable. `.env.local` is ignored by Git; do not commit or paste it into GitHub.
 
-`AI_302_TEXT_MODEL` is the default for regular Text/Script/Storyboard generation. `AGENT_LLM_MODEL` is reserved for the Agent planner and should default to `gpt-4o` when LLM-based workflow planning is enabled.
+`AI_302_TEXT_MODEL` is the default for regular Text/Script/Storyboard generation. `AGENT_LLM_MODEL` remains the environment-controlled Agent fallback. The Agent input model selector can explicitly keep the HKGAI MaaS model or route the complete Agent planning/verification chain through 302AI with `AGENT_302_TERRA_MODEL=gpt-5.6-terra`. `AGENT_302_TERRA_REASONING_EFFORT` defaults to `medium`. Both providers use server-only keys; the browser sends only an allowlisted model-selection ID.
 
 ### Supported 302.AI operations
 
@@ -83,7 +83,7 @@ AI_VIDEO_PROVIDER=tokenstar
 TOKENSTAR_API_KEY=********
 TOKENSTAR_API_ORIGIN=https://api.tokenstar.world
 TOKENSTAR_VIDEO_MODEL=seedance-2.0-fast
-TOKENSTAR_VIDEO_ASSET_MODEL=seedance-2.0-asset
+TOKENSTAR_VIDEO_ASSET_MODEL=seedance-2.0-asset-fast
 TOKENSTAR_DEFAULT_RATIO=16:9
 TOKENSTAR_DEFAULT_DURATION=8
 TOKENSTAR_DEFAULT_RESOLUTION=720p
@@ -101,3 +101,13 @@ After an ImageNode has a result, select **Annotate & Refine** below its preview.
 Use **Generate revision** to create a new ImageNode beside the original. The source image is never changed. Annotation metadata, the source image reference, and the revision instruction are included in saved canvases and JSON exports.
 
 The mock provider creates a local revision preview. Real 302.AI image revision deliberately remains unavailable until a confirmed image-edit endpoint is configured; the new revision node will show a clear error instead of silently using a text-to-image replacement.
+
+## Durable workflow storage
+
+Canvas projects auto-save after edits, keep a small browser draft as a recovery copy, and flush the latest change when the page is hidden or left. For Render, set `WORKFLOW_STORAGE_PROVIDER=bunny` and configure `BUNNY_STORAGE_ZONE`, `BUNNY_ACCESS_KEY`, `BUNNY_STORAGE_REGION`, and `BUNNY_PULL_ZONE_URL`. Do not use `WORKFLOW_STORAGE_PROVIDER=local` in production: Render's local filesystem is ephemeral, so projects can disappear after an instance restart or deploy.
+
+## Capability retrieval and RAG
+
+The Agent uses a unified semantic route and capability-plan protocol: Router → Capability Retriever → Planner → deterministic validator → canvas compiler. Skills, Tools, configured models, and runtimes share one executable capability catalog; Planner steps cite `providerCapabilityId` and `evidenceIds` instead of inventing providers.
+
+Render Postgres + pgvector is optional but recommended for durable hybrid retrieval across capability, project, repair, and successful-workflow knowledge. Configure the `DATABASE_*` and `RAG_*` values from `.env.example`, then run `npm run rag:migrate`. Local development falls back to the deterministic catalog when Postgres or Embeddings are unavailable. See [`docs/CAPABILITY_RAG.md`](docs/CAPABILITY_RAG.md).

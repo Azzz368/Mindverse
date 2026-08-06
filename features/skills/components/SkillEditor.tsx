@@ -15,8 +15,12 @@ import {
   defaultSkillMarkdown,
   skillCategories,
   skillCategoryLabels,
+  skillRoleLabels,
+  skillRoles,
   type SkillCategory,
   type SkillDraft,
+  type PromptTarget,
+  type SkillRole,
 } from "@/shared/skills/skillTypes";
 
 type EditorDraft = Omit<SkillDraft, "canvasTemplate">;
@@ -30,6 +34,10 @@ const emptyDraft: EditorDraft = {
   expectedOutput: "",
   category: "image",
   visibility: "private",
+  role: "workflow_recipe",
+  appliesTo: ["image", "video"],
+  triggerPhrases: [],
+  priority: 200,
 };
 
 const isSnapshot = (value: unknown): value is CanvasSnapshot => Boolean(
@@ -94,6 +102,10 @@ export function SkillEditor({ skillId }: { skillId?: string }) {
           expectedOutput: skill.expectedOutput,
           category: skill.category,
           visibility: skill.visibility,
+          role: skill.role || "workflow_recipe",
+          appliesTo: skill.appliesTo || [],
+          triggerPhrases: skill.triggerPhrases || [],
+          priority: skill.priority || 100,
         });
         if (!pendingSnapshot && skill.canvasTemplate) {
           setCanvasTemplate(skill.canvasTemplate);
@@ -109,6 +121,13 @@ export function SkillEditor({ skillId }: { skillId?: string }) {
 
   const backHref = useMemo(() => `/skills${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ""}`, [returnTo]);
   const setField = <K extends keyof EditorDraft>(field: K, value: EditorDraft[K]) => setDraft((current) => ({ ...current, [field]: value }));
+  const isPromptGuidance = draft.role === "base_prompt_policy" || draft.role === "style_profile";
+  const togglePromptTarget = (target: PromptTarget) => setDraft((current) => ({
+    ...current,
+    appliesTo: current.appliesTo?.includes(target)
+      ? current.appliesTo.filter((item) => item !== target)
+      : [...(current.appliesTo || []), target],
+  }));
 
   const uploadMarkdown = async (file?: File) => {
     if (!file) return;
@@ -225,6 +244,60 @@ export function SkillEditor({ skillId }: { skillId?: string }) {
             <FieldLabel>输出内容</FieldLabel>
             <textarea value={draft.expectedOutput} onChange={(event) => setField("expectedOutput", event.target.value)} maxLength={2000} placeholder="描述用户使用该 Skill 后，预期输出的结果产物是什么（例如：30 秒短视频工作流）" className={`${inputClass} min-h-40 resize-y py-5`} />
           </section>
+          <section>
+            <FieldLabel>Skill 角色</FieldLabel>
+            <select
+              value={draft.role}
+              onChange={(event) => {
+                const role = event.target.value as SkillRole;
+                setDraft((current) => ({
+                  ...current,
+                  role,
+                  appliesTo: (role === "base_prompt_policy" || role === "style_profile") && !current.appliesTo?.length ? ["image", "video"] : current.appliesTo,
+                  priority: current.priority || (role === "style_profile" ? 200 : role === "base_prompt_policy" ? 150 : 100),
+                }));
+              }}
+              className={`${inputClass} h-16 appearance-auto`}
+            >
+              {skillRoles.map((role) => <option key={role} value={role}>{skillRoleLabels[role]}</option>)}
+            </select>
+            <p className="mt-2 text-sm leading-6 text-[#929292]">
+              {isPromptGuidance
+                ? "此 Skill 会在匹配的创作请求中指导 Image / Video Node 的正向与负向提示词，不会自行选择模型或创建节点。请在 SKILL.md 中具体写清视觉方向、角色/产品不可变化项、镜头与光影、连续性，以及负面约束。"
+                : "此 Skill 用于指导工作流规划、模板复用或修复流程；不会作为自动视觉风格覆写。"}
+            </p>
+          </section>
+          {isPromptGuidance && (
+            <section className="space-y-5 rounded-lg border border-[#343434] bg-[#191919] p-5">
+              <div>
+                <FieldLabel>作用节点</FieldLabel>
+                <div className="flex gap-3">
+                  {(["image", "video"] as PromptTarget[]).map((target) => (
+                    <label key={target} className="flex cursor-pointer items-center gap-2 rounded-md bg-[#2b2b2b] px-4 py-3 text-sm text-white">
+                      <input type="checkbox" checked={draft.appliesTo?.includes(target) || false} onChange={() => togglePromptTarget(target)} />
+                      {target === "image" ? "Image Node" : "Video Node"}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <FieldLabel>自动触发语义</FieldLabel>
+                <input
+                  value={(draft.triggerPhrases || []).join(", ")}
+                  onChange={(event) => setField("triggerPhrases", event.target.value.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean))}
+                  maxLength={1200}
+                  placeholder="例如：日系动画, anime, 雨后校园, 青春剧场版"
+                  className={`${inputClass} h-14`}
+                />
+                <p className="mt-2 text-sm leading-6 text-[#929292]">用逗号分隔。用户需求匹配这些语义时，Agent 会从 RAG 检索并把该 Skill 应用于提示词生成。</p>
+              </div>
+              <div>
+                <FieldLabel>优先级</FieldLabel>
+                <input type="number" min={1} max={999} value={draft.priority || 100} onChange={(event) => setField("priority", Number(event.target.value) || 100)} className={`${inputClass} h-14`} />
+                <p className="mt-2 text-sm leading-6 text-[#929292]">风格通常使用 200；数值更高的同类风格优先。一次创作最多自动应用一个风格 Profile，避免冲突。</p>
+              </div>
+            </section>
+          )}
           <section>
             <FieldLabel>选择类型</FieldLabel>
             <select value={draft.category} onChange={(event) => setField("category", event.target.value as SkillCategory)} className={`${inputClass} h-16 appearance-auto`}>

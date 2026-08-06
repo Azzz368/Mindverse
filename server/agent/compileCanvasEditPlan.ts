@@ -3,7 +3,7 @@ import type { AgentCanvasEditPlan, AgentEditOperation, CanvasEditPatch } from "@
 import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/shared/canvas";
 import { defaultMotionTemplateVariablesJson, getMotionTemplate } from "@/shared/motion/templates";
 import { targetHandleForNodeConnection } from "@/shared/workflow/connectionHandles";
-import { videoModelPatch } from "@/shared/workflow/videoModelPresets";
+import { DEFAULT_VIDEO_MODEL_PRESET_ID, videoModelPatch } from "@/shared/workflow/videoModelPresets";
 import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER } from "@/shared/api/qwenContracts";
 
 const forbiddenPatchKeys = new Set([
@@ -296,7 +296,7 @@ export function compileCanvasEditPlanToPatch({
         .map((sourceId) => nodeById.get(sourceId))
         .find((source) => source && (source.data.nodeType === "image" || source.data.nodeType === "reference"));
       if (operation.nodeType === "video" && imageSource && !targetHandleForNodeConnection(imageSource.data.nodeType, node.data)) {
-        node = { ...node, data: { ...node.data, ...videoModelPatch("seedance-2.0-assets") } };
+        node = { ...node, data: { ...node.data, ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID) } };
       }
       registerCreated(operation.id, [node]);
       sources.forEach((source) => addEdgeIfNew(createEdges, source, node.id, edgeIds, warnings, nodeById));

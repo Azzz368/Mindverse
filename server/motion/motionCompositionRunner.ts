@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createWriteStream, existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Buffer } from "node:buffer";
@@ -32,6 +32,16 @@ export type MotionCompositionInput = {
   referenceAudioUrls?: string[];
 };
 
+export type MotionProgressUpdate = {
+  phase: "preparing" | "codex" | "checking" | "rendering" | "uploading";
+  message: string;
+  progress: number;
+};
+
+type MotionCompositionOptions = {
+  onProgress?: (update: MotionProgressUpdate) => Promise<void> | void;
+};
+
 const require = createRequire(import.meta.url);
 const ffprobeStatic = require("ffprobe-static") as { path?: string };
 
@@ -44,6 +54,10 @@ const asset = (type: MotionAssetReference["type"], url: string, index: number): 
 
 const pathSeparator = process.platform === "win32" ? ";" : ":";
 const dateKey = () => new Date().toISOString().slice(0, 10);
+const configuredTimeout = (name: string, fallback: number, minimum = 1) => {
+  const value = Number(process.env[name] || fallback);
+  return Number.isFinite(value) && value >= minimum ? value : fallback;
+};
 const isCodexHyperframesMode = (input: MotionCompositionInput) => input.motionMode === "codex-hyperframes";
 const codexRequired = () => !["0", "false", "no"].includes(String(process.env.MINDVERSE_CODEX_REQUIRED || "true").trim().toLowerCase());
 const codexBypassSandbox = () => ["1", "true", "yes", "on"].includes(String(process.env.MINDVERSE_CODEX_BYPASS_SANDBOX || "").trim().toLowerCase());
@@ -153,11 +167,23 @@ const downloadAsset = async (assetItem: MotionAssetReference, filePath: string) 
     await writeFile(filePath, file);
     return;
   }
-  const response = await fetch(url, {
+  const controller = new AbortController();
+  const assetTimeout = configuredTimeout("MINDVERSE_MOTION_ASSET_TIMEOUT_MS", 120_000, 30_000);
+  const timer = setTimeout(() => controller.abort(), assetTimeout);
+  let response: Response;
+  try {
+    response = await fetch(url, {
     cache: "no-store",
     redirect: "follow",
+    signal: controller.signal,
     headers: { Accept: "video/*,image/*,audio/*,*/*", "User-Agent": "Mindverse-HyperFrames/1.0" },
-  });
+    });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(`Downloading motion asset ${assetItem.id} timed out after ${assetTimeout}ms.`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!response.ok) {
     throw new Error(`Could not download motion asset ${assetItem.id} (${response.status} ${response.statusText}).`);
   }
@@ -169,34 +195,55 @@ const buildComposition = (input: MotionCompositionInput) => {
   const templateComposition = !codexMode && input.templateId
     ? renderMotionTemplate(input.templateId, parseMotionVariablesJson(input.motionVariablesJson))
     : undefined;
-  const base = templateComposition || compositionFromJson(input.compositionJson, input.prompt || "HyperFrames Composition");
+  const parsedBase = templateComposition || compositionFromJson(input.compositionJson, input.prompt || "HyperFrames Composition");
+  const base = codexMode
+    ? applyCodexRequestedCanvas(parsedBase, [input.codexInstruction, input.prompt].filter(Boolean).join("\n"))
+    : parsedBase;
   const requestedTitle = titleFromPrompt([input.codexInstruction, input.prompt].filter(Boolean).join("\n"));
   const assets: MotionAssetReference[] = [
     ...(input.referenceVideoUrls || []).filter(Boolean).map((url, index) => asset("video", url, index)),
     ...(input.referenceImageUrls || []).filter(Boolean).map((url, index) => asset("image", url, index)),
     ...(input.referenceAudioUrls || []).filter(Boolean).map((url, index) => asset("audio", url, index)),
   ];
+  const visualAssets = assets.filter(
+    (item): item is MotionAssetReference & { type: "video" | "image" } =>
+      item.type === "video" || item.type === "image",
+  );
+  const baselineVisuals = codexMode && visualAssets.length > 1
+    ? visualAssets.map((item, index) => {
+      const slotDuration = base.canvas.duration / visualAssets.length;
+      return {
+        id: `source-media-${index + 1}`,
+        type: item.type,
+        assetId: item.id,
+        start: slotDuration * index,
+        duration: slotDuration,
+        x: 0,
+        y: 0,
+        width: base.canvas.width,
+        height: base.canvas.height,
+        style: { objectFit: "cover" },
+      } satisfies MotionElement;
+    })
+    : visualAssets.slice(0, 1).map((item) => ({
+      id: "main-media",
+      type: item.type,
+      assetId: item.id,
+      start: 0,
+      duration: base.canvas.duration,
+      x: 0,
+      y: 0,
+      width: base.canvas.width,
+      height: base.canvas.height,
+      style: { objectFit: "cover" },
+    } satisfies MotionElement));
   const composition: MotionComposition = normalizeMotionComposition({
     ...base,
     templateId: codexMode ? undefined : input.templateId || base.templateId,
     notes: input.prompt || base.notes,
     assets: [...base.assets, ...assets],
     elements: [
-      ...assets
-        .filter((item) => item.type === "video" || item.type === "image")
-        .slice(0, 1)
-        .map((item) => ({
-          id: "main-media",
-          type: item.type,
-          assetId: item.id,
-          start: 0,
-          duration: base.canvas.duration,
-          x: 0,
-          y: 0,
-          width: base.canvas.width,
-          height: base.canvas.height,
-          style: { objectFit: "cover" },
-        })),
+      ...baselineVisuals,
       ...base.elements,
     ],
   }, input.prompt || "HyperFrames Composition");
@@ -246,6 +293,41 @@ const localizedAssets = async (composition: MotionComposition, projectDir: strin
     sourceById.set(item.id, `assets/${fileName}`);
   }
   return sourceById;
+};
+
+/**
+ * Codex + HyperFrames jobs often begin from an empty Motion node, whose
+ * generic fallback is 1280x720 for ten seconds. When a user has already
+ * specified delivery dimensions in their edit prompt, make that contract
+ * true before Codex starts. Otherwise Codex wastes most of its budget
+ * rebuilding the root timeline rather than editing the actual footage.
+ */
+const applyCodexRequestedCanvas = (composition: MotionComposition, instruction: string): MotionComposition => {
+  const canvasMatch = /\b(\d{3,5})\s*[x×]\s*(\d{3,5})\b/i.exec(instruction);
+  const durationMatch = /\b(\d+(?:\.\d+)?)\s*(?:-|\s)*(?:seconds?|secs?)\b|(?:时长|持续|长度)\s*[：:]?\s*(\d+(?:\.\d+)?)\s*秒|\b(\d+(?:\.\d+)?)\s*秒/i.exec(instruction);
+  const fpsMatch = /\b(\d{2,3})\s*fps\b|\b(\d{2,3})\s*帧\s*(?:每|\/)\s*秒/i.exec(instruction);
+  const width = Number(canvasMatch?.[1]);
+  const height = Number(canvasMatch?.[2]);
+  const duration = Number(durationMatch?.[1] || durationMatch?.[2] || durationMatch?.[3]);
+  const fps = Number(fpsMatch?.[1] || fpsMatch?.[2]);
+  return {
+    ...composition,
+    canvas: {
+      ...composition.canvas,
+      ...(Number.isFinite(width) && width >= 320 ? { width } : {}),
+      ...(Number.isFinite(height) && height >= 320 ? { height } : {}),
+      ...(Number.isFinite(duration) && duration >= 1 ? { duration } : {}),
+      ...(Number.isFinite(fps) && fps >= 12 ? { fps } : {}),
+    },
+  };
+};
+
+const localizeRuntimeAssets = async (projectDir: string) => {
+  const gsapSource = path.join(process.cwd(), "node_modules", "gsap", "dist", "gsap.min.js");
+  if (!existsSync(gsapSource)) {
+    throw new Error("The local GSAP runtime is missing. Run `npm install` before executing Codex + HyperFrames.");
+  }
+  await copyFile(gsapSource, path.join(projectDir, "assets", "gsap.min.js"));
 };
 
 const slideTransform = (direction: "left" | "right" | "up" | "down" | undefined) => {
@@ -317,15 +399,15 @@ const elementHtml = (element: MotionElement, sourceById: Map<string, string>, to
   if ((element.type === "video" || element.type === "image" || element.type === "logo") && src) {
     const fit = String(element.style?.objectFit || "cover");
     const position = String(element.style?.objectPosition || "center");
-    const mediaStyle = `width:100%;height:100%;object-fit:${escapeAttr(fit)};object-position:${escapeAttr(position)};display:block;`;
+    const mediaStyle = `object-fit:${escapeAttr(fit)};object-position:${escapeAttr(position)};display:block;`;
     const media = element.type === "video"
-      ? `<video src="${escapeAttr(src)}" data-start="${cssNumber(element.start)}" data-duration="${cssNumber(element.duration)}" muted playsinline preload="auto" style="${mediaStyle}"></video>`
-      : `<img src="${escapeAttr(src)}" alt="" style="${mediaStyle}" />`;
-    return { css: animation.css, html: `<div class="element" style="${style}">${media}</div>` };
+      ? `<video id="${escapeAttr(element.id)}" class="element" src="${escapeAttr(src)}" data-start="${cssNumber(element.start)}" data-duration="${cssNumber(element.duration)}" muted playsinline preload="auto" style="${style};${mediaStyle}"></video>`
+      : `<img class="element" src="${escapeAttr(src)}" alt="" style="${style};${mediaStyle}" />`;
+    return { css: animation.css, html: media };
   }
   if (element.type === "audio" && src) {
     const volume = clamp(styleNumber(element.style, "volume", element.opacity ?? 1), 0, 1);
-    return { css: "", html: `<audio src="${escapeAttr(src)}" data-start="${cssNumber(element.start)}" data-duration="${cssNumber(element.duration)}" data-volume="${cssNumber(volume, 1)}" preload="auto"></audio>` };
+    return { css: "", html: `<audio id="${escapeAttr(element.id)}" src="${escapeAttr(src)}" data-start="${cssNumber(element.start)}" data-duration="${cssNumber(element.duration)}" data-volume="${cssNumber(volume, 1)}" preload="auto"></audio>` };
   }
   if (element.type === "progressBar") {
     const fillName = `${animation.name}-fill`;
@@ -355,6 +437,7 @@ const elementHtml = (element: MotionElement, sourceById: Map<string, string>, to
 
 const writeProject = async (composition: MotionComposition, projectDir: string) => {
   const sourceById = await localizedAssets(composition, projectDir);
+  await localizeRuntimeAssets(projectDir);
   const rendered = composition.elements.map((element) => elementHtml(element, sourceById, composition.canvas.duration));
   const html = `<!doctype html>
 <html lang="en">
@@ -382,7 +465,136 @@ const writeProject = async (composition: MotionComposition, projectDir: string) 
   </div>
 </body>
 </html>`;
-  await writeFile(path.join(projectDir, "index.html"), html, "utf8");
+  const normalizedHtml = ensureLocalVideoAudioTracks(ensureLocalMediaIds(html)).html;
+  await writeFile(path.join(projectDir, "index.html"), normalizedHtml, "utf8");
+  await writeFile(path.join(projectDir, "package.json"), JSON.stringify({
+    name: "mindverse-hyperframes-job",
+    private: true,
+    scripts: {
+      lint: "node ../../../scripts/hyperframes-cli.mjs lint",
+      check: "node ../../../scripts/hyperframes-cli.mjs check --json",
+    },
+  }, null, 2), "utf8");
+};
+
+type TimedLocalVideo = {
+  src: string;
+  start: number;
+  duration: number;
+  mediaStart?: number;
+};
+
+const htmlAttribute = (tag: string, name: string) => {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`\\b${escapedName}\\s*=\\s*(["'])(.*?)\\1`, "i").exec(tag);
+  return match?.[2];
+};
+
+const htmlNumberAttribute = (tag: string, name: string, fallback: number) => {
+  const value = Number(htmlAttribute(tag, name));
+  return Number.isFinite(value) ? value : fallback;
+};
+
+const localVideoSource = (src: string | undefined) => Boolean(src && /^assets\/video-[^/]+\.(?:mp4|webm|mov|mkv)$/i.test(src));
+
+/** Ensure a partially completed Codex edit remains render-checkable after a timeout. */
+const ensureLocalMediaIds = (html: string) => {
+  const counters = new Map<string, number>();
+  return html.replace(/<(video|audio)\b[^>]*>/gi, (tag, rawTagName: string) => {
+    if (htmlAttribute(tag, "id")) return tag;
+    const tagName = rawTagName.toLowerCase();
+    const next = (counters.get(tagName) || 0) + 1;
+    counters.set(tagName, next);
+    return tag.replace(new RegExp(`^<${tagName}\\b`, "i"), `<${tagName} id="${tagName}-media-${next}"`);
+  });
+};
+
+const sourceAudioTracks = (html: string): TimedLocalVideo[] => {
+  const tracks: TimedLocalVideo[] = [];
+  for (const match of html.matchAll(/<audio\b[^>]*>/gi)) {
+    const src = htmlAttribute(match[0], "src");
+    if (!localVideoSource(src)) continue;
+    const duration = htmlNumberAttribute(match[0], "data-duration", 0);
+    if (duration <= 0) continue;
+    tracks.push({
+      src: src!,
+      start: htmlNumberAttribute(match[0], "data-start", 0),
+      duration,
+      mediaStart: htmlAttribute(match[0], "data-media-start") === undefined
+        ? undefined
+        : htmlNumberAttribute(match[0], "data-media-start", 0),
+    });
+  }
+  return tracks;
+};
+
+/**
+ * HyperFrames requires muted video plus a separate root-level audio element.
+ * Codex occasionally keeps only the muted visual media, which produces a
+ * perfectly valid but silent render. Add deterministic companions for every
+ * localized source video that has no authored audio track yet.
+ */
+const ensureLocalVideoAudioTracks = (html: string) => {
+  const existingAudioTracks = sourceAudioTracks(html);
+  const videos: TimedLocalVideo[] = [];
+  for (const match of html.matchAll(/<video\b[^>]*>/gi)) {
+    const src = htmlAttribute(match[0], "src");
+    if (!localVideoSource(src)) continue;
+    const duration = htmlNumberAttribute(match[0], "data-duration", 0);
+    if (duration <= 0) continue;
+    videos.push({
+      src: src!,
+      start: htmlNumberAttribute(match[0], "data-start", 0),
+      duration,
+      mediaStart: htmlAttribute(match[0], "data-media-start") === undefined
+        ? undefined
+        : htmlNumberAttribute(match[0], "data-media-start", 0),
+    });
+  }
+
+  const additions: string[] = [];
+  let nextTrack = 90;
+  for (const [sourceIndex, source] of [...new Set(videos.map((video) => video.src))].entries()) {
+    // A split-screen often has several visual copies of the same source at
+    // once. Keep one audio companion per non-overlapping time span so the
+    // original sound is preserved without being multiplied.
+    let coveredUntil = Number.NEGATIVE_INFINITY;
+    for (const clip of videos.filter((video) => video.src === source).sort((a, b) => a.start - b.start)) {
+      if (clip.start < coveredUntil - 0.001) continue;
+      const existingTrack = existingAudioTracks.find((track) =>
+        track.src === source &&
+        track.start <= clip.start + 0.02 &&
+        track.start + track.duration >= clip.start + clip.duration - 0.02,
+      );
+      if (existingTrack) {
+        coveredUntil = Math.max(coveredUntil, existingTrack.start + existingTrack.duration);
+        continue;
+      }
+      const mediaStart = clip.mediaStart === undefined ? "" : ` data-media-start="${cssNumber(clip.mediaStart)}"`;
+      additions.push(`<audio id="source-video-audio-${sourceIndex + 1}-${additions.length + 1}" src="${escapeAttr(clip.src)}" data-start="${cssNumber(clip.start)}" data-duration="${cssNumber(clip.duration)}"${mediaStart} data-track-index="${nextTrack}" data-volume="1" preload="auto"></audio>`);
+      nextTrack += 1;
+      coveredUntil = Math.max(coveredUntil, clip.start + clip.duration);
+    }
+  }
+
+  if (!additions.length) return { html, addedTracks: 0 };
+  const rootMatch = /<([a-z][\w:-]*)\b[^>]*\bdata-composition-id\s*=\s*(["']).*?\2[^>]*>/i.exec(html);
+  if (!rootMatch || rootMatch.index === undefined) {
+    throw new Error("Codex output has no HyperFrames composition root; cannot preserve source video audio.");
+  }
+  const insertionPoint = rootMatch.index + rootMatch[0].length;
+  return {
+    html: `${html.slice(0, insertionPoint)}\n    ${additions.join("\n    ")}${html.slice(insertionPoint)}`,
+    addedTracks: additions.length,
+  };
+};
+
+const restoreSourceVideoAudioTracks = async (projectDir: string) => {
+  const indexPath = path.join(projectDir, "index.html");
+  const originalHtml = await readFile(indexPath, "utf8");
+  const result = ensureLocalVideoAudioTracks(ensureLocalMediaIds(originalHtml));
+  if (result.addedTracks || result.html !== originalHtml) await writeFile(indexPath, result.html, "utf8");
+  return result.addedTracks;
 };
 
 const writeCodexPrompt = async (input: MotionCompositionInput, composition: MotionComposition, projectDir: string) => {
@@ -412,15 +624,23 @@ const writeCodexPrompt = async (input: MotionCompositionInput, composition: Moti
     "## Local Assets",
     ...(localAssets.length ? localAssets : ["- No localized media assets were provided."]),
     "",
+    "## Local Runtime",
+    "- GSAP is frozen locally at `assets/gsap.min.js`. Load it with `<script src=\"assets/gsap.min.js\"></script>` when using GSAP.",
+    "- Do not load scripts, styles, fonts, images, audio, or video from a remote URL or CDN. HyperFrames renders must be deterministic and network-independent.",
+    "",
     "## Required Workflow",
     "1. Edit index.html directly. Do not only change JSON variables or leave the generated baseline unchanged.",
-    "2. Use the localized media in assets/ as the source footage; preserve it as inspectable primary footage.",
-    "3. Inspect local video duration with ffprobe when available. Do not make a media slot longer than its source unless the user explicitly requested looping or extension.",
-    "4. Keep the root canvas dimensions and requested duration. If the request did not specify a duration, align root, media, and animation timing to the source duration.",
-    "5. Add a visible requested title, short-video pacing, animated caption/overlay treatment, subtle vignette, progress motion, and tasteful transitions.",
-    "6. Keep title and caption text readable over every sampled frame with a compact dark backing, scrim, stroke, or strong shadow; do not rely on white text directly over changing footage.",
-    "7. Ensure the video remains full-bleed and correctly framed for the current canvas, especially 9:16 vertical output.",
-    "8. Run `node ../../../scripts/hyperframes-cli.mjs lint` and `node ../../../scripts/hyperframes-cli.mjs check --json` from this job directory if available; fix all errors before stopping.",
+    "2. Use every localized connected asset listed above. When multiple visual assets are connected, assemble all of them in listed order unless the user explicitly requests another order. Never leave the edit showing only the first asset.",
+    "3. Preserve original audio from every connected video unless the user explicitly requests silence. Videos must remain `muted`; create separate direct-child `<audio>` elements using the same local video source, matching `data-start`, `data-duration`, and `data-media-start` for each audible source segment. Do not replace source sound with silence.",
+    "4. Use connected audio as soundtrack, voice, or sound design according to the instruction. Mix external BGM with original video audio; do not silently ignore either source.",
+    "5. Inspect local video duration with ffprobe when available. Do not make a media slot longer than its source unless the user explicitly requested looping or extension.",
+    "6. The user instruction overrides the generated baseline. Keep the requested canvas dimensions and duration; when neither is requested, align root, media, and animation timing to the sources.",
+    "7. Add a visible requested title, short-video pacing, animated caption/overlay treatment, subtle vignette, progress motion, and tasteful transitions.",
+    "8. Keep title and caption text readable over every sampled frame with a compact dark backing, scrim, stroke, or strong shadow; do not rely on white text directly over changing footage.",
+    "9. Ensure the video remains full-bleed and correctly framed for the current canvas, especially 9:16 vertical output.",
+    "10. This job includes package scripts. Use `npm run lint` while making structural edits. Run one final `npm run check`; it already includes lint.",
+    "11. When the final check returns `ok: true`, stop immediately and return the result. Do not start optional polish passes or repeat a passing check.",
+    "12. Budget your work: inspect sources with ffprobe only, make one focused edit pass, and do not generate contact sheets, run volume analysis, or perform optional exploratory work.",
     "",
     "## Notes",
     "- This file is generated so Codex can take over the edit from the app.",
@@ -437,6 +657,13 @@ type RunProcessOptions = {
   stderrLogPath?: string;
 };
 
+class ProcessTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProcessTimeoutError";
+  }
+}
+
 const terminateProcessTree = (pid: number | undefined) => {
   if (!pid) return;
   if (process.platform === "win32") {
@@ -448,8 +675,11 @@ const terminateProcessTree = (pid: number | undefined) => {
     return;
   }
   try {
-    process.kill(pid, "SIGTERM");
+    // Unix jobs are spawned in their own process group, so this also stops
+    // Chromium/ffmpeg or the Codex child rather than leaving it behind.
+    process.kill(-pid, "SIGTERM");
   } catch {
+    try { process.kill(pid, "SIGTERM"); } catch { /* Process already exited. */ }
     // The process may have exited between the timeout and cleanup.
   }
 };
@@ -460,6 +690,7 @@ const runProcess = (command: string, args: string[], options: RunProcessOptions 
       cwd: options.cwd,
       env: options.env,
       windowsHide: true,
+      detached: process.platform !== "win32",
       // Codex treats a piped stdin as additional prompt input and waits for EOF.
       // These jobs pass the complete prompt as an argument, so stdin must be closed.
       stdio: ["ignore", "pipe", "pipe"],
@@ -489,7 +720,7 @@ const runProcess = (command: string, args: string[], options: RunProcessOptions 
       ? setTimeout(() => {
         terminateProcessTree(child.pid);
         const tail = (stderr.trim() || stdout.trim()).slice(-1800);
-        fail(new Error(
+        fail(new ProcessTimeoutError(
           `${path.basename(command)} timed out after ${options.timeoutMs}ms.` +
           (tail ? ` Last output: ${tail}` : " No Codex output was received."),
         ));
@@ -543,6 +774,9 @@ type CodexRunRecord = {
   stdout?: string;
   stderr?: string;
   error?: string;
+  warning?: string;
+  timedOut?: boolean;
+  recoveredByCheck?: boolean;
   eventLogPath?: string;
   stderrLogPath?: string;
   instruction: string;
@@ -563,7 +797,7 @@ const runCodexHyperframesEdit = async (projectDir: string, input: MotionComposit
     "- Make the composition visually richer than the generated baseline.",
     "- Do not ask follow-up questions.",
     "- Keep the result renderable by the existing HyperFrames CLI.",
-    "- Stop after writing the improved files.",
+    "- Stop after writing the improved files and obtaining the first passing final check.",
   ].join("\n");
   const outputPath = path.join(projectDir, "CODEX_RESULT.md");
   const eventLogPath = path.join(projectDir, "codex-events.jsonl");
@@ -621,6 +855,29 @@ const hyperframesEnv = () => {
   return { ...process.env, PATH: [...extraPaths, process.env.PATH || ""].join(pathSeparator) };
 };
 
+const remoteDependencyPattern = /<(?:script|link|img|video|audio|source)\b[^>]*(?:src|href)\s*=\s*["']https?:\/\/|url\(\s*["']?https?:\/\/|fetch\(\s*["']https?:\/\//i;
+
+const assertLocalRuntimeDependencies = async (projectDir: string) => {
+  const html = await readFile(path.join(projectDir, "index.html"), "utf8");
+  if (remoteDependencyPattern.test(html)) {
+    throw new Error("Codex generated a remote script, style, or asset dependency. HyperFrames jobs must use localized assets and `assets/gsap.min.js` instead of a CDN.");
+  }
+};
+
+const checkWithHyperframes = async (projectDir: string) => {
+  const cliPath = path.join(process.cwd(), "node_modules", "hyperframes", "dist", "cli.js");
+  await runProcess(process.execPath, [
+    cliPath,
+    "check",
+    projectDir,
+    "--json",
+  ], {
+    cwd: projectDir,
+    env: hyperframesEnv(),
+    timeoutMs: 180_000,
+  });
+};
+
 const renderWithHyperframes = async (projectDir: string, outputPath: string, composition: MotionComposition) => {
   const cliPath = path.join(process.cwd(), "node_modules", "hyperframes", "dist", "cli.js");
   await runProcess(process.execPath, [
@@ -634,41 +891,92 @@ const renderWithHyperframes = async (projectDir: string, outputPath: string, com
     "--workers", "1",
     "--browser-timeout", "120",
     "--player-ready-timeout", "120000",
-    "--low-memory-mode",
+    // We already keep one render worker. HyperFrames' low-memory profile also
+    // forces Page.captureScreenshot for every frame, which made a 10s/30fps
+    // composition take well beyond twelve minutes on Render. The managed
+    // Chrome Headless Shell in the Docker image can use beginFrame instead.
+    "--no-low-memory-mode",
     "--quiet",
-  ], { cwd: projectDir, env: hyperframesEnv() });
+  ], {
+    cwd: projectDir,
+    env: hyperframesEnv(),
+    timeoutMs: configuredTimeout("MINDVERSE_HYPERFRAMES_RENDER_TIMEOUT_MS", 720_000, 60_000),
+  });
 };
 
-export const createMotionComposition = async (input: MotionCompositionInput) => {
+export const createMotionComposition = async (input: MotionCompositionInput, options: MotionCompositionOptions = {}) => {
+  const report = async (update: MotionProgressUpdate) => { await options.onProgress?.(update); };
   const composition = buildComposition(input);
   const persistent = isCodexHyperframesMode(input);
   const projectDir = persistent
     ? path.join(process.cwd(), ".mindverse", "hyperframes-jobs", randomUUID())
     : await mkdtemp(path.join(tmpdir(), "mindverse-motion-"));
   try {
+    await report({ phase: "preparing", message: "Downloading connected media and preparing the composition.", progress: 10 });
     if (persistent) await mkdir(projectDir, { recursive: true });
     await writeProject(composition, projectDir);
     let codexRun: CodexRunRecord | undefined;
     if (persistent) {
+      await report({ phase: "codex", message: "Codex is editing the HyperFrames composition.", progress: 28 });
       await writeCodexPrompt(input, composition, projectDir);
+      let codexCompleted = false;
       try {
         codexRun = await runCodexHyperframesEdit(projectDir, input);
+        codexCompleted = true;
+        await report({ phase: "checking", message: "Checking the Codex composition with HyperFrames.", progress: 55 });
+        await restoreSourceVideoAudioTracks(projectDir);
+        await assertLocalRuntimeDependencies(projectDir);
+        await checkWithHyperframes(projectDir);
       } catch (error) {
-        codexRun = {
-          ok: false,
-          error: error instanceof Error ? error.message : "Codex execution failed.",
-          eventLogPath: path.join(projectDir, "codex-events.jsonl"),
-          stderrLogPath: path.join(projectDir, "codex-stderr.log"),
-          instruction: input.codexInstruction || input.prompt || "",
-          completedAt: new Date().toISOString(),
-        };
+        const timedOut = !codexCompleted && error instanceof ProcessTimeoutError;
+        let recoveredByCheck = false;
+        let recoveryError: unknown;
+        if (timedOut) {
+          await new Promise((resolve) => setTimeout(resolve, 750));
+          try {
+            await restoreSourceVideoAudioTracks(projectDir);
+            await assertLocalRuntimeDependencies(projectDir);
+            await checkWithHyperframes(projectDir);
+            recoveredByCheck = true;
+          } catch (checkError) {
+            recoveryError = checkError;
+          }
+        }
+        codexRun = recoveredByCheck
+          ? {
+            ok: true,
+            warning: "Codex reached its time limit after editing, but the saved composition passed an independent HyperFrames check and was accepted.",
+            timedOut: true,
+            recoveredByCheck: true,
+            eventLogPath: path.join(projectDir, "codex-events.jsonl"),
+            stderrLogPath: path.join(projectDir, "codex-stderr.log"),
+            instruction: input.codexInstruction || input.prompt || "",
+            completedAt: new Date().toISOString(),
+          }
+          : {
+            ok: false,
+            error: [
+              error instanceof Error ? error.message : "Codex execution failed.",
+              recoveryError instanceof Error ? `Recovery check failed: ${recoveryError.message}` : "",
+            ].filter(Boolean).join(" "),
+            timedOut,
+            recoveredByCheck: false,
+            eventLogPath: path.join(projectDir, "codex-events.jsonl"),
+            stderrLogPath: path.join(projectDir, "codex-stderr.log"),
+            instruction: input.codexInstruction || input.prompt || "",
+            completedAt: new Date().toISOString(),
+          };
         await writeFile(path.join(projectDir, "codex-run.json"), JSON.stringify(codexRun, null, 2), "utf8");
-        if (codexRequired()) throw error;
+        if (!recoveredByCheck && codexRequired()) {
+          throw new Error(codexRun.error || "Codex HyperFrames execution failed.");
+        }
       }
     }
     const outputPath = path.join(projectDir, "motion.mp4");
+    await report({ phase: "rendering", message: "Rendering video with Chromium and FFmpeg.", progress: 68 });
     await renderWithHyperframes(projectDir, outputPath, composition);
     const remotePath = `canvas/${dateKey()}/motion/${randomUUID()}.mp4`;
+    await report({ phase: "uploading", message: "Uploading the rendered video.", progress: 92 });
     const videoUrl = await uploadToBunny(await readFile(outputPath), remotePath, "video/mp4");
     const compositionJson = motionCompositionToJson(composition);
     return {

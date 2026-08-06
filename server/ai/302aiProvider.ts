@@ -3,6 +3,7 @@ import { request302, request302OpenAI } from "./302aiClient";
 import { AIProviderError } from "./errors";
 import { requestChatCompletion, storyboardModel, textModel, textProvider } from "./textLLMClient";
 import { professionalStoryboardInstructionFromSkill } from "@/server/workflow/storySkillPrompts";
+import { clampStoryboardSceneCount } from "@/shared/workflow/storyPipeline";
 import type { AIProvider, EditImageWithAnnotationsInput, EditImageWithAnnotationsOutput, GenerateAudioInput, GenerateAudioOutput, GenerateImageInput, GenerateImageOutput, GenerateStoryboardInput, GenerateStoryboardOutput, GenerateTextInput, GenerateTextOutput, GenerateVideoInput, GenerateVideoOutput, StoryboardScene } from "./types";
 
 type RecordValue = Record<string, unknown>;
@@ -26,7 +27,7 @@ const sceneArrayFrom = (value: unknown) => {
   return candidates.find(Array.isArray) as unknown[] | undefined;
 };
 const normalizeScenes = (value: unknown, fallback: string, requestedCount: number): StoryboardScene[] => {
-  const count = Math.max(1, Math.min(30, Math.round(Number(requestedCount) || 1)));
+  const count = clampStoryboardSceneCount(requestedCount, 1);
   const scenes = sceneArrayFrom(value) || [];
   const normalized = scenes.map((scene, index) => {
     const item = object(scene);

@@ -4,6 +4,10 @@ export const skillCategories = ["image", "video", "audio", "story", "agent", "mo
 
 export type SkillCategory = (typeof skillCategories)[number];
 export type SkillVisibility = "private" | "public" | "unlisted";
+export const skillRoles = ["workflow_recipe", "base_prompt_policy", "style_profile", "repair_playbook"] as const;
+export type SkillRole = (typeof skillRoles)[number];
+export const promptTargets = ["image", "video"] as const;
+export type PromptTarget = (typeof promptTargets)[number];
 
 export type SkillSummary = {
   id: string;
@@ -13,6 +17,10 @@ export type SkillSummary = {
   visibility: SkillVisibility;
   hasCanvasTemplate: boolean;
   nodeCount: number;
+  role: SkillRole;
+  appliesTo: PromptTarget[];
+  triggerPhrases: string[];
+  priority: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -26,11 +34,15 @@ export type SkillDraft = {
   expectedOutput: string;
   category: SkillCategory;
   visibility?: SkillVisibility;
+  role?: SkillRole;
+  appliesTo?: PromptTarget[];
+  triggerPhrases?: string[];
+  priority?: number;
   canvasTemplate?: CanvasSnapshot;
 };
 
 export type StoredSkill = SkillSummary & {
-  version: 1;
+  version: number;
   skillMd: string;
   usageScenario: string;
   howToUse: string;
@@ -38,7 +50,7 @@ export type StoredSkill = SkillSummary & {
   canvasTemplate?: CanvasSnapshot;
 };
 
-export type ActiveSkillContext = Pick<StoredSkill, "id" | "name" | "tagline" | "skillMd" | "usageScenario" | "howToUse" | "expectedOutput">;
+export type ActiveSkillContext = Pick<StoredSkill, "id" | "name" | "tagline" | "skillMd" | "usageScenario" | "howToUse" | "expectedOutput" | "role" | "appliesTo" | "triggerPhrases" | "priority">;
 
 export const skillCategoryLabels: Record<SkillCategory, string> = {
   image: "图片",
@@ -47,6 +59,13 @@ export const skillCategoryLabels: Record<SkillCategory, string> = {
   story: "故事",
   agent: "Agent",
   motion: "动效",
+};
+
+export const skillRoleLabels: Record<SkillRole, string> = {
+  workflow_recipe: "工作流配方",
+  base_prompt_policy: "基础提示词规范",
+  style_profile: "风格 Profile",
+  repair_playbook: "修复/排错规范",
 };
 
 export const defaultSkillMarkdown = `---

@@ -1,7 +1,10 @@
-import { listAgentSkills, readAgentSkill } from "./skillLoader";
-import { agentWorkflowSkills } from "@/shared/agent/workflowSkills";
+import { readAgentSkill } from "./skillLoader";
 import type { AgentProjectMemory } from "@/shared/agent/projectMemory";
 import type { AgentObservationReport } from "@/shared/agent/agentAutonomy";
+import type { AgentSemanticRoute, CapabilityEvidenceBundle } from "@/shared/agent/capabilityTypes";
+import { evidenceBundlePrompt } from "@/server/rag/retrievalBundle";
+import type { AgentWorkflowPlan } from "@/shared/agent/agentSchema";
+import type { PromptProfile } from "@/shared/agent/promptProfiles";
 
 const languageInstructionFor = (text: string) =>
   /[\u3400-\u9fff]/.test(text)
@@ -11,6 +14,8 @@ const languageInstructionFor = (text: string) =>
 export function buildAgentPlannerMessages(
   userPrompt: string,
   canvasSummary?: string,
+  semanticRoute?: AgentSemanticRoute,
+  evidenceBundle?: CapabilityEvidenceBundle,
   repair?: { previousPlan: unknown; feedback: string },
 ) {
   return [
@@ -19,6 +24,17 @@ export function buildAgentPlannerMessages(
       content: [
         readAgentSkill("workflow-planner"),
         languageInstructionFor(userPrompt),
+        "Use the unified capability-plan protocol. Choose semantics and composition, but do not invent node kinds, model ids, tools, or provider limits.",
+        "You may reference only providerCapabilityId values present in the Evidence Bundle. Each step must cite a provider whose kind is model or runtime and one or more evidenceIds from that candidate. Skills are planning guidance and Tools run before planning; neither is a canvas step executor.",
+        "For script_generation, storyboard_generation, and text_generation use model:text:configured when it is available. For text_to_video use a retrieved text-to-video model such as model:video:seedance-2.0; never select seedance-asset-fast for a pure text-to-video step. Prefer model:video:seedance-asset-fast only for compatible asset/image-reference video steps, unless the user explicitly requested another model.",
+        "Storyboard workflows are capped at 3 scenes and 3 storyboard image branches. Use fewer when requested, and reduce larger requests to the 3 essential shots.",
+        "Do not add optional audio, narration, music, or extra packaging steps unless the user explicitly requested them or the request requires them to satisfy an explicit deliverable.",
+        "Each step must contain: id, capability, providerCapabilityId, evidenceIds, typed inputs, label, params, and dependsOn.",
+        "Typed input shape: {source:'canvas_node'|'step_output'|'user_input', nodeId?:string, stepId?:string, role:'prompt|story_brief|source_text|reference_image|source_video|reference_audio|background_music|...' }.",
+        "Do not output kind. Mindverse maps capability to a concrete node type deterministically after validation.",
+        "For existing selected media, reference its exact id with source=canvas_node. For generated dependencies, use source=step_output and the exact stepId.",
+        "If one capability cannot satisfy every constraint, compose multiple retrieved capabilities, for example multi-reference video followed by FFmpeg background-music editing.",
+        "Return shape: {title,objective,description,goal,userPrompt,style,aspectRatio,sceneCount,includeAudio,steps:[{id,capability,providerCapabilityId,evidenceIds,inputs,label,purpose,prompt,params,dependsOn}],successCriteria,warnings}.",
         "Return JSON only. Do not output Markdown.",
       ].join("\n\n"),
     },
@@ -26,6 +42,8 @@ export function buildAgentPlannerMessages(
       role: "user",
       content: [
         `User creative request:\n${userPrompt}`,
+        semanticRoute ? `Semantic route and constraints:\n${JSON.stringify(semanticRoute, null, 2)}` : "",
+        evidenceBundle ? `Retrieved Evidence Bundle (the complete allowed capability set):\n${evidenceBundlePrompt(evidenceBundle)}` : "",
         canvasSummary ? `Current canvas summary:\n${canvasSummary}` : "Current canvas summary: empty or unavailable.",
         repair ? `Previous workflow plan:\n${JSON.stringify(repair.previousPlan, null, 2)}` : "",
         repair ? `Plan quality feedback:\n${repair.feedback}` : "",
@@ -35,18 +53,66 @@ export function buildAgentPlannerMessages(
   ] as Array<{ role: "system" | "user"; content: string }>;
 }
 
+export function buildAgentPromptComposerMessages({
+  userPrompt,
+  plan,
+  profiles,
+}: {
+  userPrompt: string;
+  plan: AgentWorkflowPlan;
+  profiles: PromptProfile[];
+}) {
+  const visualSteps = plan.steps
+    .filter((step) => step.kind === "image" || step.kind === "video")
+    .map((step) => ({
+      id: step.id,
+      kind: step.kind,
+      label: step.label,
+      purpose: step.purpose || "",
+      existingPrompt: step.prompt || "",
+      params: step.params || {},
+      dependsOn: step.dependsOn || [],
+    }));
+  return [
+    {
+      role: "system" as const,
+      content: [
+        "You are Mindverse Prompt Composer. You do not design workflow topology, change providers, create steps, or select models.",
+        languageInstructionFor(userPrompt),
+        "Write one production-ready English prompt and one concise English negativePrompt for every supplied image or video step.",
+        "The prompt must describe only that step's shot, not a multi-panel storyboard. Preserve user-mandated brand/product/person names exactly when supplied. Use concrete visual language: subject, setting, action, composition, camera, lighting, palette, medium and continuity. Keep generated in-frame typography to an absolute minimum; brand title cards belong in downstream motion nodes.",
+        "For image steps, write a single keyframe image prompt. For video steps, write a single-shot video prompt with temporal action and camera movement. Respect the requested aspect ratio, duration, source-reference mode and existing dependencies without inventing unsupported source assets.",
+        "Profiles are guidance, not user-facing text. Apply only profiles whose Targets include the current step kind. Apply base policy first, then a style profile may override only visual medium/style conflicts (for example 2D animation overrides photorealistic live action). Do not mention named living artists or imitate a specific copyrighted film, character, poster, frame or logo.",
+        "Return JSON only: {\"steps\":[{\"id\":\"exact supplied id\",\"prompt\":\"English prompt\",\"negativePrompt\":\"English negative prompt\"}]}. Return exactly one item for each supplied step.",
+      ].join("\n\n"),
+    },
+    {
+      role: "user" as const,
+      content: [
+        `User creative brief:\n${userPrompt}`,
+        `Workflow constraints:\n${JSON.stringify({ aspectRatio: plan.aspectRatio, sceneCount: plan.sceneCount, goal: plan.goal }, null, 2)}`,
+        `Visual generation steps:\n${JSON.stringify(visualSteps, null, 2)}`,
+        "Prompt profiles to apply in priority order:",
+        profiles.map((profile) => `## ${profile.name} (${profile.role}; Targets: ${profile.appliesTo.join(", ")})\n${profile.runtimeInstructions}`).join("\n\n"),
+      ].filter(Boolean).join("\n\n"),
+    },
+  ];
+}
+
 export function buildAgentRequirementMessages({
   userMessage,
   pendingRequest,
   intendedIntent,
   canvasSummary,
   conversation,
+  skillGuidance,
 }: {
   userMessage: string;
   pendingRequest?: string;
   intendedIntent: "create" | "edit" | "skill";
   canvasSummary: string;
   conversation: Array<{ role: "user" | "assistant"; content: string }>;
+  skillGuidance?: string;
 }) {
   const languageSource = [pendingRequest, userMessage, ...conversation.map((item) => item.content)].filter(Boolean).join("\n");
   return [
@@ -63,6 +129,7 @@ export function buildAgentRequirementMessages({
         "If the user requests N storyboard images or shots but leaves their exact staging open, infer N distinct editable scene descriptions from the supplied story instead of asking the user to write every shot.",
         "A selected canvas node is a valid source/target when the canvas summary says it is selected. Do not ask the user to provide it again.",
         "Reference assets listed in Agent memory with canvas node ids are valid existing source assets. Resolve phrases such as this person, this image, or the selected photo to those exact nodes instead of asking the user to upload them again.",
+        "Retrieved Skills are planning guidance. When a retrieved Skill explicitly permits defaults or tells you to infer a detail, follow it and record the result as an editable assumption instead of asking a question.",
         "When this is a follow-up to a pending request, combine the pending request and latest answer into one standalone resolvedRequest.",
         "Return at most three concise questions. If ready is true, questions must be empty.",
         "Return JSON only: {\"ready\":true|false,\"resolvedRequest\":\"standalone instruction\",\"missingInformation\":[\"...\"],\"questions\":[\"...\"],\"assumptions\":[\"...\"]}.",
@@ -76,6 +143,7 @@ export function buildAgentRequirementMessages({
         "Conversation so far:",
         JSON.stringify(conversation.slice(-12), null, 2),
         canvasSummary,
+        skillGuidance ? `Retrieved Skill guidance:\n${skillGuidance}` : "Retrieved Skill guidance: none",
         `Latest user message:\n${userMessage}`,
       ].join("\n\n"),
     },
@@ -169,8 +237,6 @@ export function buildAgentOrganizeMessages({
   ] as Array<{ role: "system" | "user"; content: string }>;
 }
 
-const excerpt = (value: string, max = 1800) => value.trim().slice(0, max);
-
 export function buildAgentRouterMessages({
   userMessage,
   canvasSummary,
@@ -183,48 +249,27 @@ export function buildAgentRouterMessages({
   conversation: Array<{ role: "user" | "assistant"; content: string }>;
   agentMemory?: AgentProjectMemory;
 }) {
-  const coreSkills = listAgentSkills()
-    .map((skill) => `## ${skill.name}\n${excerpt(skill.content)}`)
-    .join("\n\n");
-  const workflowSkills = Object.values(agentWorkflowSkills)
-    .map((skill) => [
-      `## workflow-skill:${skill.id}`,
-      `Label: ${skill.label}`,
-      `Description: ${skill.description}`,
-      "Use this only when the user explicitly asks to generate/build/place this workflow, not during open-ended ideation.",
-    ].join("\n"))
-    .join("\n\n");
-
   return [
     {
       role: "system",
       content: [
-        "You are Mindverse Agent Router. Choose exactly one route for the latest user message.",
+        "You are Mindverse Semantic Router. Understand what the user wants, but never choose concrete canvas nodes, Skills, models, or workflow templates.",
         languageInstructionFor(userMessage),
-        "Read the available skill descriptions. Route by intent and context, not by shallow keyword matching.",
+        "Extract the objective, exact target canvas node ids, required abstract capabilities, hard constraints, and observable success criteria.",
+        "Route by intent and context, not by shallow keyword matching.",
         "If Agent memory contains pendingIntent and pendingRequest, decide whether the latest message answers that pending clarification. When it does, set resumePending to true and use the pending intent. When it does not, route the latest request normally.",
         "The canvas summary may include a Selected Nodes section. Treat those nodes as the user's explicit operation targets.",
         "Routes:",
         "- dialogue: brainstorm, ideate, clarify, develop a story, or continue an unfinished ideation conversation.",
-        "- create: create a general editable workflow from a sufficiently clear request.",
-        "- edit: modify existing canvas nodes/edges. Choose edit when selected nodes exist and the user asks to operate on selected/current/these nodes. Do not choose edit if the user says not to modify or only wants ideation.",
+        "- plan: create a new workflow or transform selected/current media. Do not decide the graph here.",
+        "- clarify: critical missing information changes the target, required source assets, graph topology, or explicitly required output. Include concise questions.",
         "- organize: arrange/group/clean up the current canvas.",
-        "- skill: call a specialized workflow skill. Use only when the user explicitly names that Skill or explicitly requests its distinctive fixed-scene outputs: character turnaround/design-sheet references plus a scene nine-grid. A normal request involving a character, scenes, storyboard images, or one video is create/edit, not skill.",
         "- tool: call a bounded external tool and return its results for user choice. Use image_search when the user asks to search/find/look up existing online photos or image references. Do not use it when the user asks an image model to generate a new image.",
-        "Shot count and deliverable count are independent. Requests such as 'create two storyboard images and combine them into one video' must route to create/edit so the planner can build exactly that topology; they must never activate fixed-scene-action-video by themselves.",
-        "Do not reuse a preferred workflow Skill merely because the new request mentions video or says continue. Reuse it only when the user explicitly asks for the same/previous Skill or workflow.",
-        "For image_search, provide a concise searchable query. Translate a person's Chinese name to its widely used international name when helpful, while preserving distinctive qualifiers from the request.",
+        "Operation values: create_workflow, transform_media, generate_media, organize_canvas, retrieve_reference, develop_idea, custom.",
+        "Capabilities are abstract snake_case needs such as image_generation, multi_reference_video, digital_human_video, background_music, video_edit, motion_graphics, title_overlay, character_consistency, or search_image. Do not output provider or Skill names as capabilities.",
+        "Do not mark optional aesthetics as missing. Use editable constraints/defaults. Ask at most three questions.",
         "Important: If the user says '构思', '不是修改', '只构思', or is adding story details while the last memory intent is dialogue, choose dialogue unless they explicitly request workflow generation.",
-        "Return JSON only: {\"intent\":\"dialogue|create|edit|organize|skill|tool\",\"skillId\":\"fixed-scene-action-video optional\",\"toolName\":\"image_search optional\",\"toolArguments\":{\"query\":\"search query\",\"limit\":8},\"resumePending\":false,\"reason\":\"short reason\"}.",
-        "",
-        "Available core skills:",
-        coreSkills,
-        "",
-        "Available workflow skills:",
-        workflowSkills,
-        "",
-        "Available tools:",
-        "- image_search: search the configured full-web image provider (Google Images or Bing Images, with Wikimedia fallback) and return source-linked candidates for the user to choose from.",
+        "Return JSON only: {\"route\":\"plan|clarify|dialogue|tool|organize\",\"operation\":\"...\",\"objective\":\"...\",\"targetNodeIds\":[\"exact-id\"],\"requiredCapabilities\":[\"...\"],\"constraints\":{},\"successCriteria\":[\"...\"],\"missingInformation\":[],\"questions\":[],\"confidence\":0.0,\"resumePending\":false,\"reason\":\"...\",\"toolName\":\"image_search optional\",\"toolArguments\":{}}.",
       ].join("\n\n"),
     },
     {
@@ -236,33 +281,6 @@ export function buildAgentRouterMessages({
         canvasSummary,
         "Latest user message:",
         userMessage,
-      ].join("\n\n"),
-    },
-  ] as Array<{ role: "system" | "user"; content: string }>;
-}
-
-export function buildFixedSceneSkillMessages(userBrief: string) {
-  return [
-    {
-      role: "system",
-      content: [
-        "You are a fixed-scene video workflow compiler for Mindverse.",
-        languageInstructionFor(userBrief),
-        "Convert the user request into a structured brief for a workflow that creates character turnaround reference image(s), an empty scene nine-grid reference image, and one final video.",
-        "Do not use a generic suspense template unless the user explicitly asks for suspense.",
-        "The scene nine-grid must describe an empty environment only. No people, no arrows, no route lines, no labels.",
-        "The video action plan must follow the user's actual action and genre. If the user says basketball shooting, write a basketball shooting action chain. If the user says cooking, write a cooking action chain. If the user says searching a room, write a searching/discovery action chain.",
-        "Return JSON only with this shape: { title, story_goal, main_character_visual, secondary_character_visual, fixed_location_visual, video_action_plan, style, shot_plan, continuity_rules, aspect_ratio, duration_seconds }.",
-        "shot_plan must be an array of 3 to 8 concise shot descriptions. Each shot must include subject action, camera behavior, and how it continues from the previous shot. Do not include timestamps.",
-        "Keep prompts concise but specific enough for image/video generation.",
-      ].join("\n\n"),
-    },
-    {
-      role: "user",
-      content: [
-        "User fixed-scene workflow request:",
-        userBrief,
-        "Compile this into the structured fixed-scene brief.",
       ].join("\n\n"),
     },
   ] as Array<{ role: "system" | "user"; content: string }>;

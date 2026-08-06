@@ -164,3 +164,502 @@ button { cursor: pointer; }
   }
 }
 
+/* Mindverse home --------------------------------------------------------- */
+.mindverse-grid {
+  opacity: 0.72;
+  background-image:
+    linear-gradient(rgba(17, 19, 24, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(17, 19, 24, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(to bottom, black 0%, rgba(0, 0, 0, 0.72) 68%, transparent 100%);
+}
+
+.dark .mindverse-grid {
+  opacity: 0.42;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
+}
+
+.mindverse-orb {
+  position: absolute;
+  pointer-events: none;
+  width: 34rem;
+  height: 34rem;
+  border-radius: 999px;
+  filter: blur(100px);
+  opacity: 0.12;
+}
+
+.mindverse-orb--violet { left: -18rem; top: -15rem; background: #8b5cf6; }
+.mindverse-orb--cyan { right: -18rem; bottom: -18rem; background: #22d3ee; }
+.dark .mindverse-orb { opacity: 0.09; }
+
+.mindverse-canvas {
+  background-color: #f8f9fb;
+  background-image: radial-gradient(circle, rgba(92, 101, 118, 0.2) 1px, transparent 1.35px);
+  background-size: 20px 20px;
+}
+
+.dark .mindverse-canvas {
+  background-color: #09131d;
+  background-image: radial-gradient(circle, rgba(148, 163, 184, 0.2) 1px, transparent 1.35px);
+}
+
+.mindverse-connector {
+  stroke: #aeb5c0;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-dasharray: 5 6;
+}
+
+.dark .mindverse-connector { stroke: #405064; }
+
+.mindverse-node {
+  position: absolute;
+  z-index: 2;
+  border: 1px solid rgba(20, 24, 31, 0.09);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 45px rgba(32, 39, 52, 0.11);
+  backdrop-filter: blur(12px);
+}
+
+.dark .mindverse-node {
+  border-color: rgba(255, 255, 255, 0.09);
+  background: rgba(15, 27, 39, 0.95);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.24);
+}
+
+.mindverse-node--idea { left: 6%; top: 13%; width: 33%; min-width: 190px; padding: 16px; border-radius: 18px; }
+.mindverse-node--agent { left: 50%; top: 48%; border: 0; background: transparent; box-shadow: none; transform: translate(-50%, -50%); }
+.dark .mindverse-node--agent { border: 0; background: transparent; box-shadow: none; }
+.mindverse-node--image { right: 4%; top: 8%; width: 30%; min-width: 176px; padding: 12px; border-radius: 18px; }
+.mindverse-node--video { right: 5%; bottom: 12%; width: 31%; min-width: 190px; padding: 14px; border-radius: 16px; }
+
+.mindverse-agent-orbit {
+  display: grid;
+  place-items: center;
+  width: 80px;
+  height: 80px;
+  border-radius: 999px;
+  border: 1px dashed rgba(124, 58, 237, 0.4);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.dark .mindverse-agent-orbit { border-color: rgba(34, 211, 238, 0.42); background: rgba(9, 19, 29, 0.76); }
+
+.mindverse-image-art {
+  background:
+    radial-gradient(circle at 72% 25%, rgba(255,255,255,.8) 0 4%, transparent 5%),
+    linear-gradient(145deg, #b6f2ff 0%, #a8a8ff 42%, #5b4cbd 100%);
+}
+
+.mindverse-status-dot { animation: mindverse-pulse 2.2s ease-in-out infinite; }
+.mindverse-progress { position: relative; overflow: hidden; }
+.mindverse-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.7), transparent);
+  transform: translateX(-100%);
+  animation: mindverse-shimmer 2.8s ease-in-out infinite;
+}
+
+.mindverse-reveal { animation: mindverse-reveal .72s both cubic-bezier(.2,.75,.25,1); }
+.mindverse-reveal--1 { animation-delay: .05s; }
+.mindverse-reveal--2 { animation-delay: .12s; }
+.mindverse-reveal--3 { animation-delay: .2s; }
+.mindverse-reveal--4 { animation-delay: .28s; }
+.mindverse-reveal--5 { animation-delay: .36s; }
+.mindverse-reveal--preview { animation-delay: .18s; }
+
+@keyframes mindverse-reveal {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes mindverse-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  50% { box-shadow: 0 0 0 5px rgba(16, 185, 129, 0.13); }
+}
+
+@keyframes mindverse-shimmer {
+  0%, 35% { transform: translateX(-120%); }
+  70%, 100% { transform: translateX(120%); }
+}
+
+@media (max-width: 639px) {
+  .mindverse-node--idea { left: 4%; top: 12%; width: 54%; min-width: 0; padding: 13px; }
+  .mindverse-node--image { right: 3%; top: 45%; width: 46%; min-width: 0; }
+  .mindverse-node--video { right: 4%; bottom: 6%; width: 58%; min-width: 0; }
+  .mindverse-node--agent { left: 58%; top: 34%; }
+  .mindverse-agent-orbit { width: 70px; height: 70px; }
+  .mindverse-preview .mindverse-image-art { height: 4.5rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mindverse-reveal,
+  .mindverse-status-dot,
+  .mindverse-progress::after {
+    animation: none !important;
+  }
+
+  .mindverse-home *,
+  .mindverse-home *::before,
+  .mindverse-home *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Agent conversation panel ------------------------------------------------ */
+.mindverse-agent-launcher {
+  border-color: var(--border);
+  background: var(--bg-node);
+  color: var(--ink);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+}
+
+.mindverse-agent-launcher:hover {
+  border-color: var(--accent);
+  background: var(--bg-panel);
+  box-shadow: 0 20px 52px rgba(14, 165, 233, 0.16);
+}
+
+.mindverse-agent-panel {
+  --agent-composer-shadow: 0 18px 60px rgba(15, 23, 42, 0.14);
+  border-color: var(--border) !important;
+  border-radius: 32px !important;
+  background: var(--bg-base) !important;
+  color: var(--ink) !important;
+  box-shadow: 0 28px 100px rgba(15, 23, 42, 0.24) !important;
+}
+
+.dark .mindverse-agent-panel {
+  --agent-composer-shadow: 0 18px 60px rgba(0, 0, 0, 0.34);
+  box-shadow: 0 28px 100px rgba(0, 0, 0, 0.48) !important;
+}
+
+.mindverse-agent-panel > header {
+  border-color: var(--border) !important;
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent) !important;
+}
+
+.mindverse-agent-panel > header > div > span,
+.mindverse-agent-welcome > div:first-child > div > span {
+  border-color: var(--border) !important;
+  background: var(--accent-subtle) !important;
+  color: var(--accent) !important;
+}
+
+.mindverse-agent-panel > header > div > div > div:first-child,
+.mindverse-agent-welcome h2 {
+  color: var(--ink) !important;
+}
+
+.mindverse-agent-panel > header > div > div > div:last-child,
+.mindverse-agent-welcome > div:first-child > div {
+  color: var(--graphite) !important;
+}
+
+.mindverse-agent-panel > header > button {
+  color: var(--rw-slate) !important;
+}
+
+.mindverse-agent-panel > header > button:hover {
+  background: var(--accent-subtle) !important;
+  color: var(--ink) !important;
+}
+
+.mindverse-agent-task-card {
+  position: relative;
+  overflow: hidden;
+  border-color: var(--border) !important;
+  background: var(--bg-node) !important;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.06);
+  animation: mindverse-suggestion-enter 420ms cubic-bezier(.16, 1, .3, 1) both;
+  will-change: transform, opacity;
+}
+
+.mindverse-agent-task-card::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: linear-gradient(180deg, transparent 10%, var(--accent) 45%, transparent 90%);
+  opacity: .5;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.mindverse-agent-task-card:nth-child(1) {
+  border-radius: 26px 19px 25px 18px !important;
+  transform: rotate(-.45deg);
+}
+
+.mindverse-agent-task-card:nth-child(2) {
+  border-radius: 19px 26px 18px 25px !important;
+  transform: translateY(4px) rotate(.45deg);
+  animation-delay: 55ms;
+}
+
+.mindverse-agent-task-card:hover {
+  border-color: var(--accent) !important;
+  background: var(--bg-panel) !important;
+  transform: translateY(-3px) rotate(0deg);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.1);
+}
+
+.mindverse-agent-task-card:hover::after { opacity: 1; transform: scaleY(.72); }
+
+.mindverse-agent-suggestions--leaving .mindverse-agent-task-card {
+  pointer-events: none;
+  animation: mindverse-suggestion-exit-left 220ms cubic-bezier(.4, 0, 1, 1) both;
+}
+
+.mindverse-agent-suggestions--leaving .mindverse-agent-task-card:nth-child(2) {
+  animation-name: mindverse-suggestion-exit-right;
+  animation-delay: 25ms;
+}
+
+.mindverse-agent-task-card > div { color: var(--rw-slate) !important; }
+.mindverse-agent-task-card > div span:first-child { color: var(--accent) !important; }
+.mindverse-agent-task-card p:first-of-type { color: var(--ink) !important; }
+.mindverse-agent-task-card p:last-of-type { color: var(--graphite) !important; }
+
+.mindverse-agent-message--assistant,
+.mindverse-agent-status,
+.mindverse-agent-used-skills,
+.mindverse-agent-run,
+.mindverse-agent-advanced,
+.mindverse-agent-preview-card {
+  border-color: var(--border) !important;
+  background: var(--bg-node) !important;
+  color: var(--graphite) !important;
+}
+
+.mindverse-agent-message--user {
+  border-color: var(--accent) !important;
+  background: var(--accent-subtle) !important;
+  color: var(--ink) !important;
+}
+
+.mindverse-agent-message button.block {
+  border-color: var(--border) !important;
+  background: var(--bg-panel) !important;
+}
+
+.mindverse-agent-message button.block:hover { border-color: var(--accent) !important; }
+.mindverse-agent-message button.block span:first-child { color: var(--ink) !important; }
+.mindverse-agent-message button.block span:last-child { color: var(--graphite) !important; }
+
+.mindverse-agent-used-skills > div:first-child,
+.mindverse-agent-run > div:first-child,
+.mindverse-agent-preview-card h3,
+.mindverse-agent-preview-card .font-semibold {
+  color: var(--ink) !important;
+}
+
+.mindverse-agent-run > div:last-child,
+.mindverse-agent-preview-card p {
+  color: var(--graphite) !important;
+}
+
+.mindverse-agent-advanced button {
+  border-color: var(--border) !important;
+  background: var(--bg-panel) !important;
+  color: var(--ink) !important;
+}
+
+.mindverse-agent-advanced button:hover { border-color: var(--accent) !important; }
+.mindverse-agent-advanced button span:last-child { color: var(--graphite) !important; }
+
+.mindverse-agent-preview-card [class*="bg-[#f7f9fc]"],
+.mindverse-agent-preview-card [class*="bg-[#f2f5f9]"] {
+  background: var(--bg-panel) !important;
+}
+
+.mindverse-agent-preview-card [class*="border-[#edf1f6]"] { border-color: var(--border) !important; }
+
+.mindverse-agent-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.mindverse-agent-scroll::-webkit-scrollbar { width: 6px; }
+.mindverse-agent-scroll::-webkit-scrollbar-track { background: transparent; }
+.mindverse-agent-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.mindverse-agent-composer {
+  position: relative;
+  isolation: isolate;
+  border-color: var(--border) !important;
+  background: var(--bg-node) !important;
+  box-shadow: var(--agent-composer-shadow) !important;
+  transition: border-color 220ms ease, box-shadow 220ms ease;
+}
+
+.mindverse-agent-composer > div:first-child { border-color: var(--border) !important; }
+
+.mindverse-agent-composer textarea { color: var(--ink) !important; }
+.mindverse-agent-composer textarea::placeholder { color: var(--stone) !important; }
+
+.mindverse-agent-composer:focus-within {
+  border-color: rgba(125, 211, 252, 0.58) !important;
+  box-shadow: var(--agent-composer-shadow), 0 0 0 1px rgba(125, 211, 252, 0.18) !important;
+}
+
+.mindverse-agent-context-button,
+.mindverse-agent-model,
+.mindverse-agent-advanced-button,
+.mindverse-agent-memory-button {
+  border-color: var(--border) !important;
+  background: var(--bg-panel) !important;
+  color: var(--graphite) !important;
+}
+
+.mindverse-agent-context-button:hover,
+.mindverse-agent-model:hover,
+.mindverse-agent-advanced-button:hover,
+.mindverse-agent-memory-button:hover {
+  border-color: var(--accent) !important;
+  color: var(--ink) !important;
+}
+
+.mindverse-agent-context-button[aria-pressed="true"],
+.mindverse-agent-advanced-button[aria-expanded="true"] {
+  border-color: var(--accent) !important;
+  background: var(--accent-subtle) !important;
+  color: var(--accent) !important;
+}
+
+.mindverse-agent-clear-button,
+.mindverse-agent-autonomy-toggle {
+  color: var(--rw-slate) !important;
+}
+
+.mindverse-agent-clear-button:hover,
+.mindverse-agent-autonomy-toggle:hover { color: var(--ink) !important; }
+
+.mindverse-agent-skill-chip {
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent) !important;
+  background: var(--accent-subtle) !important;
+  color: var(--accent) !important;
+}
+
+.mindverse-agent-autonomy-toggle > span:last-child { background: var(--border) !important; }
+.mindverse-agent-autonomy-toggle[aria-checked="true"] > span:last-child { background: var(--accent) !important; }
+.mindverse-agent-autonomy-toggle > span:last-child > span { background: var(--rw-slate) !important; }
+.mindverse-agent-autonomy-toggle[aria-checked="true"] > span:last-child > span { background: var(--accent-fg) !important; }
+
+.mindverse-agent-model select { color: var(--ink) !important; }
+.mindverse-agent-model select option { background: var(--bg-node); color: var(--ink); }
+.mindverse-agent-model > span { color: var(--rw-slate) !important; }
+
+.mindverse-agent-voice-button {
+  border-color: var(--border) !important;
+  background: var(--bg-panel) !important;
+  color: var(--graphite) !important;
+}
+
+.mindverse-agent-voice-button:hover:not(:disabled) {
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+  transform: translateY(-1px);
+}
+
+.mindverse-agent-voice-button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--border)) !important;
+  background: var(--accent-subtle) !important;
+  color: var(--accent) !important;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.mindverse-agent-speech-status { color: var(--graphite); }
+
+.mindverse-agent-speech-wave > span {
+  display: block;
+  width: 2px;
+  height: 5px;
+  border-radius: 99px;
+  background: var(--accent);
+  animation: mindverse-speech-wave 720ms ease-in-out infinite alternate;
+}
+
+.mindverse-agent-speech-wave > span:nth-child(2) { animation-delay: 120ms; }
+.mindverse-agent-speech-wave > span:nth-child(3) { animation-delay: 240ms; }
+
+.mindverse-agent-send-button {
+  background: var(--accent) !important;
+  color: var(--accent-fg) !important;
+}
+
+.mindverse-agent-send-button:hover { filter: brightness(1.08); }
+.mindverse-agent-send-button:disabled {
+  background: var(--border) !important;
+  color: var(--stone) !important;
+}
+
+.mindverse-agent-composer-activate {
+  animation: mindverse-composer-bloom 920ms cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.mindverse-agent-composer-activate::after {
+  content: "";
+  position: absolute;
+  z-index: 4;
+  inset: -45%;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 40%, rgba(125, 211, 252, 0.22) 49%, rgba(186, 230, 253, 0.1) 52%, transparent 61%);
+  transform: translateX(-64%);
+  animation: mindverse-composer-sweep 860ms cubic-bezier(.16, 1, .3, 1) 80ms both;
+}
+
+@keyframes mindverse-composer-bloom {
+  0% { border-color: rgba(125, 211, 252, 0.08); box-shadow: var(--agent-composer-shadow), 0 0 0 0 rgba(125,211,252,0); }
+  35% { border-color: rgba(125, 211, 252, 0.58); box-shadow: var(--agent-composer-shadow), 0 0 0 5px rgba(125,211,252,.08), 0 0 34px rgba(56,189,248,.15); }
+  100% { border-color: var(--border); box-shadow: var(--agent-composer-shadow), 0 0 0 0 rgba(125,211,252,0); }
+}
+
+@keyframes mindverse-composer-sweep {
+  from { transform: translateX(-64%); opacity: 0; }
+  18% { opacity: 1; }
+  to { transform: translateX(64%); opacity: 0; }
+}
+
+@keyframes mindverse-suggestion-enter {
+  from { opacity: 0; transform: translateY(12px) scale(.975) rotate(0deg); }
+}
+
+@keyframes mindverse-suggestion-exit-left {
+  to { opacity: 0; transform: translate(-12px, 8px) scale(.96) rotate(-1.6deg); }
+}
+
+@keyframes mindverse-suggestion-exit-right {
+  to { opacity: 0; transform: translate(12px, 8px) scale(.96) rotate(1.6deg); }
+}
+
+@keyframes mindverse-speech-wave {
+  to { height: 12px; }
+}
+
+@media (max-width: 639px) {
+  .mindverse-agent-panel { border-radius: 24px !important; }
+  .mindverse-agent-task-card:nth-child(1),
+  .mindverse-agent-task-card:nth-child(2) { transform: none; }
+  .mindverse-agent-model select { max-width: 9rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mindverse-agent-composer-activate,
+  .mindverse-agent-composer-activate::after,
+  .mindverse-agent-task-card,
+  .mindverse-agent-speech-wave > span {
+    animation: none !important;
+  }
+
+  .mindverse-agent-task-card { transform: none !important; }
+}
+
