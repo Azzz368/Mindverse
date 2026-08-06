@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { BottomRunBar } from "./BottomRunBar";
 import { AgentWorkflowPanel } from "@/features/agent/components/AgentWorkflowPanel";
 import { CreativeCanvas } from "./CreativeCanvas";
-import { TemplateGallery } from "./TemplateGallery";
 import { TopBar } from "./TopBar";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { canvasStorage } from "@/features/canvas/services/canvasStorage";
@@ -318,7 +317,6 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
       <PendingSkillPlacement />
       <main className="flex h-screen flex-col overflow-hidden">
         <TopBar />
-        <TemplateGallery />
         <div className="flex min-h-0 flex-1 relative">
           <CreativeCanvas />
         </div>

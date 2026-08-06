@@ -45,6 +45,76 @@ const constraintIssues = (candidate: CapabilityCandidate, params: Record<string,
   return issues;
 };
 
+const editPlanObject = (value: unknown): Record<string, unknown> | undefined => {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const trimmed = value.trim();
+  const candidate = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1] || trimmed;
+  try {
+    const parsed = JSON.parse(candidate);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const editPlanSourceNumber = (value: unknown) => {
+  const parsed = Number(typeof value === "string" ? value.replace(/^@/, "") : value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+};
+
+const videoEditPlanIssues = (step: AgentWorkflowPlan["steps"][number]) => {
+  if (step.kind !== "videoEdit") return [];
+  const issues: string[] = [];
+  const rawPlan = step.params?.editPlan;
+  const plan = editPlanObject(rawPlan);
+  if (!plan) {
+    return [`Video Edit step ${step.id} must put a structured JSON object in params.editPlan; do not put the natural-language instruction there.`];
+  }
+  const clips = Array.isArray(plan.clips) ? plan.clips : [];
+  if (!clips.length) issues.push(`Video Edit step ${step.id} params.editPlan.clips must contain at least one clip.`);
+  const videoInputCount = (step.inputs || []).filter((input) => roleFamily(input.role) === "video").length;
+  clips.forEach((clip, index) => {
+    if (!clip || typeof clip !== "object" || Array.isArray(clip)) {
+      issues.push(`Video Edit step ${step.id} clip ${index + 1} must be an object.`);
+      return;
+    }
+    const clipData = clip as Record<string, unknown>;
+    const source = editPlanSourceNumber(clipData.source);
+    if (!source) issues.push(`Video Edit step ${step.id} clip ${index + 1} needs a positive 1-based source number.`);
+    else if (videoInputCount && source > videoInputCount) issues.push(`Video Edit step ${step.id} clip ${index + 1} references video source ${source}, but only ${videoInputCount} video inputs are connected.`);
+    const speed = clipData.speed === undefined ? 1 : Number(clipData.speed);
+    if (!Number.isFinite(speed) || speed < 0.5 || speed > 2) issues.push(`Video Edit step ${step.id} clip ${index + 1} speed must be between 0.5 and 2.`);
+    const rotate = clipData.rotate === undefined ? 0 : Number(clipData.rotate);
+    if (![0, 90, 180, 270].includes(rotate)) issues.push(`Video Edit step ${step.id} clip ${index + 1} rotate must be 0, 90, 180, or 270.`);
+    if (clipData.fit !== undefined && !["contain", "cover", "stretch"].includes(String(clipData.fit))) issues.push(`Video Edit step ${step.id} clip ${index + 1} fit must be contain, cover, or stretch.`);
+    ["fadeIn", "fadeOut"].forEach((key) => {
+      if (clipData[key] === undefined) return;
+      const duration = Number(clipData[key]);
+      if (!Number.isFinite(duration) || duration < 0 || duration > 10) issues.push(`Video Edit step ${step.id} clip ${index + 1} ${key} must be between 0 and 10 seconds.`);
+    });
+  });
+  if (plan.backgroundAudio !== undefined) {
+    const backgroundAudio = plan.backgroundAudio;
+    if (!backgroundAudio || typeof backgroundAudio !== "object" || Array.isArray(backgroundAudio)) {
+      issues.push(`Video Edit step ${step.id} params.editPlan.backgroundAudio must be an object.`);
+    } else {
+      const source = editPlanSourceNumber((backgroundAudio as Record<string, unknown>).source);
+      const audioInputCount = (step.inputs || []).filter((input) => roleFamily(input.role) === "audio").length;
+      if (!source) issues.push(`Video Edit step ${step.id} backgroundAudio needs a positive 1-based source number.`);
+      else if (audioInputCount && source > audioInputCount) issues.push(`Video Edit step ${step.id} references audio source ${source}, but only ${audioInputCount} audio inputs are connected.`);
+      if (!audioInputCount) issues.push(`Video Edit step ${step.id} requests backgroundAudio but has no connected audio input.`);
+    }
+  }
+  if (plan.subtitles !== undefined && !Array.isArray(plan.subtitles)) {
+    issues.push(`Video Edit step ${step.id} params.editPlan.subtitles must be an array.`);
+  }
+  if (Number(plan.fadeIn) > 0 || Number(plan.fadeOut) > 0) {
+    issues.push(`Video Edit step ${step.id} must put entrance/exit fades on the first/last clip instead of duplicating them as root-level fadeIn/fadeOut.`);
+  }
+  return issues;
+};
+
 const executableCandidateForStep = (
   candidate: CapabilityCandidate | undefined,
   step: AgentWorkflowPlan["steps"][number],
@@ -203,6 +273,7 @@ export function capabilityPlanIssues(plan: AgentWorkflowPlan, bundle: Capability
   const issues: string[] = [];
   plan.steps.forEach((step) => {
     if (!step.capability) issues.push(`Step ${step.id} is missing capability.`);
+    issues.push(...videoEditPlanIssues(step));
     const provider = step.providerCapabilityId ? candidates.get(step.providerCapabilityId) : undefined;
     if (!provider) {
       issues.push(`Step ${step.id} must reference one providerCapabilityId from the retrieved Evidence Bundle.`);

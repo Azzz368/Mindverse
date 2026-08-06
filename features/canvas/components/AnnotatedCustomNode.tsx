@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { ImageAnnotationEditor } from "./ImageAnnotationEditor";
 import { ImeInput, ImeTextarea } from "./ImeTextFields";
 import { VoiceCloneNodeLayout, VoiceTTSNodeLayout } from "./VoiceNodes";
+import { VideoEditComposer, type VideoEditSource } from "./VideoEditComposer";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
 import { motionTemplateIds } from "@/shared/motion/templates";
@@ -126,14 +127,11 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
           {sourceControlsVideoRatio && <p className="mb-3 text-[10px] leading-4 text-amber-700 dark:text-amber-300">该模型由首帧素材决定输出比例。运行前会校验首帧必须与所选比例一致。</p>}
         </>}
         {data.nodeType === "videoEdit" && <>
-          <label className={wrap}><span className={lbl}>剪辑计划 JSON</span>{textArea("editPlan", data.editPlan, 5)}</label>
-          <label className={wrap}><span className={lbl}>备注</span>{textArea("prompt", data.prompt, 2)}</label>
+          <label className={wrap}><span className={lbl}>Agent 剪辑计划 JSON（高级）</span>{textArea("editPlan", data.editPlan, 5)}</label>
+          <label className={wrap}><span className={lbl}>自然语言剪辑说明</span>{textArea("prompt", data.prompt, 2)}</label>
           <label className={wrap}><span className={lbl}>保留原声</span><select className={sel} value={data.preserveAudio === false ? "false" : "true"} onChange={e => set({ preserveAudio: e.target.value === "true" })}><option value="true">保留</option><option value="false">静音</option></select></label>
           <label className={wrap}><span className={lbl}>原声音量</span>{textInput("originalVolume", String(data.originalVolume ?? 1))}</label>
           <label className={wrap}><span className={lbl}>背景音乐音量</span>{textInput("backgroundVolume", String(data.backgroundVolume ?? 0.2))}</label>
-          <label className={wrap}><span className={lbl}>开头淡入（秒）</span>{textInput("fadeIn", String(data.fadeIn ?? 0))}</label>
-          <label className={wrap}><span className={lbl}>结尾淡出（秒）</span>{textInput("fadeOut", String(data.fadeOut ?? 0))}</label>
-          <label className={wrap}><span className={lbl}>转场</span><select className={sel} value={data.transition ?? "none"} onChange={e => set({ transition: e.target.value as CanvasNodeData["transition"] })}><option value="none">无</option><option value="fade">淡入淡出</option></select></label>
           <label className={wrap}><span className={lbl}>分辨率</span><select className={sel} value={data.resolution ?? "720p"} onChange={e => set({ resolution: e.target.value })}>{["480p","720p","1080p"].map(o=><option key={o}>{o}</option>)}</select></label>
           <label className={wrap}><span className={lbl}>帧率</span>{textInput("fps", data.fps ?? "30")}</label>
           <label className={wrap}><span className={lbl}>画面比例</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}><option value="16:9">16:9 横屏</option><option value="9:16">9:16 竖屏</option><option value="1:1">1:1 方形</option></select></label>
@@ -820,9 +818,16 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const inputPortKey = inputPorts.map((port) => port.id).join(",");
   const supportedMaterialKinds = new Set(inputPorts.map((port) => port.kind).filter((kind): kind is VideoMaterialKind => kind === "image" || kind === "video" || kind === "audio"));
   const connectedSourceIds = [...new Set(incomingEdges.map((edge) => edge.source))];
-  const materialOptions = connectedSourceIds
+  const connectedSourceNodes = connectedSourceIds
     .map((sourceId) => allNodes.find((item: CanvasNode) => item.id === sourceId))
-    .filter((item): item is CanvasNode => item !== undefined && item.id !== id)
+    .filter((item): item is CanvasNode => item !== undefined && item.id !== id);
+  const editVideoSources: VideoEditSource[] = connectedSourceNodes
+    .filter((item) => videoMaterialKind(item) === "video")
+    .map((item, index) => ({ id: item.id, source: index + 1, label: materialLabel(item), url: videoUrlFrom(item) || undefined }));
+  const editAudioSources: VideoEditSource[] = connectedSourceNodes
+    .filter((item) => videoMaterialKind(item) === "audio")
+    .map((item, index) => ({ id: item.id, source: index + 1, label: materialLabel(item), url: audioUrlFrom(item) || undefined }));
+  const materialOptions = connectedSourceNodes
     .map((item): VideoMaterialOption | undefined => {
       const kind = videoMaterialKind(item);
       if (!kind || !supportedMaterialKinds.has(kind)) return undefined;
@@ -929,8 +934,9 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
         </div>
       </div>
 
-      <div className={`nodrag nowheel absolute left-1/2 top-[calc(100%+8px)] z-50 flex max-h-[560px] w-[800px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
+      <div className={`nodrag nowheel absolute left-1/2 top-[calc(100%+8px)] z-50 flex ${isVideoEdit ? "max-h-[min(720px,calc(100vh-40px))] w-[960px]" : "max-h-[560px] w-[800px]"} max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
          <div className="min-h-0 flex-1 overflow-y-auto p-6 pb-4">
+            {isVideoEdit ? <VideoEditComposer data={data} videoSources={editVideoSources} audioSources={editAudioSources} onChange={(patch) => updateNodeData(id, patch)} /> : <>
             {supportedMaterialKinds.size > 0 && <div className="mb-3 flex items-center gap-2">
               <button
                 type="button"
@@ -978,14 +984,13 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
               </div>
             )}
             <AutoGrowTextarea
-               value={isVideoEdit ? data.editPlan ?? "" : data.prompt ?? ""}
-               onChange={(v) => updateNodeData(id, isVideoEdit ? { editPlan: v } : { prompt: v })}
-               placeholder={isVideoEdit
-                 ? '剪辑计划 JSON，例如 {"clips":[{"source":1},{"source":2}],"backgroundAudio":{"source":1,"volume":0.2,"loop":true},"fadeIn":1,"fadeOut":1}'
-                 : "描述你想要生成的画面内容，可用 @1、@2 引用上方素材..."}
-               minHeight={isVideoEdit ? 140 : 96}
-               maxHeight={isVideoEdit ? 260 : 220}
+               value={data.prompt ?? ""}
+               onChange={(v) => updateNodeData(id, { prompt: v })}
+               placeholder="描述你想要生成的画面内容，可用 @1、@2 引用上方素材..."
+               minHeight={96}
+               maxHeight={220}
             />
+            </>}
          </div>
          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[#e7eaf0] px-6 py-4 dark:border-slate-800">
             <div className="flex min-w-0 flex-wrap gap-2">
@@ -1001,21 +1006,22 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                    });
                  }}
               />}
-              <PillDropdown 
-                 value={isVideoEdit ? data.aspectRatio || "16:9" : videoAspectRatio}
-                 options={(isVideoEdit ? ["16:9", "9:16", "1:1"] : videoAspectRatios).map((ratio) => ({ value: ratio, label: ratio }))}
+              {!isVideoEdit && <PillDropdown
+                 value={videoAspectRatio}
+                 options={videoAspectRatios.map((ratio) => ({ value: ratio, label: ratio }))}
                  onChange={v => updateNodeData(id, { aspectRatio: String(v) })}
-              />
-              <PillDropdown 
+              />}
+              {!isVideoEdit && <PillDropdown
                  value={data.duration || 15} 
                  options={videoDurationOptions.map((value) => ({ value, label: `${value}s` }))}
                  onChange={v => updateNodeData(id, { duration: Number(v) })}
-              />
-              <PillDropdown 
+              />}
+              {!isVideoEdit && <PillDropdown
                  value={data.resolution || "1080p"} 
                  options={[{value: "1080p", label: "1080p"}, {value: "720p", label: "720p"}, {value: "480p", label: "480p"}]}
                  onChange={v => updateNodeData(id, { resolution: String(v) })}
-              />
+              />}
+              {isVideoEdit && <span className="rounded-full bg-[#f1eafd] px-3 py-1.5 text-[11px] font-bold text-[#5f18c8] dark:bg-violet-950/50 dark:text-violet-200">{editVideoSources.length} 段视频 · {editAudioSources.length} 条音频</span>}
             </div>
             <button 
               onClick={(e) => { e.stopPropagation(); void runNode(id); }}

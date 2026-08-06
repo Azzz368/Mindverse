@@ -364,15 +364,15 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
   if (d.nodeType === "videoEdit") {
     const upstreamVideoUrls = upstream
       .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion")
-      .map(videoUrlFrom)
-      .filter(Boolean);
+      .map(videoUrlFrom);
     const upstreamAudioUrls = upstream
       .filter((source) => source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS")
-      .map(audioUrlFrom)
-      .filter(Boolean);
+      .map(audioUrlFrom);
     return {
       prompt: limitProviderPrompt(ownPromptFrom(d) || prompt),
-      editPlan: limitProviderPrompt(d.editPlan || ""),
+      // editPlan is executable JSON consumed locally by the FFmpeg runner, not
+      // a provider prompt. Truncating it can turn a valid plan into invalid JSON.
+      editPlan: d.editPlan || "",
       referenceVideoUrls: upstreamVideoUrls,
       referenceAudioUrls: upstreamAudioUrls,
       preserveAudio: d.preserveAudio !== false,

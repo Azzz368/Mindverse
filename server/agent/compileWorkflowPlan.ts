@@ -103,8 +103,8 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
   }
   if (step.kind === "videoEdit") return {
     title: step.label,
-    prompt: step.purpose || "",
-    editPlan: text(params.editPlan) || step.prompt || plan.userPrompt,
+    prompt: step.prompt || step.purpose || plan.userPrompt,
+    editPlan: jsonText(params.editPlan),
     preserveAudio: bool(params.preserveAudio) ?? true,
     originalVolume: number(params.originalVolume) ?? 1,
     backgroundVolume: number(params.backgroundVolume) ?? 0.2,
