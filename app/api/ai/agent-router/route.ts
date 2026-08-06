@@ -232,6 +232,8 @@ const retrievalRequestFrom = (
     || route.requiredCapabilities.includes("text_to_video");
   const hyperframesRequested = /codex[\s+&-]*hyperframes|hyperframes|动态包装|动效包装/i.test(route.objective)
     || route.requiredCapabilities.includes("motion_graphics");
+  const digitalHumanRequested = /digital[\s_-]*human|talking[\s_-]*avatar|lip[\s_-]*sync|数字人|口型同步|人物.{0,6}说话/i.test([route.objective, rawUserMessage].filter(Boolean).join("\n"))
+    || route.requiredCapabilities.includes("digital_human_video");
   return {
     // Preserve user wording as well as the Router abstraction: visual-style
     // terms (for example 日系动画) are meaningful retrieval evidence.
@@ -241,6 +243,7 @@ const retrievalRequestFrom = (
       ...route.requiredCapabilities,
       ...(textToVideoRequested ? ["text_to_video"] : []),
       ...(hyperframesRequested ? ["motion_graphics"] : []),
+      ...(digitalHumanRequested ? ["digital_human_video"] : []),
     ])],
     filters: {
       inputImages: numberConstraint(route.constraints, "inputImages") ?? count(["image", "reference"]),

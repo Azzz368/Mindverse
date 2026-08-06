@@ -5,7 +5,7 @@ import { useLang } from "@/components/providers/LangProvider";
 import { imagePromptPresets } from "@/shared/workflow/imagePromptPresets";
 import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
 import { defaultMotionTemplateVariablesJson } from "@/shared/motion/templates";
-import { DEFAULT_VIDEO_MODEL_PRESET_ID, videoModelPatch } from "@/shared/workflow/videoModelPresets";
+import { DEFAULT_VIDEO_MODEL_PRESET_ID, DIGITAL_HUMAN_VIDEO_PROMPT, videoModelPatch } from "@/shared/workflow/videoModelPresets";
 import type { CanvasNodeData, NodeType } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
@@ -20,6 +20,7 @@ const ALL_CATEGORIES = ["New nodes", "Recently used", "Video", "Image", "Audio",
 const getTools = (t: Strings) => [
   { id: "upload-video", type: "upload_video", cat: "Video", title: "Upload Video", desc: "Use a local video file as editable canvas footage", iconSrc: "/icons/1.png" },
   { id: DEFAULT_VIDEO_MODEL_PRESET_ID, type: "video", cat: "Video", title: "Seedance Asset Fast", desc: t.toolDescSeedance, iconSrc: "/icons/1.png", data: { title: "Seedance Asset Fast", ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID) } },
+  { id: "digital-human-video", type: "video", cat: "Video", title: "数字人视频", desc: "人物图 + 音频生成口型同步视频", iconSrc: "/icons/1.png", data: { title: "数字人视频", prompt: DIGITAL_HUMAN_VIDEO_PROMPT, aspectRatio: "9:16", ...videoModelPatch("digital-human-video") } },
   { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: t.toolDescGen45, iconSrc: "/icons/1.png", data: { title: "Gen-4.5", ...videoModelPatch("gen-4.5") } },
   { id: "kling-v3-omni", type: "video", cat: "Video", title: "Kling v3 Omni", desc: "TokenStar multi-reference image/element/video generation", iconSrc: "/icons/1.png", data: { title: "Kling v3 Omni", ...videoModelPatch("kling-v3-omni-tokenstar") } },
 { id: "video-edit", type: "videoEdit", cat: "Video", title: "Video Edit", desc: "FFmpeg trim, concat, audio, subtitles and transcode", iconSrc: "/icons/1.png", data: { title: "Video Edit", editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" } },

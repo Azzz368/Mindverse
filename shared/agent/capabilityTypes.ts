@@ -177,6 +177,7 @@ const nodeKindByCapability: Record<string, NodeType> = {
   video_generation: "video",
   text_to_video: "video",
   image_to_video: "video",
+  digital_human_video: "video",
   multi_reference_video: "video",
   multi_image_video_generation: "video",
   video_edit: "videoEdit",

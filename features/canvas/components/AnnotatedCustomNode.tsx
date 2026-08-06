@@ -9,7 +9,7 @@ import { VoiceCloneNodeLayout, VoiceTTSNodeLayout } from "./VoiceNodes";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
 import { motionTemplateIds } from "@/shared/motion/templates";
-import { videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
+import { DIGITAL_HUMAN_VIDEO_PROMPT, videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, videoReferenceLimitForPreset, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
 import { DEFAULT_STORYBOARD_SCENE_COUNT, clampStoryboardSceneCount } from "@/shared/workflow/storyPipeline";
 import { audioUrlFrom, imageUrlFrom, videoUrlFrom } from "@/features/canvas/domain/nodeInputCompiler";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/shared/canvas";
@@ -834,7 +834,17 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const selectedMaterials = selectedReferenceIds.map((refId: string) => materialOptions.find((item) => item.node.id === refId)).filter(Boolean) as typeof materialOptions;
   const toggleMaterial = (nodeId: string) => {
     const current = selectedReferenceIds;
-    updateNodeData(id, { videoReferenceNodeIds: current.includes(nodeId) ? current.filter((item: string) => item !== nodeId) : [...current, nodeId].slice(0, 7), videoReferenceSelectionActive: true });
+    if (current.includes(nodeId)) {
+      updateNodeData(id, { videoReferenceNodeIds: current.filter((item: string) => item !== nodeId), videoReferenceSelectionActive: true });
+      return;
+    }
+    const material = materialOptions.find((item) => item.node.id === nodeId);
+    const kindLimit = material ? videoReferenceLimitForPreset(activeVideoModel, material.kind) : undefined;
+    const withoutReplacedKind = material && kindLimit === 1
+      ? current.filter((itemId: string) => materialOptions.find((item) => item.node.id === itemId)?.kind !== material.kind)
+      : current;
+    const next = [...withoutReplacedKind, nodeId].slice(0, 7);
+    updateNodeData(id, { videoReferenceNodeIds: next, videoReferenceSelectionActive: true });
   };
   useEffect(() => {
     updateNodeInternals(id);
@@ -942,7 +952,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                     <span className="absolute right-0.5 top-0.5 rounded-full bg-[#030303]/85 px-1.5 py-0.5 text-[10px] font-bold text-white">@{index + 1}</span>
                   </button>
                 ))}
-                {!selectedMaterials.length && <span className="text-[12px] text-[#676f7b] dark:text-slate-400">输入 @ 可选择连接的图片、视频或音频素材</span>}
+                {!selectedMaterials.length && <span className="text-[12px] text-[#676f7b] dark:text-slate-400">{activeVideoModel === "digital-human-video" ? "请选择一张人物图和一段音频" : "输入 @ 可选择连接的图片、视频或音频素材"}</span>}
               </div>
             </div>}
             {supportedMaterialKinds.size > 0 && materialPickerOpen && (
@@ -964,7 +974,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                     </button>
                   );
                 })}
-                {!materialOptions.length && <div className="col-span-6 px-2 py-6 text-center text-[12px] text-[#676f7b] dark:text-slate-400">请先把图片、视频或音频节点连到这个 VideoNode</div>}
+                {!materialOptions.length && <div className="col-span-6 px-2 py-6 text-center text-[12px] text-[#676f7b] dark:text-slate-400">{activeVideoModel === "digital-human-video" ? "请先连接一张人物图和一段音频" : "请先把图片、视频或音频节点连到这个 VideoNode"}</div>}
               </div>
             )}
             <AutoGrowTextarea
@@ -982,7 +992,14 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
               {!isVideoEdit && <PillDropdown
                 value={activeVideoModel}
                 options={videoModelOptions.map(option => ({ value: option.id, label: option.label }))}
-                onChange={v => updateNodeData(id, videoModelSelectionPatch(String(v) as VideoModelPresetId, data.aspectRatio))}
+                 onChange={v => {
+                   const presetId = String(v) as VideoModelPresetId;
+                   updateNodeData(id, {
+                     ...videoModelSelectionPatch(presetId, data.aspectRatio),
+                     ...(presetId === "digital-human-video" && (!data.prompt || data.prompt === "A gentle cinematic movement") ? { prompt: DIGITAL_HUMAN_VIDEO_PROMPT } : {}),
+                     ...(presetId === "digital-human-video" ? { videoReferenceNodeIds: [], videoReferenceSelectionActive: false } : {}),
+                   });
+                 }}
               />}
               <PillDropdown 
                  value={isVideoEdit ? data.aspectRatio || "16:9" : videoAspectRatio}

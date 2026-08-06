@@ -1,7 +1,7 @@
 import { asRecord, asText } from "./values";
 import { DEFAULT_QWEN_VOICE_MODEL, qwenTtsLanguageTypes } from "@/shared/api/qwenContracts";
 import { imagePromptWithPreset } from "@/shared/workflow/imagePromptPresets";
-import { videoAspectRatioForPreset, videoInputPortsForPreset, videoModelPatch, videoModelPresetIdFromData, type VideoInputPortKind } from "@/shared/workflow/videoModelPresets";
+import { videoAspectRatioForPreset, videoInputPortsForPreset, videoModelPatch, videoModelPresetIdFromData, videoReferenceLimitForPreset, type VideoInputPortKind } from "@/shared/workflow/videoModelPresets";
 import { clampStoryboardSceneCount, storyboardSceneFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation, WorkflowEdge } from "@/shared/canvas";
 
@@ -317,11 +317,17 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       ...imageSources.filter((source) => source.data.nodeType === "reference").map(imageUrlFrom),
     ].filter(Boolean);
     const selectedImageUrls = explicitReferenceImageUrls.filter((url) => handleImageUrls.includes(url));
-    const referenceImageUrls = supportedKinds.has("image")
+    const allReferenceImageUrls = supportedKinds.has("image")
       ? [...(d.referenceImageUrl ? [d.referenceImageUrl] : []), ...(hasExplicitReferenceSelection ? selectedImageUrls : selectedImageUrls.length ? selectedImageUrls : handleImageUrls)].filter(Boolean)
       : [];
-    const referenceVideoUrls = supportedKinds.has("video") ? selectedSourcesForKind(videoSources, d.videoReferenceNodeIds || [], hasExplicitReferenceSelection).map(videoUrlFrom).filter(Boolean) : [];
-    const referenceAudioUrls = supportedKinds.has("audio") ? selectedSourcesForKind(audioSources, d.videoReferenceNodeIds || [], hasExplicitReferenceSelection).map(audioUrlFrom).filter(Boolean) : [];
+    const imageLimit = videoReferenceLimitForPreset(activeVideoModel, "image");
+    const videoLimit = videoReferenceLimitForPreset(activeVideoModel, "video");
+    const audioLimit = videoReferenceLimitForPreset(activeVideoModel, "audio");
+    const referenceImageUrls = imageLimit === undefined ? allReferenceImageUrls : allReferenceImageUrls.slice(0, imageLimit);
+    const allReferenceVideoUrls = supportedKinds.has("video") ? selectedSourcesForKind(videoSources, d.videoReferenceNodeIds || [], hasExplicitReferenceSelection).map(videoUrlFrom).filter(Boolean) : [];
+    const allReferenceAudioUrls = supportedKinds.has("audio") ? selectedSourcesForKind(audioSources, d.videoReferenceNodeIds || [], hasExplicitReferenceSelection).map(audioUrlFrom).filter(Boolean) : [];
+    const referenceVideoUrls = videoLimit === undefined ? allReferenceVideoUrls : allReferenceVideoUrls.slice(0, videoLimit);
+    const referenceAudioUrls = audioLimit === undefined ? allReferenceAudioUrls : allReferenceAudioUrls.slice(0, audioLimit);
     const promptSources = textSources.length ? textSources : supportedKinds.has("text") ? upstream.filter((source) => nodeKind(source) === "text") : [];
     const videoPrompt = ownPromptFrom(d) || promptFrom(node, promptSources);
     const orderedPromptReferences = (d.videoReferenceNodeIds || [])
@@ -330,6 +336,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
 
     return {
       prompt: limitProviderPrompt(videoPromptReferences(videoPrompt, orderedPromptReferences)),
+      videoModelPreset: activeVideoModel,
       negativePrompt: d.negativePrompt,
       model: activeVideoPatch.model,
       image: supportedKinds.has("image") ? d.referenceImageUrl || referenceImageUrls[0] : undefined,

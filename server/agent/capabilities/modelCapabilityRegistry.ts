@@ -20,6 +20,7 @@ const videoCapabilities = (id: VideoModelPresetId) => {
   const kinds = new Set(preset.inputPorts.map((port) => port.kind));
   return [
     "video_generation",
+    id === "digital-human-video" ? "digital_human_video" : "",
     kinds.has("image") ? "image_to_video" : "text_to_video",
     kinds.has("image") && (id.includes("assets") || id.includes("omni") || id.includes("asset-fast")) ? "multi_reference_video" : "",
     kinds.has("audio") ? "audio_reference" : "",
@@ -31,6 +32,7 @@ const constraintsByPreset: Partial<Record<VideoModelPresetId, CapabilityConstrai
   "seedance-2.0": { minDuration: 5, maxDuration: 15, resolutions: ["480p", "720p", "1080p"] },
   "seedance-2.0-assets": { minDuration: 5, maxDuration: 15, maxImages: 4, maxVideos: 1, maxAudios: 1, resolutions: ["480p", "720p", "1080p"] },
   "seedance-asset-fast": { minDuration: 5, maxDuration: 15, maxImages: 4, maxVideos: 1, maxAudios: 1, resolutions: ["480p", "720p", "1080p"] },
+  "digital-human-video": { minDuration: 5, maxDuration: 15, maxImages: 1, maxVideos: 0, maxAudios: 1, resolutions: ["480p", "720p", "1080p"] },
   "gen-4.5": { minDuration: 5, maxDuration: 15, resolutions: ["480p", "720p", "1080p"] },
   "kling-v2.6": { minDuration: 3, maxDuration: 15, maxImages: 1, resolutions: ["720p", "1080p"] },
   "kling-v3-tokenstar": { minDuration: 3, maxDuration: 15, maxImages: 1, resolutions: ["720p", "1080p"] },

@@ -2,6 +2,7 @@ export type VideoModelPresetId =
   | "seedance-2.0"
   | "seedance-2.0-assets"
   | "seedance-asset-fast"
+  | "digital-human-video"
   | "gen-4.5"
   | "kling-v2.6"
   | "kling-v3-tokenstar"
@@ -42,7 +43,10 @@ export type VideoModelPreset = {
   inputPorts: VideoInputPort[];
   aspectRatios: VideoAspectRatio[];
   aspectRatioControl: VideoAspectRatioControl;
+  referenceLimits?: Partial<Record<Exclude<VideoInputPortKind, "text">, number>>;
 };
+
+export const DIGITAL_HUMAN_VIDEO_PROMPT = "让图中人物自然说话，口型与参考音频精准同步；保持人物身份、服装、构图和背景稳定，仅添加自然眨眼、轻微表情与头部动作，镜头固定。";
 
 const textPort: VideoInputPort = { id: "text", label: "Text", kind: "text" };
 const imagePort: VideoInputPort = { id: "image", label: "Image", kind: "image" };
@@ -76,6 +80,16 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     inputPorts: [textPort, imagePort, videoPort, audioPort],
     aspectRatios: ["16:9", "9:16", "1:1"],
     aspectRatioControl: "native",
+  },
+  "digital-human-video": {
+    id: "digital-human-video",
+    label: "数字人视频",
+    desc: "人物图与音频生成口型同步视频",
+    patch: { videoModelPreset: "digital-human-video", videoProvider: "tokenstar", model: "seedance-2.0-asset-fast", tokenstarMode: "asset-video", videoInputMode: "image-to-video", duration: 5, resolution: "720p", generateAudio: false },
+    inputPorts: [imagePort, audioPort],
+    aspectRatios: ["9:16", "16:9", "1:1"],
+    aspectRatioControl: "native",
+    referenceLimits: { image: 1, audio: 1, video: 0 },
   },
   "gen-4.5": {
     id: "gen-4.5",
@@ -155,6 +169,11 @@ export const videoModelSelectionPatch = (id: VideoModelPresetId, currentAspectRa
 });
 
 export const videoInputPortsForPreset = (id: VideoModelPresetId) => videoModelPresets[id].inputPorts;
+
+export const videoReferenceLimitForPreset = (
+  id: VideoModelPresetId,
+  kind: Exclude<VideoInputPortKind, "text">,
+) => videoModelPresets[id].referenceLimits?.[kind];
 
 export const videoInputKindForNodeType = (nodeType: string): VideoInputPortKind | undefined => {
   if (nodeType === "image" || nodeType === "reference") return "image";

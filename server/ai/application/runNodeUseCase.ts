@@ -76,6 +76,13 @@ async function runKlingVideo(input: Record<string, unknown>): Promise<RunNodeRes
 async function runTokenstarVideo(rawInput: Record<string, unknown>): Promise<RunNodeResult> {
   const prompt = text(rawInput.prompt);
   if (!prompt) return fail("A video prompt is required.");
+  if (text(rawInput.videoModelPreset) === "digital-human-video") {
+    const imageCount = (urls(rawInput.referenceImageUrls)?.length || 0) + (optionalText(rawInput.referenceImageAssetUrl) ? 1 : 0);
+    const audioCount = (urls(rawInput.referenceAudioUrls)?.length || 0) + (optionalText(rawInput.referenceAudioAssetUrl) ? 1 : 0);
+    if (imageCount !== 1 || audioCount !== 1) {
+      return fail("数字人视频需要且仅支持一张人物图和一段音频。请分别连接图片节点与音频节点后重试。", 400, "DIGITAL_HUMAN_INPUT_REQUIRED");
+    }
+  }
   const elementIds = typeof rawInput.klingElementId === "string"
     ? rawInput.klingElementId.split(",").map((item) => item.trim()).filter(Boolean)
     : urls(rawInput.klingElementIds);

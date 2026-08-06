@@ -1,5 +1,5 @@
 import type { CanvasEditPatch, CanvasPatch } from "@/shared/agent/agentSchema";
-import type { CanvasNode, WorkflowEdge } from "@/shared/canvas";
+import type { CanvasNode, CanvasNodeData, WorkflowEdge } from "@/shared/canvas";
 
 export const cleanAgentNode = (node: CanvasNode): CanvasNode => ({ ...node, selected: false, data: { ...node.data, status: "idle", output: undefined, error: undefined, taskId: undefined, resultUrl: undefined, rawStatus: undefined, lastPollAt: undefined } });
 export const dedupePatch = (patch: CanvasPatch, existingNodes: CanvasNode[], existingEdges: WorkflowEdge[]): CanvasPatch => {
@@ -29,6 +29,19 @@ export const offsetPatchTo = (patch: CanvasPatch, position: { x: number; y: numb
 
 const edgeIdFor = (source: string, target: string) => `edge-${source}-${target}`;
 
+const nonExecutionNodeDataFields = new Set([
+  "workflowId",
+  "workflowOrder",
+  "workflowTitle",
+  "workflowLabel",
+  "groupId",
+  "groupColor",
+  "locked",
+]);
+
+export const nodeDataPatchResetsExecution = (dataPatch: Partial<CanvasNodeData> | undefined) =>
+  Boolean(dataPatch && Object.keys(dataPatch).some((key) => !nonExecutionNodeDataFields.has(key)));
+
 export const applyEditPatchToState = (state: { nodes: CanvasNode[]; edges: WorkflowEdge[]; selectedNodeId: string | null }, patch: CanvasEditPatch) => {
   const deletedNodes = new Set(patch.deleteNodeIds);
   const deletedEdges = new Set(patch.deleteEdgeIds);
@@ -48,7 +61,7 @@ export const applyEditPatchToState = (state: { nodes: CanvasNode[]; edges: Workf
     .map((node) => {
       const update = updates.get(node.id);
       if (!update) return { ...node, selected: false };
-      const resetsExecution = Boolean(update.dataPatch && Object.keys(update.dataPatch).length);
+      const resetsExecution = nodeDataPatchResetsExecution(update.dataPatch);
       return {
         ...node,
         selected: false,
@@ -108,6 +121,11 @@ export const applyEditPatchToState = (state: { nodes: CanvasNode[]; edges: Workf
       });
     });
   });
+  const layoutOnlyPatch = !patch.createNodes.length
+    && !patch.deleteNodeIds.length
+    && !patch.createEdges.length
+    && !patch.deleteEdgeIds.length
+    && patch.updateNodes.every((update) => !update.type && !nodeDataPatchResetsExecution(update.dataPatch));
   const selectedNodeId = createNodes[0]?.id || null;
   return {
     nodes: [
@@ -117,7 +135,13 @@ export const applyEditPatchToState = (state: { nodes: CanvasNode[]; edges: Workf
     edges: [...baseEdges, ...createEdges],
     selectedNodeId,
     agentStatus: "completed" as const,
-    agentMessage: patch.warnings?.length ? `已应用修改，但有 ${patch.warnings.length} 条提示。节点仍需手动运行。` : "已应用修改，节点仍需手动运行。",
+    agentMessage: layoutOnlyPatch
+      ? patch.warnings?.length
+        ? `画布已整理，已有生成结果已保留；另有 ${patch.warnings.length} 条提示。`
+        : "画布已整理，已有生成结果已保留。"
+      : patch.warnings?.length
+        ? `已应用修改，但有 ${patch.warnings.length} 条提示。节点仍需手动运行。`
+        : "已应用修改，节点仍需手动运行。",
     lastError: null,
   };
 };
