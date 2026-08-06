@@ -8,6 +8,12 @@ export default {
     "./shared/**/*.{ts,tsx}",
   ],
   darkMode: "class",
-  theme: { extend: {} },
+  theme: {
+    extend: {
+      fontFamily: {
+        epilogue: ["var(--font-epilogue)", "sans-serif"],
+      },
+    },
+  },
   plugins: [],
 } satisfies Config;
