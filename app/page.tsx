@@ -117,6 +117,7 @@ export default function Home() {
         .liquid-filter {
           filter: url(#glass-filter-_r_b_);
         }
+
       `}} />
       
       {/* ======================= Desktop - 2 ======================= */}
@@ -145,61 +146,61 @@ export default function Home() {
         <div className="relative w-full max-w-[1440px] h-[816px] pointer-events-none">
         
           {/* 顶部导航兰 (Rectangle 2) 容器内的绝对定位 */}
-          <header className="absolute top-0 -left-[100vw] !w-[300vw] h-[83px] glass-card shadow-none !border-none !rounded-none !bg-transparent box-border z-50 pointer-events-auto">
+          <header className="absolute top-0 -left-[100vw] !w-[300vw] h-[54px] glass-card shadow-none !border-none !rounded-none !bg-transparent box-border z-50 pointer-events-auto">
             <div className="glass-filter !backdrop-blur-xl opacity-80 border-b border-black/10 mix-blend-difference" />
             <div className="glass-overlay" />
             <div className="glass-specular" />
           </header>
           
-          <div className="absolute top-0 left-0 w-full h-[83px] z-50 hover:cursor-default pointer-events-auto">
+          <div className="absolute top-0 left-0 w-full h-[54px] z-50 hover:cursor-default pointer-events-auto">
             {/* Logo "Mindverse" */}
-            <div className="absolute top-[31px] left-[38px] w-[141px] h-[21px]">
-              <span className="block text-center italic font-normal text-[20px] leading-[20px] text-white mix-blend-difference drop-shadow-sm">
+            <div className="absolute top-[18px] left-[38px] w-[141px] h-[19px]">
+              <span className="block text-center italic font-normal text-[16px] leading-[18px] text-white mix-blend-difference drop-shadow-sm">
                 Mindverse
               </span>
             </div>
 
             {/* Menu Items */}
-            <div className="absolute top-[35px] left-[241px] w-[699px] h-[16px]">
-              <Link href="#" className="absolute left-[16.5px] w-[141px] h-[16px] text-center font-normal text-[16px] leading-[16px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
+            <div className="absolute top-[21px] left-[241px] w-[699px] h-[14px]">
+              <Link href="#" className="absolute left-[16.5px] w-[141px] h-[14px] text-center font-normal text-[13px] leading-[14px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
                 Document
               </Link>
-              <Link href="#" className="absolute left-[202.5px] w-[141px] h-[16px] text-center font-normal text-[16px] leading-[16px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
+              <Link href="#" className="absolute left-[202.5px] w-[141px] h-[14px] text-center font-normal text-[13px] leading-[14px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
                 Community
               </Link>
-              <Link href="#" className="absolute left-[388.5px] w-[141px] h-[16px] text-center font-normal text-[16px] leading-[16px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
+              <Link href="#" className="absolute left-[388.5px] w-[141px] h-[14px] text-center font-normal text-[13px] leading-[14px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
                 Studio
               </Link>
-              <Link href="#" className="absolute left-[574.5px] w-[141px] h-[16px] text-center font-normal text-[16px] leading-[16px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
+              <Link href="#" className="absolute left-[574.5px] w-[141px] h-[14px] text-center font-normal text-[13px] leading-[14px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
                 Contact
               </Link>
             </div>
 
             {/* English */}
-            <div className="absolute top-[33.5px] left-[1097.5px] w-[141px] h-[16px]">
-              <span className="block text-center font-normal text-[16px] leading-[16px] text-white cursor-pointer hover:opacity-70 mix-blend-difference drop-shadow-sm">
+            <div className="absolute top-[20px] left-[1097.5px] w-[141px] h-[14px]">
+              <span className="block text-center font-normal text-[13px] leading-[14px] text-white cursor-pointer hover:opacity-70 mix-blend-difference drop-shadow-sm">
                 English
               </span>
             </div>
 
             {/* Vector 1 (Arrow/Line beside English) */}
-            <div className="absolute top-[38px] left-[1208px] w-[13px] h-[8px] flex items-center justify-center rotate-90">
+            <div className="absolute top-[23px] left-[1208px] w-[13px] h-[8px] flex items-center justify-center rotate-90">
                <div className="w-full h-[0.5px] bg-white mix-blend-difference"></div>
             </div>
 
             {/* Start Now */}
-            <div className="absolute top-[33.5px] left-[1267.5px] w-[141px] h-[16px] z-10">
-              <Link href="/workspace" className="block text-center font-normal text-[16px] leading-[16px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
+            <div className="absolute top-[21px] left-[1267.5px] w-[141px] h-[14px] z-10">
+              <Link href="/workspace" className="block text-center font-normal text-[13px] leading-[14px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
                 Start Now
               </Link>
             </div>
 
             {/* Rectangle 1 (Pill shape around user/button area) */}
-            <div className="absolute top-[26px] left-[1282px] w-[112px] h-[32px] border border-white mix-blend-difference rounded-[25px] box-border pointer-events-none" />
+            <div className="absolute top-[11px] left-[1282px] w-[112px] h-[32px] border border-white mix-blend-difference rounded-[25px] box-border pointer-events-none" />
           </div>
 
-          {/* Center Pill Shapes (Rectangle 5, 6, 7) */}
-          <div className="absolute top-[255px] left-[493.5px] w-[453px] h-[134px] pointer-events-none z-10 glass-card !shadow-none !bg-transparent rounded-[74px]">
+          {/* Center Pill Shapes标题后面液态玻璃 (Rectangle 5, 6, 7) */}
+          <div className="absolute top-[280px] left-[493.5px] w-[453px] h-[134px] pointer-events-none z-10 glass-card !shadow-none !bg-transparent rounded-[74px]">
              {/* 利用 glass-card 自身效果代替 Rectangle 5 & 6 */}
              <div className="glass-filter" />
              <div className="glass-overlay !bg-white/10" />
@@ -219,9 +220,19 @@ export default function Home() {
           {/* Group 1: Get Started */}
           <Link
             href="/workspace"
-            className="absolute top-[515px] left-[553px] flex h-[71px] w-[334px] items-start justify-center pt-[2px] font-normal text-[40px] leading-[41px] text-white drop-shadow-md transition-transform hover:scale-105 z-20 pointer-events-auto"
+            aria-label="Get Started"
+            className="absolute top-[500px] left-[553px] flex h-[71px] w-[334px] items-start justify-center gap-5 pt-[2px] font-normal text-[40px] leading-[41px] text-white drop-shadow-md z-20 pointer-events-auto"
           >
-            Get Started
+            <span>Get Started</span>
+            <svg
+              aria-hidden="true"
+              className="mt-[3px] h-[37px] w-[42px] shrink-0"
+              fill="none"
+              viewBox="0 0 42 37"
+            >
+              <path d="M2 1L20 18.5L2 36" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M21 1L40 18.5L21 36" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
           </Link>
         </div>
       </section>
