@@ -5,7 +5,9 @@ import { useState, useRef, useEffect } from "react";
 
 export default function Home() {
   const [heroStage, setHeroStage] = useState<"black" | "sketch" | "render" | "video">("black");
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const [activeHeroVideo, setActiveHeroVideo] = useState<"cowboy" | "metropolis">("cowboy");
+  const cowboyVideoRef = useRef<HTMLVideoElement>(null);
+  const metropolisVideoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const sketchTimer = window.setTimeout(() => setHeroStage("sketch"), 350);
@@ -21,9 +23,10 @@ export default function Home() {
 
   useEffect(() => {
     if (heroStage === "video") {
-      void videoRef.current?.play();
+      const video = activeHeroVideo === "cowboy" ? cowboyVideoRef.current : metropolisVideoRef.current;
+      void video?.play();
     }
-  }, [heroStage]);
+  }, [activeHeroVideo, heroStage]);
 
   // Setup liquid glass interactivity
   useEffect(() => {
@@ -191,7 +194,7 @@ export default function Home() {
 
         .hero-video {
           opacity: 0;
-          transition: opacity 80ms linear;
+          transition: opacity 500ms ease-in-out;
         }
 
         .hero-video--visible {
@@ -218,11 +221,20 @@ export default function Home() {
           className={`hero-render absolute inset-0 h-full w-full object-cover pointer-events-none select-none ${heroStage === "render" || heroStage === "video" ? "hero-render--visible" : ""}`}
         />
 
-        {/* 真实渲染图是合并视频的首帧；视频结束后保留最后一帧。 */}
+        {/* 两段视频以 0.5 秒交叉淡入淡出串联，最后一段结束后保留末帧。 */}
         <video
-          ref={videoRef}
-          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" ? "hero-video--visible" : ""}`}
+          ref={cowboyVideoRef}
+          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "cowboy" ? "hero-video--visible" : ""}`}
           src="/website/cowboyfull.mp4"
+          muted
+          playsInline
+          preload="auto"
+          onEnded={() => setActiveHeroVideo("metropolis")}
+        />
+        <video
+          ref={metropolisVideoRef}
+          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "metropolis" ? "hero-video--visible" : ""}`}
+          src="/website/metroplis.mp4"
           muted
           playsInline
           preload="auto"
