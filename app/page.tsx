@@ -5,9 +5,7 @@ import { useState, useRef, useEffect } from "react";
 
 export default function Home() {
   const [heroStage, setHeroStage] = useState<"black" | "sketch" | "render" | "video">("black");
-  const [activeClip, setActiveClip] = useState<1 | 2>(1);
-  const firstVideoRef = useRef<HTMLVideoElement>(null);
-  const secondVideoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const sketchTimer = window.setTimeout(() => setHeroStage("sketch"), 350);
@@ -23,10 +21,9 @@ export default function Home() {
 
   useEffect(() => {
     if (heroStage === "video") {
-      const video = activeClip === 1 ? firstVideoRef.current : secondVideoRef.current;
-      void video?.play();
+      void videoRef.current?.play();
     }
-  }, [activeClip, heroStage]);
+  }, [heroStage]);
 
   // Setup liquid glass interactivity
   useEffect(() => {
@@ -198,20 +195,11 @@ export default function Home() {
           className={`hero-render absolute inset-0 h-full w-full object-cover pointer-events-none select-none ${heroStage === "render" || heroStage === "video" ? "hero-render--visible" : ""}`}
         />
 
-        {/* 真实渲染图是视频首帧；两段视频按顺序播放。 */}
+        {/* 真实渲染图是合并视频的首帧；视频结束后保留最后一帧。 */}
         <video
-          ref={firstVideoRef}
-          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeClip === 1 ? "hero-video--visible" : ""}`}
-          src="/website/cowboy.mp4"
-          muted
-          playsInline
-          preload="auto"
-          onEnded={() => setActiveClip(2)}
-        />
-        <video
-          ref={secondVideoRef}
-          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeClip === 2 ? "hero-video--visible" : ""}`}
-          src="/website/cowboy2.mp4"
+          ref={videoRef}
+          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" ? "hero-video--visible" : ""}`}
+          src="/website/cowboyfull.mp4"
           muted
           playsInline
           preload="auto"
