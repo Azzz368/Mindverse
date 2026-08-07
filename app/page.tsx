@@ -111,12 +111,12 @@ export default function Home() {
         }
         .animate-marquee-left {
           display: flex;
-          width: 200%;
+          width: max-content;
           animation: marquee-left 25s linear infinite;
         }
         .animate-marquee-right {
           display: flex;
-          width: 200%;
+          width: max-content;
           animation: marquee-right 25s linear infinite;
         }
         
@@ -346,10 +346,10 @@ export default function Home() {
 
           {/* Image Grid Row 1 (top: 98px) - Scrolls Left (跨越全屏，向外突围) */}
           <div className="absolute top-[98px] left-[50%] -translate-x-1/2 w-[100vw] overflow-hidden pointer-events-auto">
-            <div className="animate-marquee-left flex gap-6 px-3">
+            <div className="animate-marquee-left">
               {/* 我们重复两遍内容块，制造无缝轮播 */}
               {[...Array(2)].map((_, i) => (
-                <div key={i} className="flex gap-6 shrink-0">
+                <div key={i} className="flex shrink-0 gap-6 pr-6">
                   <div className="w-[295px] h-[160px] bg-[#000000]/10 rounded-[13px] border border-white/20 shadow-sm" />
                   <div className="w-[295px] h-[160px] bg-[#FFFFFF]/30 rounded-[13px] border border-white/40 shadow-sm" />
                   <div className="w-[295px] h-[160px] bg-[#000000]/15 rounded-[13px] border border-white/20 shadow-sm" />
@@ -362,11 +362,11 @@ export default function Home() {
           </div>
 
           {/* Image Grid Row 2 (top: 277px) - Scrolls Right */}
-          <div className="absolute top-[277px] left-[50%] -translate-x-1/2 w-[100vw] overflow-hidden pointer-events-auto ml-[-200px]">
-            <div className="animate-marquee-right flex gap-6 px-3">
+          <div className="absolute top-[277px] left-[50%] -translate-x-1/2 w-[100vw] overflow-hidden pointer-events-auto">
+            <div className="animate-marquee-right">
               {/* 我们重复两遍内容块，制造无缝轮播 */}
               {[...Array(2)].map((_, i) => (
-                <div key={i} className="flex gap-6 shrink-0">
+                <div key={i} className="flex shrink-0 gap-6 pr-6">
                   <div className="w-[295px] h-[160px] bg-[#FFFFFF]/30 rounded-[13px] border border-white/40 shadow-sm" />
                   <div className="w-[295px] h-[160px] bg-[#000000]/20 rounded-[13px] border border-white/20 shadow-sm" />
                   <div className="w-[295px] h-[160px] bg-[#FFFFFF]/25 rounded-[13px] border border-white/30 shadow-sm" />
