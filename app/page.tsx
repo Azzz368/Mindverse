@@ -136,13 +136,36 @@ export default function Home() {
           clip-path: inset(0 0 0 0);
         }
 
+        .start-now-pill {
+          overflow: hidden;
+          isolation: isolate;
+        }
+
+        .start-now-pill::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          z-index: 0;
+          border-radius: inherit;
+          background: #000;
+          transform: scaleX(0);
+          transform-origin: center;
+          transition: transform 210ms ease-out;
+        }
+
+        .start-now-control:hover .start-now-pill::before,
+        .start-now-control:focus-within .start-now-pill::before,
+        .start-now-control:active .start-now-pill::before {
+          transform: scaleX(1);
+        }
+
         .hero-sketch {
           /* 初始遮罩与 Mindverse 后方的液态玻璃胶囊完全同尺寸。 */
           clip-path: inset(41.8% 35.5% 42.5% 35.5% round 74px);
         }
 
         .hero-sketch--expanded {
-          animation: hero-pill-expand 1000ms cubic-bezier(0.42, 0, 0.58, 1) forwards;
+          animation: hero-pill-expand 600ms cubic-bezier(0.42, 0, 0.58, 1) forwards;
         }
 
         @keyframes hero-pill-expand {
@@ -252,15 +275,16 @@ export default function Home() {
                <div className="w-full h-[0.5px] bg-white mix-blend-difference"></div>
             </div>
 
-            {/* Start Now */}
-            <div className="absolute top-[21px] left-[1267.5px] w-[141px] h-[14px] z-10">
-              <Link href="/workspace" className="block text-center font-normal text-[13px] leading-[14px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
+            {/* Start Now / Rectangle 1: center-out black fill on interaction */}
+            <div className="start-now-control absolute top-[11px] left-[1267.5px] h-[32px] w-[141px] z-10">
+              <div className="start-now-pill absolute left-[14.5px] top-0 h-[32px] w-[112px] rounded-[25px] border border-white mix-blend-difference box-border" />
+              <Link
+                href="/workspace"
+                className="absolute inset-0 flex items-center justify-center font-normal text-[13px] leading-[14px] text-white mix-blend-difference drop-shadow-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-white"
+              >
                 Start Now
               </Link>
             </div>
-
-            {/* Rectangle 1 (Pill shape around user/button area) */}
-            <div className="absolute top-[11px] left-[1282px] w-[112px] h-[32px] border border-white mix-blend-difference rounded-[25px] box-border pointer-events-none" />
           </div>
 
           {/* Center Pill Shapes标题后面液态玻璃 (Rectangle 5, 6, 7) */}
