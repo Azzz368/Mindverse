@@ -34,6 +34,7 @@ export type PastedCanvasMedia = {
   mediaType: "image" | "video" | "audio";
   url: string;
   fileName?: string;
+  sourceProvider?: string;
 };
 const MAX_UNDO_ENTRIES = 50;
 const cloneHistoryEntry = (state: CanvasHistorySource): CanvasHistoryEntry => {
@@ -50,7 +51,7 @@ type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEd
   ghostMediaUrl: string | null; setGhostMedia(dataUrl: string): void; placeGhostMedia(position: { x: number; y: number }): void;
   pendingAgentPatch: CanvasPatch | null; setPendingAgentPatch(patch: CanvasPatch | null): void; placeAgentPatch(position: { x: number; y: number }): void;
   addMediaNode(dataUrl: string, position: { x: number; y: number }): void;
-  addPastedMediaNodes(items: PastedCanvasMedia[], position: { x: number; y: number }): void;
+  addPastedMediaNodes(items: PastedCanvasMedia[], position: { x: number; y: number }): string[];
   updateAgentMemory(patch: Partial<AgentProjectMemory>): void;
   clearAgentMemory(): void;
   normalizeVideoConnections(): void; materializeStoryboardBranch(storyboardId: string): void;
@@ -178,7 +179,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   placeAgentPatch: (position) => { const { pendingAgentPatch } = get(); if (!pendingAgentPatch) return; const placed = offsetPatchTo(pendingAgentPatch, position); set((state) => { const clean = dedupePatch(placed, state.nodes, state.edges); return { nodes: [...state.nodes, ...clean.nodes], edges: [...state.edges, ...clean.edges], selectedNodeId: clean.nodes[0]?.id || state.selectedNodeId, pendingAgentPatch: null, agentStatus: "completed", agentMessage: "工作流已放置到画布。请检查节点参数后手动运行。", lastError: null }; }); },
   addMediaNode: (dataUrl, position) => { const node: CanvasNode = { id: `reference-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: "reference", title: "Reference* 图片素材", status: "idle", imageUrl: dataUrl, notes: "" } }; set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id })); },
   addPastedMediaNodes: (items, position) => {
-    if (!items.length) return;
+    if (!items.length) return [];
     const labelFor = (item: PastedCanvasMedia, fallback: string) =>
       item.fileName?.replace(/\.[^.]+$/, "").trim() || fallback;
     const nodes = items.map((item, index): CanvasNode => {
@@ -203,6 +204,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
       const node = makeNode(item.mediaType, offset);
       const isVideo = item.mediaType === "video";
+      const sourceProvider = item.sourceProvider || "clipboard-upload";
       node.data = {
         ...node.data,
         title: `${isVideo ? "Video" : "Audio"}* ${labelFor(item, isVideo ? "Uploaded Video" : "Uploaded Audio")}`,
@@ -210,24 +212,30 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         status: "success",
         output: {
           kind: item.mediaType,
-          summary: `${isVideo ? "Video" : "Audio"} pasted from clipboard`,
+          summary: `${isVideo ? "Video" : "Audio"} uploaded to the canvas`,
           value: isVideo
-            ? { videoUrl: item.url, resultUrl: item.url, originalFileName: item.fileName, sourceProvider: "clipboard-upload" }
-            : { audioUrl: item.url, originalFileName: item.fileName, sourceProvider: "clipboard-upload" },
+            ? { videoUrl: item.url, resultUrl: item.url, originalFileName: item.fileName, sourceProvider }
+            : { audioUrl: item.url, originalFileName: item.fileName, sourceProvider },
           createdAt: new Date().toISOString(),
         },
       };
       return node;
     });
     const selectedNodeId = nodes.at(-1)?.id || null;
+    const preserveExistingSelection = items.every((item) => item.sourceProvider === "agent-upload");
     set((state) => ({
-      nodes: [...state.nodes.map((node) => ({ ...node, selected: false })), ...nodes.map((node) => ({ ...node, selected: node.id === selectedNodeId }))],
-      selectedNodeId,
+      nodes: preserveExistingSelection
+        ? [...state.nodes, ...nodes.map((node) => ({ ...node, selected: false }))]
+        : [...state.nodes.map((node) => ({ ...node, selected: false })), ...nodes.map((node) => ({ ...node, selected: node.id === selectedNodeId }))],
+      selectedNodeId: preserveExistingSelection ? state.selectedNodeId : selectedNodeId,
       undoStack: appendUndoEntry(state.undoStack, state),
       canUndo: true,
       lastError: null,
-      agentMessage: `已粘贴 ${nodes.length} 个素材到画布。`,
+      agentMessage: preserveExistingSelection
+        ? `已上传 ${nodes.length} 个 Agent 素材并加入画布。`
+        : `已粘贴 ${nodes.length} 个素材到画布。`,
     }));
+    return nodes.map((node) => node.id);
   },
   normalizeVideoConnections: () => { const { nodes, edges } = get(); const next = withVideoTargetHandles(nodes, edges); if (next.length !== edges.length || next.some((edge, index) => edge.targetHandle !== edges[index]?.targetHandle)) set({ edges: next }); },
   materializeStoryboardBranch: (storyboardId) => {

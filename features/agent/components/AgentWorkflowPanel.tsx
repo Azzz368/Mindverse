@@ -22,7 +22,7 @@ import { ACTIVE_SKILL_KEY } from "@/features/skills/services/skillClient";
 import type { AgentRunEvent, AgentRunStatus, AgentRunTrace } from "@/shared/agent/agentAutonomy";
 import type { AgentSkillUsage } from "@/shared/agent/capabilityTypes";
 import type { AgentImageSearchResult } from "@/shared/agent/agentTools";
-import { archiveRemoteImageUrl } from "@/features/canvas/services/mediaArchiveClient";
+import { archiveAudioFile, archiveImageFile, archiveRemoteImageUrl, archiveVideoFile } from "@/features/canvas/services/mediaArchiveClient";
 import { apiErrorPayload } from "@/shared/api/client";
 import { agentExecutionModelFrom, agentExecutionModelOptions, DEFAULT_AGENT_EXECUTION_MODEL, type AgentExecutionModelId } from "@/shared/agent/executionModels";
 
@@ -51,7 +51,34 @@ type ChatEntry = {
     query: string;
     results: AgentImageSearchResult[];
   };
+  attachments?: Array<{ name: string; mediaType: AgentAttachmentMediaType; url: string }>;
 };
+
+type AgentAttachmentMediaType = "image" | "video" | "audio";
+
+type AgentComposerAttachment = {
+  id: string;
+  name: string;
+  mediaType: AgentAttachmentMediaType;
+  url: string;
+  nodeId?: string;
+  status: "uploading" | "ready" | "error";
+  error?: string;
+};
+
+const mediaTypeFromFile = (file: File): AgentAttachmentMediaType | null => {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  if (file.type.startsWith("audio/")) return "audio";
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  if (["png", "jpg", "jpeg", "webp", "gif"].includes(extension || "")) return "image";
+  if (["mp4", "mov", "webm", "mkv"].includes(extension || "")) return "video";
+  if (["mp3", "wav", "m4a", "aac", "flac"].includes(extension || "")) return "audio";
+  return null;
+};
+
+const attachmentTypeLabel = (mediaType: AgentAttachmentMediaType) =>
+  mediaType === "image" ? "图片" : mediaType === "video" ? "视频" : "音频";
 
 type BrowserSpeechRecognitionResult = {
   isFinal: boolean;
@@ -173,8 +200,10 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
   const [speechSupported, setSpeechSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<AgentComposerAttachment[]>([]);
   const autonomousControllerRef = useRef<AbortController | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const speechInputBaseRef = useRef("");
   const speechFinalRef = useRef("");
@@ -200,6 +229,8 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
   const markSelectedWorkflow = useCanvasStore((state) => state.markSelectedWorkflow);
   const clearSelectedWorkflowMark = useCanvasStore((state) => state.clearSelectedWorkflowMark);
   const addStoryChainNode = useCanvasStore((state) => state.addStoryChainNode);
+  const addPastedMediaNodes = useCanvasStore((state) => state.addPastedMediaNodes);
+  const removeNode = useCanvasStore((state) => state.removeNode);
 
   const workflowSkills = Object.values(agentWorkflowSkills);
   const selectedNodeIds = useMemo(() => {
@@ -213,10 +244,112 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
     () => selectedNodeIds.map((id) => nodes.find((node) => node.id === id)).filter((node): node is CanvasNode => Boolean(node)),
     [nodes, selectedNodeIds],
   );
-  const canSubmit = input.trim().length > 0 && !busy;
+  const readyAttachments = attachments.filter((attachment) => attachment.status === "ready" && attachment.nodeId);
+  const hasPendingAttachment = attachments.some((attachment) => attachment.status === "uploading");
+  const canSubmit = (input.trim().length > 0 || readyAttachments.length > 0) && !busy && !hasPendingAttachment;
   const clearProjectMemory = () => {
     clearAgentMemory();
     setLocalError(null);
+  };
+
+  const addAgentAttachments = async (files: FileList | null) => {
+    if (!files?.length || busy) return;
+    const availableSlots = Math.max(0, 8 - attachments.length);
+    const accepted = Array.from(files)
+      .map((file) => ({ file, mediaType: mediaTypeFromFile(file) }))
+      .filter((entry): entry is { file: File; mediaType: AgentAttachmentMediaType } => Boolean(entry.mediaType))
+      .slice(0, availableSlots);
+    if (!accepted.length) {
+      setLocalError(availableSlots ? "请选择图片、视频或音频文件。" : "一次最多添加 8 个素材。先移除部分素材后再试。");
+      return;
+    }
+    if (accepted.length < files.length) {
+      setLocalError(`已添加 ${accepted.length} 个受支持的素材；不支持的文件或超出 8 个的部分已跳过。`);
+    } else {
+      setLocalError(null);
+    }
+
+    const baseCanvas = useCanvasStore.getState();
+    const baseX = Math.min(0, ...baseCanvas.nodes.map((node) => node.position.x)) - 360;
+    const pending = accepted.map(({ file, mediaType }) => ({
+      file,
+      attachment: {
+        id: crypto.randomUUID(),
+        name: file.name,
+        mediaType,
+        url: URL.createObjectURL(file),
+        status: "uploading" as const,
+      },
+    }));
+    setAttachments((current) => [...current, ...pending.map((entry) => entry.attachment)]);
+
+    const archived = await Promise.all(pending.map(async ({ file, attachment }) => {
+      try {
+        const archivedUrl = attachment.mediaType === "image"
+          ? await archiveImageFile(file)
+          : attachment.mediaType === "video"
+            ? await archiveVideoFile(file)
+            : await archiveAudioFile(file);
+        return { attachment, archivedUrl };
+      } catch (error) {
+        setAttachments((current) => current.map((item) => item.id === attachment.id
+          ? { ...item, status: "error", error: error instanceof Error ? error.message : "素材上传失败。" }
+          : item));
+        return undefined;
+      }
+    }));
+    const successful = archived.filter((item): item is NonNullable<typeof item> => Boolean(item));
+    if (!successful.length) return;
+
+    const nodeIds = addPastedMediaNodes(successful.map(({ attachment, archivedUrl }) => ({
+      mediaType: attachment.mediaType,
+      url: archivedUrl,
+      fileName: attachment.name,
+      sourceProvider: "agent-upload",
+    })), { x: baseX, y: 90 });
+    if (nodeIds.length !== successful.length) {
+      successful.forEach(({ attachment }) => {
+        setAttachments((current) => current.map((item) => item.id === attachment.id
+          ? { ...item, status: "error", error: "素材已上传，但无法创建画布节点。" }
+          : item));
+      });
+      return;
+    }
+
+    const uploadedAssets = successful.map(({ attachment }, index) => ({
+      nodeId: nodeIds[index],
+      kind: attachment.mediaType,
+      title: attachment.name,
+      role: "agent composer upload",
+      sourceName: "local upload",
+    }));
+    const memory = useCanvasStore.getState().agentMemory;
+    const uploadedNodeIds = new Set(nodeIds);
+    useCanvasStore.getState().updateAgentMemory({
+      referenceAssets: [
+        ...(memory?.referenceAssets || []).filter((asset) => !uploadedNodeIds.has(asset.nodeId)),
+        ...uploadedAssets,
+      ].slice(-24),
+    });
+    const resultByAttachmentId = new Map(successful.map((item, index) => [item.attachment.id, { nodeId: nodeIds[index], url: item.archivedUrl }]));
+    successful.forEach(({ attachment }) => URL.revokeObjectURL(attachment.url));
+    setAttachments((current) => current.map((item) => {
+      const result = resultByAttachmentId.get(item.id);
+      return result ? { ...item, ...result, status: "ready", error: undefined } : item;
+    }));
+  };
+
+  const removeAgentAttachment = (attachment: AgentComposerAttachment) => {
+    if (attachment.status === "uploading") return;
+    if (attachment.url.startsWith("blob:")) URL.revokeObjectURL(attachment.url);
+    if (attachment.nodeId) {
+      removeNode(attachment.nodeId);
+      const memory = useCanvasStore.getState().agentMemory;
+      useCanvasStore.getState().updateAgentMemory({
+        referenceAssets: (memory?.referenceAssets || []).filter((asset) => asset.nodeId !== attachment.nodeId),
+      });
+    }
+    setAttachments((current) => current.filter((item) => item.id !== attachment.id));
   };
 
   const primeComposer = (prompt: string) => {
@@ -467,13 +600,24 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
   };
 
   const runUnifiedAgent = async (forceIntent?: AgentRouterIntent, messageOverride?: string) => {
-    const message = (messageOverride ?? input).trim();
-    if (!message || busy) return;
+    const submittedAttachments = readyAttachments.map((attachment) => ({
+      name: attachment.name,
+      mediaType: attachment.mediaType,
+      url: attachment.url,
+      nodeId: attachment.nodeId!,
+    }));
+    const message = (messageOverride ?? input).trim()
+      || (submittedAttachments.length ? "请分析并使用这些上传素材创建合适的可编辑工作流。" : "");
+    if (!message || busy || hasPendingAttachment) return;
     const resumeRunId = agentRunStatus === "awaiting_user" ? agentRunId || undefined : undefined;
     setBusy(true);
     setLocalError(null);
     setPreview(null);
-    const nextChat: ChatEntry[] = [...chat, { role: "user", content: message }];
+    const nextChat: ChatEntry[] = [...chat, {
+      role: "user",
+      content: message,
+      attachments: submittedAttachments.map(({ name, mediaType, url }) => ({ name, mediaType, url })),
+    }];
     setChat(nextChat);
     setInput("");
     const autonomousController = autonomousEnabled ? new AbortController() : null;
@@ -484,10 +628,25 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
     setAgentRunStatus("running");
 
     try {
+      const currentCanvas = useCanvasStore.getState();
+      const attachmentNodeIds = submittedAttachments.map((attachment) => attachment.nodeId);
+      const requestSelectedNodeIds = [...new Set([
+        ...selectedNodeIds,
+        ...currentCanvas.nodes.filter((node) => node.selected).map((node) => node.id),
+        ...(currentCanvas.selectedNodeId ? [currentCanvas.selectedNodeId] : []),
+        ...attachmentNodeIds,
+      ])].filter((id) => currentCanvas.nodes.some((node) => node.id === id));
       const payload = await requestAgentRouter({
         userMessage: message,
-        canvasSnapshot: { version: 1, projectName, nodes, edges, agentMemory: agentMemory || undefined },
-        selectedNodeIds,
+        canvasSnapshot: {
+          version: 1,
+          projectName: currentCanvas.projectName,
+          nodes: currentCanvas.nodes,
+          edges: currentCanvas.edges,
+          agentMemory: currentCanvas.agentMemory || undefined,
+        },
+        selectedNodeIds: requestSelectedNodeIds,
+        attachmentNodeIds,
         conversation: chat.map((item) => ({ role: item.role, content: item.content })),
         forceIntent,
         customSkill: customSkill || undefined,
@@ -497,6 +656,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
         executionModel,
       });
       const planningEvents = payload.agentRun?.events || [];
+      if (!payload.requiresClarification) setAttachments([]);
       setAgentRunId(payload.agentRun?.id || null);
       setAgentRunStatus(payload.agentRun?.status || null);
       setAutonomousEvents(planningEvents.slice(-24));
@@ -517,7 +677,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
         const result = await runAutonomousAgent({
           userMessage: resolvedRequest,
           response: payload,
-          selectedNodeIds,
+          selectedNodeIds: requestSelectedNodeIds,
           runId: payload.agentRun?.id,
           initialEvents: planningEvents,
           signal: autonomousController?.signal,
@@ -842,6 +1002,23 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
             <div key={`${item.role}-${index}`} className={`mindverse-agent-message rounded-[20px] border px-4 py-3.5 ${item.role === "user" ? "mindverse-agent-message--user ml-12" : "mindverse-agent-message--assistant mr-8"}`}>
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] opacity-60">{item.role === "user" ? "You" : item.intent || "Agent"}</div>
               <p className="whitespace-pre-wrap text-[13px] leading-6">{item.content}</p>
+              {item.attachments?.length ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {item.attachments.map((attachment) => (
+                    <div key={`${attachment.mediaType}-${attachment.name}`} className="flex max-w-full items-center gap-2 rounded-xl border border-white/[0.08] bg-black/15 p-1.5 pr-3">
+                      <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-white/[0.06] text-[10px] font-bold uppercase text-sky-200">
+                        {attachment.mediaType === "image"
+                          ? <img src={attachment.url} alt="" className="h-full w-full object-cover" />
+                          : attachment.mediaType === "video" ? "VID" : "AUD"}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="max-w-44 truncate text-[11px] font-semibold text-[#e8ebef]">{attachment.name}</div>
+                        <div className="text-[9px] text-[#7f8994]">{attachmentTypeLabel(attachment.mediaType)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {item.response?.options?.length ? (
                 <div className="mt-3 space-y-2">
                   {item.response.options.map((option) => (
@@ -1013,6 +1190,28 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
 
         <div className="mindverse-agent-composer mindverse-agent-composer-activate sticky bottom-0 z-30 order-[99] mt-auto shrink-0 overflow-hidden rounded-[24px] border border-white/[0.11] bg-[#191b1e] shadow-[0_18px_60px_rgba(0,0,0,0.34)] focus-within:border-sky-300/35 focus-within:shadow-[0_18px_60px_rgba(0,0,0,0.34),0_0_0_1px_rgba(125,211,252,0.18)]">
           <div className="relative z-[1] flex flex-wrap items-center gap-2 border-b border-white/[0.07] px-4 py-2.5">
+            <input
+              ref={attachmentInputRef}
+              type="file"
+              multiple
+              accept="image/*,video/*,audio/*"
+              className="sr-only"
+              onChange={(event) => {
+                void addAgentAttachments(event.target.files);
+                event.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              disabled={busy || attachments.length >= 8}
+              onClick={() => attachmentInputRef.current?.click()}
+              aria-label="添加图片、视频或音频素材"
+              title="添加素材（最多 8 个）"
+              className="mindverse-agent-context-button inline-flex h-8 items-center gap-2 rounded-full border px-3 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <svg aria-hidden="true" className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none"><path d="M5.25 8.75 9.8 4.2a2.05 2.05 0 0 1 2.9 2.9l-5.6 5.6a3.15 3.15 0 0 1-4.45-4.45l5.4-5.4" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              素材{attachments.length ? ` ${attachments.length}` : ""}
+            </button>
             <button
               type="button"
               onClick={() => setSelectionMode(!selectionMode)}
@@ -1020,7 +1219,7 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
               className="mindverse-agent-context-button inline-flex h-8 items-center gap-2 rounded-full border px-3 text-[11px] font-semibold transition"
             >
               <svg aria-hidden="true" className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none"><path d="M3 3h4v4H3V3Zm6 0h4v4H9V3ZM3 9h4v4H3V9Zm6 0h4v4H9V9Z" stroke="currentColor" strokeWidth="1.2" /></svg>
-              {selectionMode ? "完成选择" : `${selectedNodes.length} 个画布节点`}
+              {selectionMode ? "完成选择" : `${selectedNodes.length} 个手选节点`}
             </button>
             {selectedNodes.length > 0 && (
               <button type="button" onClick={() => setSelectedNode(null)} className="mindverse-agent-clear-button h-8 rounded-full px-2 text-[10px] font-semibold transition">清除</button>
@@ -1045,6 +1244,35 @@ export function AgentWorkflowPanel({ workflowId }: { workflowId?: string }) {
               </span>
             </button>
           </div>
+          {attachments.length > 0 && (
+            <div className="relative z-[1] flex gap-2 overflow-x-auto border-b border-white/[0.07] px-4 py-3">
+              {attachments.map((attachment) => (
+                <div key={attachment.id} className={`group relative flex w-[178px] shrink-0 items-center gap-2 rounded-[14px] border p-2 ${attachment.status === "error" ? "border-rose-400/30 bg-rose-400/[0.06]" : "border-white/[0.09] bg-white/[0.035]"}`}>
+                  <div className="relative grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-[10px] bg-[#101214] text-[10px] font-bold tracking-wide text-sky-200">
+                    {attachment.mediaType === "image"
+                      ? <img src={attachment.url} alt="" className="h-full w-full object-cover" />
+                      : attachment.mediaType === "video" ? "VIDEO" : "AUDIO"}
+                    {attachment.status === "uploading" && <span className="absolute inset-0 grid place-items-center bg-black/55"><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/80 border-t-transparent" /></span>}
+                  </div>
+                  <div className="min-w-0 pr-4">
+                    <div className="truncate text-[11px] font-semibold text-[#e5e8eb]" title={attachment.name}>{attachment.name}</div>
+                    <div className={`mt-0.5 truncate text-[9px] ${attachment.status === "error" ? "text-rose-300" : "text-[#7e8791]"}`} title={attachment.error}>
+                      {attachment.status === "uploading" ? "正在上传" : attachment.status === "error" ? attachment.error || "上传失败" : `${attachmentTypeLabel(attachment.mediaType)} · 已作为 Agent 输入`}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={attachment.status === "uploading"}
+                    onClick={() => removeAgentAttachment(attachment)}
+                    aria-label={`移除 ${attachment.name}`}
+                    className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full text-[13px] text-[#717a84] transition hover:bg-white/[0.08] hover:text-white disabled:opacity-25"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <textarea
             ref={composerRef}
             autoFocus

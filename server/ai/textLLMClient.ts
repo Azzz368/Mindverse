@@ -57,13 +57,14 @@ export async function requestChatCompletion<T = ChatCompletionResponse>({
     }
     : providerBody;
   const maxRetries = Math.max(0, Math.min(3, Number(process.env.TEXT_LLM_MAX_RETRIES || 1)));
+  const agentTimeoutMs = Math.max(10_000, Number(process.env.AGENT_LLM_TIMEOUT_MS || 60_000));
   for (let attempt = 0; ; attempt += 1) {
     try {
       return provider === "hkgai"
         ? await requestHKGAIOpenAI<T>("/chat/completions", { method: "POST", body: JSON.stringify(requestBody) })
-        : await request302OpenAI<T>("/chat/completions", { method: "POST", body: JSON.stringify(requestBody) });
+        : await request302OpenAI<T>("/chat/completions", { method: "POST", body: JSON.stringify(requestBody), timeoutMs: agentTimeoutMs });
     } catch (error) {
-      const retryable = error instanceof AIProviderError && (error.status === 429 || error.status >= 500);
+      const retryable = error instanceof AIProviderError && error.code !== "AI_PROVIDER_TIMEOUT" && (error.status === 429 || error.status >= 500);
       if (!retryable || attempt >= maxRetries) throw error;
       await new Promise((resolve) => setTimeout(resolve, 700 * 2 ** attempt));
     }
