@@ -4,7 +4,6 @@ import { archiveAudioFile, archiveImageFile, archiveVideoFile } from "@/features
 import { useLang } from "@/components/providers/LangProvider";
 import { imagePromptPresets } from "@/shared/workflow/imagePromptPresets";
 import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
-import { defaultMotionTemplateVariablesJson } from "@/shared/motion/templates";
 import { DEFAULT_VIDEO_MODEL_PRESET_ID, DIGITAL_HUMAN_VIDEO_PROMPT, videoModelPatch } from "@/shared/workflow/videoModelPresets";
 import type { CanvasNodeData, NodeType } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
@@ -24,7 +23,7 @@ const getTools = (t: Strings) => [
   { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: t.toolDescGen45, iconSrc: "/icons/1.png", data: { title: "Gen-4.5", ...videoModelPatch("gen-4.5") } },
   { id: "kling-v3-omni", type: "video", cat: "Video", title: "Kling v3 Omni", desc: "TokenStar multi-reference image/element/video generation", iconSrc: "/icons/1.png", data: { title: "Kling v3 Omni", ...videoModelPatch("kling-v3-omni-tokenstar") } },
 { id: "video-edit", type: "videoEdit", cat: "Video", title: "Video Edit", desc: "可视化排序、裁剪、淡入淡出、配乐、字幕和转码", iconSrc: "/icons/1.png", data: { title: "Video Edit", editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" } },
-  { id: "motion-compose", type: "motion", cat: "Video", title: "Codex + HyperFrames", desc: "Use Codex to edit all connected video, image and audio assets as a HyperFrames composition", iconSrc: "/icons/1.png", data: { title: "Motion* Codex + HyperFrames", prompt: "Use all connected media to create a polished HyperFrames edit.", motionMode: "codex-hyperframes", templateId: "basic-title", motionVariablesJson: defaultMotionTemplateVariablesJson("basic-title"), compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")) } },
+  { id: "motion-compose", type: "motion", cat: "Video", title: "Codex + HyperFrames", desc: "Describe the edit in natural language; Codex builds and renders the HyperFrames composition", iconSrc: "/icons/1.png", data: { title: "Motion* Codex + HyperFrames", prompt: "", motionMode: "codex-hyperframes", compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")) } },
   { id: "gpt-image-2-tokenstar", type: "image", cat: "Image", title: "GPT Image 2 (TokenStar)", desc: "TokenStar GPT Image 2 text/image generation", iconSrc: "/icons/2.png", data: { title: "GPT Image 2 (TokenStar)", model: "gpt-image-2(tokenstar)", size: "2048x2048" } },
   ...Object.entries(imagePromptPresets).map(([id, preset]) => ({
     id: `gpt-image-2-tokenstar-${id}`,

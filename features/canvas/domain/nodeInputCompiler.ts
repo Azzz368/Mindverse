@@ -388,7 +388,13 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
   }
 
   if (d.nodeType === "motion") {
-    const motionMode = d.motionMode || "codex-hyperframes";
+    const motionPrompt = limitProviderPrompt(ownPromptFrom(d) || prompt);
+    const previousOutput = asRecord(d.output?.value);
+    const previousProjectDir = asText(previousOutput.hyperframesProjectDir);
+    const previousProjectId = d.hyperframesProjectId
+      || asText(previousOutput.hyperframesProjectId)
+      || previousProjectDir.split(/[\\/]/).filter(Boolean).at(-1)
+      || "";
     const referenceVideoUrls = upstream
       .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoEdit")
       .map(videoUrlFrom)
@@ -402,12 +408,11 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       .map(audioUrlFrom)
       .filter(Boolean);
     return {
-      prompt: limitProviderPrompt(ownPromptFrom(d) || prompt),
+      prompt: motionPrompt,
       compositionJson: d.compositionJson,
-      templateId: d.templateId,
-      motionVariablesJson: d.motionVariablesJson,
-      motionMode,
-      codexInstruction: motionMode === "codex-hyperframes" ? d.codexInstruction || d.prompt : undefined,
+      motionMode: "codex-hyperframes",
+      codexInstruction: motionPrompt,
+      hyperframesProjectId: previousProjectId || undefined,
       referenceVideoUrls,
       referenceImageUrls,
       referenceAudioUrls,

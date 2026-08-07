@@ -154,10 +154,9 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
       const job = await enqueueMotionJob({
         prompt: optionalText(rawInput.prompt),
         compositionJson: optionalText(rawInput.compositionJson),
-        templateId: optionalText(rawInput.templateId),
-        motionVariablesJson: optionalText(rawInput.motionVariablesJson),
-        motionMode: optionalText(rawInput.motionMode),
-        codexInstruction: optionalText(rawInput.codexInstruction),
+        motionMode: "codex-hyperframes",
+        codexInstruction: optionalText(rawInput.prompt),
+        hyperframesProjectId: optionalText(rawInput.hyperframesProjectId),
         referenceVideoUrls: urls(rawInput.referenceVideoUrls),
         referenceImageUrls: urls(rawInput.referenceImageUrls),
         referenceAudioUrls: urls(rawInput.referenceAudioUrls),

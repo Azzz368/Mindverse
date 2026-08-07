@@ -9,7 +9,6 @@ import { VoiceCloneNodeLayout, VoiceTTSNodeLayout } from "./VoiceNodes";
 import { VideoEditComposer, type VideoEditSource } from "./VideoEditComposer";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
-import { motionTemplateIds } from "@/shared/motion/templates";
 import { DIGITAL_HUMAN_VIDEO_PROMPT, videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, videoReferenceLimitForPreset, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
 import { DEFAULT_STORYBOARD_SCENE_COUNT, clampStoryboardSceneCount } from "@/shared/workflow/storyPipeline";
 import { audioUrlFrom, imageUrlFrom, videoUrlFrom } from "@/features/canvas/domain/nodeInputCompiler";
@@ -110,7 +109,7 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
         <p className="truncate text-xs font-semibold text-[#030303] dark:text-slate-100">{data.title} · {t.settingsTitle}</p>
       </div>
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3">
-        <label className={wrap}><span className={lbl}>标题</span>{textInput("title", data.title)}</label>
+        {data.nodeType !== "motion" && <label className={wrap}><span className={lbl}>标题</span>{textInput("title", data.title)}</label>}
         {data.nodeType === "prompt" && <><label className={wrap}><span className={lbl}>提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>排除</span>{textArea("negativePrompt", data.negativePrompt, 2)}</label><label className={wrap}><span className={lbl}>风格</span>{textInput("style", data.style)}</label><label className={wrap}><span className={lbl}>宽高比</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}>{["1:1","16:9","9:16","4:5"].map(o=><option key={o}>{o}</option>)}</select></label></>}
         {data.nodeType === "text" && <><label className={wrap}><span className={lbl}>指令</span>{textArea("instruction", data.instruction, 3)}</label><label className={wrap}><span className={lbl}>起始文本</span>{textArea("inputText", data.inputText, 2)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>温度</span><input className={inp} type="number" step="0.1" min="0" max="2" value={data.temperature ?? 0.7} onChange={e => set({ temperature: Number(e.target.value) })} /></label></>}
         {data.nodeType === "script" && <><label className={wrap}><span className={lbl}>创意概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>语调</span>{textInput("scriptTone", data.scriptTone)}</label><label className={wrap}><span className={lbl}>目标场景数</span><select className={sel} value={String(clampStoryboardSceneCount(data.numberOfScenes))} onChange={e => set({ numberOfScenes: clampStoryboardSceneCount(e.target.value) })}>{[1,2,3].map(n=><option key={n}>{n}</option>)}</select></label></>}
@@ -137,10 +136,19 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
           <label className={wrap}><span className={lbl}>画面比例</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}><option value="16:9">16:9 横屏</option><option value="9:16">9:16 竖屏</option><option value="1:1">1:1 方形</option></select></label>
         </>}
         {data.nodeType === "motion" && <>
-          <label className={wrap}><span className={lbl}>Template</span><select className={sel} value={data.templateId ?? ""} onChange={e => set({ templateId: e.target.value || undefined })}><option value="">Composition JSON fallback</option>{motionTemplateIds.map(id => <option key={id} value={id}>{id}</option>)}</select></label>
-          <label className={wrap}><span className={lbl}>Motion variables JSON</span>{textArea("motionVariablesJson", data.motionVariablesJson, 6)}</label>
-          <label className={wrap}><span className={lbl}>Composition JSON fallback</span>{textArea("compositionJson", data.compositionJson, 8)}</label>
-          <label className={wrap}><span className={lbl}>Motion prompt</span>{textArea("prompt", data.prompt, 3)}</label>
+          <label className={wrap}>
+            <span className={lbl}>Prompt</span>
+            <ImeTextarea
+              className={`${ta} min-h-36`}
+              rows={7}
+              value={data.prompt ?? ""}
+              placeholder="用自然语言描述你想要的成片，例如：将已连接的视频剪成一支 15 秒竖屏广告，节奏明快，添加简洁字幕、柔和转场和结尾品牌定格。"
+              onValueChange={(prompt) => set({ prompt, motionMode: "codex-hyperframes", codexInstruction: "", templateId: "", motionVariablesJson: "" })}
+            />
+          </label>
+          <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[10px] leading-4 text-blue-800 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200">
+            Codex 会使用已连接素材构建 HyperFrames 工程，并通过成片截图自动审片。再次修改 Prompt 后运行，会在上一次工程上继续调整。
+          </p>
         </>}
         {data.nodeType === "audio" && <><label className={wrap}><span className={lbl}>音频提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>音色</span>{textInput("voice", data.voice)}</label><label className={wrap}><span className={lbl}>情绪</span>{textInput("emotion", data.emotion)}</label><label className={wrap}><span className={lbl}>时长（秒）</span><select className={sel} value={String(data.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}><option value="">默认</option>{[5,10,15,20,30,60].map(n=><option key={n} value={n}>{n}s</option>)}</select></label></>}
         {data.nodeType === "storyboard" && <><label className={wrap}><span className={lbl}>故事概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>目标镜头数</span><select className={sel} value={String(clampStoryboardSceneCount(data.targetShotCount ?? data.numberOfScenes))} onChange={e => set({ targetShotCount: clampStoryboardSceneCount(e.target.value) })}>{[1,2,3].map(n=><option key={n}>{n}</option>)}</select></label></>}

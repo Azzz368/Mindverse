@@ -1,6 +1,5 @@
 import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/shared/canvas";
 import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
-import { defaultMotionTemplateVariablesJson } from "@/shared/motion/templates";
 import { DEFAULT_VIDEO_MODEL_PRESET_ID, videoModelPatch, videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
 import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER } from "@/shared/api/qwenContracts";
 
@@ -11,7 +10,7 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   image: { prompt: "A cinematic editorial image", model: "gpt-image-2(tokenstar)", size: "2048x2048", aspectRatio: "1:1", resolution: "2K", referenceImageUrl: "" },
   video: { prompt: "A gentle cinematic movement", aspectRatio: "16:9", referenceImageUrl: "", fps: "", ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID), referenceImageAssetUrl: "", referenceVideoAssetUrl: "", referenceAudioAssetUrl: "" },
   videoEdit: { prompt: "", editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" },
-  motion: { prompt: "Use all connected media to create a polished HyperFrames edit.", compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")), templateId: "basic-title", motionVariablesJson: defaultMotionTemplateVariablesJson("basic-title"), motionMode: "codex-hyperframes" },
+  motion: { prompt: "", compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")), motionMode: "codex-hyperframes" },
   audio: { prompt: "A warm, modern ambient bed", voiceStyle: "Atmospheric", duration: 12, model: "", voice: "", emotion: "", volume: 1 },
   voiceClone: { preferredName: "voice_1", targetModel: DEFAULT_QWEN_VOICE_MODEL, voiceProvider: DEFAULT_QWEN_VOICE_PROVIDER, language: "zh", transcript: "", consentConfirmed: false },
   voiceTTS: { ttsText: "", voice: "", targetModel: DEFAULT_QWEN_VOICE_MODEL, voiceProvider: DEFAULT_QWEN_VOICE_PROVIDER, languageType: "Auto" },
