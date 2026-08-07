@@ -5,7 +5,9 @@ import { useState, useRef, useEffect } from "react";
 
 export default function Home() {
   const [heroStage, setHeroStage] = useState<"black" | "sketch" | "render" | "video">("black");
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const [activeClip, setActiveClip] = useState<1 | 2>(1);
+  const firstVideoRef = useRef<HTMLVideoElement>(null);
+  const secondVideoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const sketchTimer = window.setTimeout(() => setHeroStage("sketch"), 350);
@@ -21,9 +23,10 @@ export default function Home() {
 
   useEffect(() => {
     if (heroStage === "video") {
-      void videoRef.current?.play();
+      const video = activeClip === 1 ? firstVideoRef.current : secondVideoRef.current;
+      void video?.play();
     }
-  }, [heroStage]);
+  }, [activeClip, heroStage]);
 
   // Setup liquid glass interactivity
   useEffect(() => {
@@ -195,11 +198,20 @@ export default function Home() {
           className={`hero-render absolute inset-0 h-full w-full object-cover pointer-events-none select-none ${heroStage === "render" || heroStage === "video" ? "hero-render--visible" : ""}`}
         />
 
-        {/* 真实渲染图是视频首帧；视频结束后不循环，保留最后一帧。 */}
+        {/* 真实渲染图是视频首帧；两段视频按顺序播放。 */}
         <video
-          ref={videoRef}
-          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" ? "hero-video--visible" : ""}`}
+          ref={firstVideoRef}
+          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeClip === 1 ? "hero-video--visible" : ""}`}
           src="/website/cowboy.mp4"
+          muted
+          playsInline
+          preload="auto"
+          onEnded={() => setActiveClip(2)}
+        />
+        <video
+          ref={secondVideoRef}
+          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeClip === 2 ? "hero-video--visible" : ""}`}
+          src="/website/cowboy2.mp4"
           muted
           playsInline
           preload="auto"
@@ -285,20 +297,20 @@ export default function Home() {
           <Link
             href="/workspace"
             aria-label="Get Started"
-            className="get-started-link absolute top-[500px] left-[553px] flex h-[71px] w-[334px] items-start justify-center font-normal text-[40px] leading-[41px] text-white drop-shadow-md z-20 pointer-events-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+            className="get-started-link absolute top-[500px] left-[553px] flex h-[71px] w-[334px] items-start justify-center font-semibold text-[40px] leading-[41px] text-white drop-shadow-md z-20 pointer-events-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
           >
             <span className="flex items-start justify-center gap-5 pt-[2px]">
               <span>Get Started</span>
               <svg aria-hidden="true" className="mt-[-1px] h-[37px] w-[42px] shrink-0" fill="none" viewBox="0 0 42 37">
-                <path d="M2 1L20 18.5L2 36" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M12 1L30 18.5L12 36" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M2 1L20 18.5L2 36" stroke="currentColor" strokeWidth="3" />
+                <path d="M12 1L30 18.5L12 36" stroke="currentColor" strokeWidth="3" />
               </svg>
             </span>
             <span aria-hidden="true" className="get-started-overlay absolute inset-0 flex items-start justify-center gap-5 pt-[2px] text-black">
               <span>Get Started</span>
               <svg className="mt-[-1px] h-[37px] w-[42px] shrink-0" fill="none" viewBox="0 0 42 37">
-                <path d="M2 1L20 18.5L2 36" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M12 1L30 18.5L12 36" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M2 1L20 18.5L2 36" stroke="currentColor" strokeWidth="3" />
+                <path d="M12 1L30 18.5L12 36" stroke="currentColor" strokeWidth="3" />
               </svg>
             </span>
           </Link>
