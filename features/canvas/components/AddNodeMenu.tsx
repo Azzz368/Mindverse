@@ -9,7 +9,7 @@ import type { CanvasNodeData, NodeType } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
 export function getIcon(type: string) {
-  const map: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", videoEdit: "\u2702", motion: "\u25A3", audio: "\u266B", voiceClone: "V", voiceTTS: "\u266A", storyboard: "\u25A6", reference: "\u2141", output: "\u2197", upload_image: "+", upload_video: "+", upload_audio: "+" };
+  const map: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", videoFrame: "\u25A3", videoEdit: "\u2702", motion: "\u25A3", audio: "\u266B", voiceClone: "V", voiceTTS: "\u266A", storyboard: "\u25A6", reference: "\u2141", output: "\u2197", upload_image: "+", upload_video: "+", upload_audio: "+" };
   return map[type] || "T";
 }
 
@@ -18,6 +18,7 @@ const ALL_CATEGORIES = ["New nodes", "Recently used", "Video", "Image", "Audio",
 
 const getTools = (t: Strings) => [
   { id: "upload-video", type: "upload_video", cat: "Video", title: "Upload Video", desc: "Use a local video file as editable canvas footage", iconSrc: "/icons/1.png" },
+  { id: "video-frame", type: "videoFrame", cat: "Video", title: "视频抽帧", desc: "连接视频，抽取当前画面或最后一帧", iconSrc: "/icons/1.png", data: { title: "Video* 视频抽帧", frameMode: "last" as const } },
   { id: DEFAULT_VIDEO_MODEL_PRESET_ID, type: "video", cat: "Video", title: "Seedance Asset Fast", desc: t.toolDescSeedance, iconSrc: "/icons/1.png", data: { title: "Seedance Asset Fast", ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID) } },
   { id: "digital-human-video", type: "video", cat: "Video", title: "数字人视频", desc: "人物图 + 音频生成口型同步视频", iconSrc: "/icons/1.png", data: { title: "数字人视频", prompt: DIGITAL_HUMAN_VIDEO_PROMPT, aspectRatio: "9:16", ...videoModelPatch("digital-human-video") } },
   { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: t.toolDescGen45, iconSrc: "/icons/1.png", data: { title: "Gen-4.5", ...videoModelPatch("gen-4.5") } },

@@ -176,7 +176,7 @@ export const videoReferenceLimitForPreset = (
 ) => videoModelPresets[id].referenceLimits?.[kind];
 
 export const videoInputKindForNodeType = (nodeType: string): VideoInputPortKind | undefined => {
-  if (nodeType === "image" || nodeType === "reference") return "image";
+  if (nodeType === "image" || nodeType === "reference" || nodeType === "videoFrame") return "image";
   if (nodeType === "video" || nodeType === "videoEdit") return "video";
   if (nodeType === "audio" || nodeType === "voiceTTS") return "audio";
   if (nodeType === "text" || nodeType === "prompt" || nodeType === "script" || nodeType === "storyboard") return "text";

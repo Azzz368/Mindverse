@@ -127,7 +127,7 @@ export const promptFrom = (node: CanvasNode, upstream: CanvasNode[]) => {
 type MediaReferenceKind = "image" | "video" | "audio";
 
 const mediaReferenceKindForNode = (node: CanvasNode): MediaReferenceKind | undefined => {
-  if (node.data.nodeType === "image" || node.data.nodeType === "reference") return "image";
+  if (node.data.nodeType === "image" || node.data.nodeType === "reference" || node.data.nodeType === "videoFrame") return "image";
   if (node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") return "video";
   if (node.data.nodeType === "audio" || node.data.nodeType === "voiceTTS") return "audio";
   return undefined;
@@ -175,7 +175,7 @@ const legacyVideoHandleKind = (handleId: string | undefined | null): VideoInputP
 };
 
 const nodeKind = (source: CanvasNode): VideoInputPortKind | undefined => {
-  if (source.data.nodeType === "image" || source.data.nodeType === "reference") return "image";
+  if (source.data.nodeType === "image" || source.data.nodeType === "reference" || source.data.nodeType === "videoFrame") return "image";
   if (source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion") return "video";
   if (source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS") return "audio";
   if (["text", "prompt", "script", "storyboard"].includes(source.data.nodeType)) return "text";
@@ -260,7 +260,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
   const prompt = promptFrom(node, upstream);
   const inputs = upstream.map((source) => source.data.output?.value).filter((value) => value !== undefined);
   const upstreamImage = upstream.map(imageUrlFrom).find(Boolean);
-  const upstreamImageUrls = upstream.filter((source) => source.data.nodeType === "image").map(imageUrlFrom).filter(Boolean);
+  const upstreamImageUrls = upstream.filter((source) => source.data.nodeType === "image" || source.data.nodeType === "videoFrame").map(imageUrlFrom).filter(Boolean);
   const upstreamReferenceImageUrls = upstream.filter((source) => source.data.nodeType === "reference").map(imageUrlFrom).filter(Boolean);
   const explicitReferenceImageUrls = referencedImageUrlsFrom(node, upstream);
 
@@ -312,10 +312,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
     const imageSources = videoSourcesForKind(connections, "image", supportedKinds);
     const videoSources = videoSourcesForKind(connections, "video", supportedKinds);
     const audioSources = videoSourcesForKind(connections, "audio", supportedKinds);
-    const handleImageUrls = [
-      ...imageSources.filter((source) => source.data.nodeType === "image").map(imageUrlFrom),
-      ...imageSources.filter((source) => source.data.nodeType === "reference").map(imageUrlFrom),
-    ].filter(Boolean);
+    const handleImageUrls = imageSources.map(imageUrlFrom).filter(Boolean);
     const selectedImageUrls = explicitReferenceImageUrls.filter((url) => handleImageUrls.includes(url));
     const allReferenceImageUrls = supportedKinds.has("image")
       ? [...(d.referenceImageUrl ? [d.referenceImageUrl] : []), ...(hasExplicitReferenceSelection ? selectedImageUrls : selectedImageUrls.length ? selectedImageUrls : handleImageUrls)].filter(Boolean)

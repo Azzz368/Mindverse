@@ -135,7 +135,7 @@ const zh: Strings = {
   addNode: "添加节点",
   addPrefix: "添加",
   nodeNames: {
-    prompt: "提示词", text: "文本", image: "图像", video: "视频",
+    prompt: "提示词", text: "文本", image: "图像", video: "视频", videoFrame: "视频抽帧",
     audio: "音频", voiceClone: "人声克隆", voiceTTS: "克隆人声生成", storyboard: "分镜", storyboardImage: "分镜帧",
     reference: "参考", output: "输出",
   },
@@ -253,7 +253,7 @@ const en: Strings = {
   addNode: "Add node",
   addPrefix: "Add",
   nodeNames: {
-    prompt: "Prompt", text: "Text", image: "Image", video: "Video",
+    prompt: "Prompt", text: "Text", image: "Image", video: "Video", videoFrame: "Video Frame",
     audio: "Audio", voiceClone: "Voice Clone", voiceTTS: "Cloned Voice TTS", storyboard: "Storyboard", storyboardImage: "Storyboard Image",
     reference: "Reference", output: "Output",
   },

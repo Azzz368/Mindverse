@@ -7,6 +7,7 @@ import { ImageAnnotationEditor } from "./ImageAnnotationEditor";
 import { ImeInput, ImeTextarea } from "./ImeTextFields";
 import { VoiceCloneNodeLayout, VoiceTTSNodeLayout } from "./VoiceNodes";
 import { VideoEditComposer, type VideoEditSource } from "./VideoEditComposer";
+import { VideoFrameNode } from "./VideoFrameNode";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
 import { DIGITAL_HUMAN_VIDEO_PROMPT, videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, videoReferenceLimitForPreset, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
@@ -44,12 +45,12 @@ const videoDurationOptions = Array.from({ length: 11 }, (_, index) => index + 5)
 const nodeImageUrl = (node: CanvasNode) => {
   return imageUrlFrom(node);
 };
-const materialLabel = (node: CanvasNode) => node.data.title || (({ reference: "Reference", image: "Image", video: "Video", videoEdit: "Video", motion: "Video", audio: "Audio", voiceTTS: "Audio" } as Partial<Record<CanvasNodeData["nodeType"], string>>)[node.data.nodeType] || "Material");
+const materialLabel = (node: CanvasNode) => node.data.title || (({ reference: "Reference", image: "Image", videoFrame: "Video Frame", video: "Video", videoEdit: "Video", motion: "Video", audio: "Audio", voiceTTS: "Audio" } as Partial<Record<CanvasNodeData["nodeType"], string>>)[node.data.nodeType] || "Material");
 type VideoMaterialKind = "image" | "video" | "audio";
 type VideoMaterialOption = { node: CanvasNode; kind: VideoMaterialKind; url: string; label: string };
 
 const videoMaterialKind = (node: CanvasNode): VideoMaterialKind | undefined => {
-  if (node.data.nodeType === "image" || node.data.nodeType === "reference") return "image";
+  if (node.data.nodeType === "image" || node.data.nodeType === "reference" || node.data.nodeType === "videoFrame") return "image";
   if (node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") return "video";
   if (node.data.nodeType === "audio" || node.data.nodeType === "voiceTTS") return "audio";
   return undefined;
@@ -613,7 +614,7 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
     .map((edge) => edge.source));
   const materialOptions = allNodes
     .filter((item: CanvasNode) => imageSourceIds.has(item.id))
-    .filter((item: CanvasNode) => item.id !== id && ["image", "reference"].includes(item.data.nodeType) && nodeImageUrl(item))
+    .filter((item: CanvasNode) => item.id !== id && ["image", "reference", "videoFrame"].includes(item.data.nodeType) && nodeImageUrl(item))
     .map((item: CanvasNode) => ({ node: item, imageUrl: nodeImageUrl(item), label: materialLabel(item) }));
   const selectedReferenceIds = (data.imageReferenceNodeIds || []).filter((refId: string) => materialOptions.some((item) => item.node.id === refId));
   const selectedMaterials = selectedReferenceIds.map((refId: string) => materialOptions.find((item) => item.node.id === refId)).filter(Boolean) as typeof materialOptions;
@@ -811,6 +812,8 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const [previewOpen, setPreviewOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const previewVideoRef = useRef<HTMLVideoElement>(null);
+  const selectedFrameTimeRef = useRef(0);
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const isVideoEdit = data.nodeType === "videoEdit";
   const activeVideoModel = videoModelPresetIdFromData(data);
@@ -865,8 +868,43 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
 
   useEffect(() => {
     videoRef.current?.pause();
+    selectedFrameTimeRef.current = 0;
     setIsPlaying(false);
   }, [videoUrl]);
+
+  useEffect(() => {
+    if (!previewOpen) return;
+    const preview = previewVideoRef.current;
+    if (!preview) return;
+    const restoreTime = () => {
+      const duration = Number.isFinite(preview.duration) ? preview.duration : selectedFrameTimeRef.current;
+      preview.currentTime = Math.min(selectedFrameTimeRef.current, Math.max(0, duration));
+    };
+    if (preview.readyState >= 1) restoreTime();
+    else preview.addEventListener("loadedmetadata", restoreTime, { once: true });
+    return () => preview.removeEventListener("loadedmetadata", restoreTime);
+  }, [previewOpen, videoUrl]);
+
+  const rememberFrameTime = (video: HTMLVideoElement | null) => {
+    if (video && Number.isFinite(video.currentTime)) selectedFrameTimeRef.current = Math.max(0, video.currentTime);
+  };
+
+  const openPreview = () => {
+    rememberFrameTime(videoRef.current);
+    videoRef.current?.pause();
+    setPreviewOpen(true);
+  };
+
+  const closePreview = () => {
+    const preview = previewVideoRef.current;
+    rememberFrameTime(preview);
+    preview?.pause();
+    const cardVideo = videoRef.current;
+    if (cardVideo && cardVideo.readyState >= 1) {
+      cardVideo.currentTime = Math.min(selectedFrameTimeRef.current, Math.max(0, cardVideo.duration || selectedFrameTimeRef.current));
+    }
+    setPreviewOpen(false);
+  };
 
   const togglePlayback = () => {
     const video = videoRef.current;
@@ -918,7 +956,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
           <div className="group relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800 border-[6px] border-transparent">
              {videoUrl ? (
                <>
-                 <video ref={videoRef} src={videoUrl} loop muted playsInline preload="metadata" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} className="absolute inset-0 h-full w-full rounded-[14px] bg-black object-contain" />
+                 <video ref={videoRef} src={videoUrl} loop muted playsInline preload="metadata" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onTimeUpdate={(event) => rememberFrameTime(event.currentTarget)} onSeeked={(event) => rememberFrameTime(event.currentTarget)} className="absolute inset-0 h-full w-full rounded-[14px] bg-black object-contain" />
                  <button
                    type="button"
                    onClick={(event) => { event.stopPropagation(); togglePlayback(); }}
@@ -927,7 +965,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                  >
                    {isPlaying ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zm6 0h4v14h-4z" /></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="ml-0.5"><path d="M8 5v14l11-7z" /></svg>}
                  </button>
-                 <ExpandIcon onClick={() => setPreviewOpen(true)} />
+                 <ExpandIcon onClick={openPreview} />
                </>
              ) : (
                isGenerating ? (
@@ -1043,10 +1081,10 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
       </div>
 
       {previewOpen && videoUrl && typeof document !== "undefined" && createPortal(
-        <div className="fixed inset-0 z-[9999] grid place-items-center bg-black/85 p-8" onClick={() => setPreviewOpen(false)}>
+        <div className="fixed inset-0 z-[9999] grid place-items-center bg-black/85 p-8" onClick={closePreview}>
           <div className="max-h-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
-            <video src={videoUrl} controls autoPlay loop className="max-h-[80vh] max-w-full rounded-lg object-contain" />
-            <button onClick={() => setPreviewOpen(false)} className="mx-auto mt-3 block rounded bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">Close</button>
+            <video ref={previewVideoRef} src={videoUrl} controls loop playsInline onTimeUpdate={(event) => rememberFrameTime(event.currentTarget)} onSeeked={(event) => rememberFrameTime(event.currentTarget)} className="max-h-[80vh] max-w-full rounded-lg object-contain" />
+            <button onClick={closePreview} className="mx-auto mt-3 block rounded bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">Close</button>
           </div>
         </div>, document.body)}
     </>
@@ -1144,6 +1182,9 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
 
   if (data.nodeType === "video" || data.nodeType === "videoEdit") {
     return <VideoNodeLayout id={id} data={data} selected={selected!} node={node} isGenerating={isGenerating} runNode={runNode} />;
+  }
+  if (data.nodeType === "videoFrame") {
+    return <VideoFrameNode id={id} data={data} selected={selected!} />;
   }
   if (data.nodeType === "image") {
     return <ImageNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} createImageRevision={createImageRevision} />;

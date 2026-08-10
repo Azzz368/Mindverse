@@ -22,7 +22,7 @@ const forbiddenPatchKeys = new Set([
   "error",
 ]);
 
-const safeNodeTypes: NodeType[] = ["prompt", "text", "script", "storyboard", "image", "video", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "reference", "output"];
+const safeNodeTypes: NodeType[] = ["prompt", "text", "script", "storyboard", "image", "video", "videoFrame", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "reference", "output"];
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : undefined;

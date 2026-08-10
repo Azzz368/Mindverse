@@ -195,6 +195,7 @@ const fallbackSizeFor = (type: string) => ({
   storyboard: { w: 320, h: 420 },
   image: { w: 320, h: 360 },
   video: { w: 320, h: 280 },
+  videoFrame: { w: 380, h: 320 },
   videoEdit: { w: 320, h: 280 },
   motion: { w: 320, h: 260 },
   audio: { w: 320, h: 220 },

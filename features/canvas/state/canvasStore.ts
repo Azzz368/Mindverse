@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { topologicalSort } from "@/shared/workflow/topologicalSort";
 import { canvasStorage } from "@/features/canvas/services/canvasStorage";
 import { pollTaskRemote, requestImageRevision, runNodeRemote } from "@/features/canvas/services/nodeExecutionClient";
+import { extractVideoFrameRemote } from "@/features/canvas/services/videoFrameClient";
 import { requestAgentEdit, requestAgentOrganize, requestAgentPlan } from "@/features/agent/services/agentClient";
 import { buildTemplate, makeNode, type Template } from "@/shared/templates/templates";
 import { promptsFromStoryboard, storyboardSceneNumber, storyboardScenesFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
@@ -66,6 +67,7 @@ type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEd
   setGroupLockedByGroupId(groupId: string, locked: boolean): void;
   setProjectName(name: string): void; setSelectionMode(enabled: boolean): void; setSelectedNode(id: string | null): void; toggleSelectedNode(id: string): void; onNodesChange(changes: NodeChange<CanvasNode>[]): void; onEdgesChange(changes: EdgeChange<WorkflowEdge>[]): void; onConnect(connection: Connection): void;
   addNode(type: NodeType): void; updateNodeData(id: string, patch: Partial<CanvasNodeData>): void; removeNode(id: string): void; duplicateNode(id: string): void; createImageRevision(sourceId: string, annotations: ImageAnnotation[], instruction: string): Promise<void>; createKeyframeBatch(sourceId: string): void; setCanvas(nodes: CanvasNode[], edges: WorkflowEdge[], agentMemory?: AgentProjectMemory | null): void;
+  extractVideoFrame(extractorId: string, mode: "last" | "timestamp", timestampSeconds?: number): Promise<string>;
   runNode(id: string): Promise<void>; pollNode(id: string): Promise<void>; runWorkflow(): Promise<void>; generateAgentPlan(userPrompt: string): Promise<{ plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }>; applyAgentPatch(patch: CanvasPatch): void; generateAgentEdit(userInstruction: string): Promise<{ editPlan: AgentCanvasEditPlan; patch: CanvasEditPatch; summary: string }>; applyAgentEditPatch(patch: CanvasEditPatch): void; generateAgentOrganize(userInstruction: string): Promise<{ organizePlan: AgentCanvasOrganizePlan; patch: CanvasEditPatch; summary: string }>; runAgentWorkflow(brief: string): Promise<void>; runAgentSkill(skillId: AgentWorkflowSkillId, brief: string): Promise<void>; saveCanvas(): void; loadCanvas(): void; clearCanvas(): void; exportCanvasJson(): string; importCanvasJson(raw: string): void; applyTemplate(template: Template): void; };
 const initialNodes: CanvasNode[] = [];
 const isSnapshot = (value: unknown): value is CanvasSnapshot => Boolean(value && typeof value === "object" && Array.isArray((value as CanvasSnapshot).nodes) && Array.isArray((value as CanvasSnapshot).edges));
@@ -92,14 +94,23 @@ const edgeFor = (source: CanvasNode, target: CanvasNode): WorkflowEdge => {
   const targetHandle = targetHandleForConnection(source, target);
   return { id: `edge-${source.id}-${target.id}`, source: source.id, target: target.id, ...(targetHandle ? { targetHandle } : {}) };
 };
+const archivedVideoStorageKeyFrom = (node: CanvasNode) => {
+  const archivedMedia = asRecord(node.data.output?.value).archivedMedia;
+  if (!Array.isArray(archivedMedia)) return undefined;
+  const video = archivedMedia.map(asRecord).find((item) => asText(item.mediaType) === "video" && asText(item.storageKey));
+  return video ? asText(video.storageKey) : undefined;
+};
 const withVideoTargetHandles = (nodes: CanvasNode[], edges: WorkflowEdge[]): WorkflowEdge[] => {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   return edges.flatMap((edge) => {
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
-    if (!source || !target || !["text", "script", "image", "video", "videoEdit", "voiceTTS"].includes(target.data.nodeType)) return [edge];
-    const targetHandle = targetHandleForConnection(source, target, edge.targetHandle);
-    return targetHandle ? [{ ...edge, targetHandle }] : [];
+    const normalizedEdge = source && ["video", "videoEdit", "motion"].includes(source.data.nodeType) && edge.sourceHandle === "frame-output"
+      ? { ...edge, sourceHandle: undefined }
+      : edge;
+    if (!source || !target || !["text", "script", "image", "video", "videoFrame", "videoEdit", "voiceTTS"].includes(target.data.nodeType)) return [normalizedEdge];
+    const targetHandle = targetHandleForConnection(source, target, normalizedEdge.targetHandle);
+    return targetHandle ? [{ ...normalizedEdge, targetHandle }] : [];
   });
 };
 const hasRunnableSource = (node: CanvasNode) =>
@@ -453,7 +464,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const source = state.nodes.find((node) => node.id === connection.source);
     let target = state.nodes.find((node) => node.id === connection.target);
     let nodes = state.nodes;
+    let edges = state.edges;
     let switchedVideoInput = false;
+
+    if (source && target?.data.nodeType === "videoFrame" && !targetHandleForConnection(source, target, connection.targetHandle)) {
+      return { lastError: "视频抽帧节点只接受 Video、Video Edit 或 Motion 节点。" };
+    }
 
     if (
       source
@@ -473,9 +489,25 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const targetHandle = source && target
       ? targetHandleForConnection(source, target, connection.targetHandle)
       : connection.targetHandle || undefined;
+    if (target?.data.nodeType === "videoFrame" && targetHandle === "video") {
+      edges = edges.filter((edge) => edge.target !== target?.id || (edge.targetHandle !== "video" && edge.targetHandle));
+      nodes = nodes.map((node) => node.id === target?.id ? {
+        ...node,
+        data: {
+          ...node.data,
+          status: "idle",
+          output: undefined,
+          error: undefined,
+          imageUrl: undefined,
+          frameSourceVideoNodeId: source?.id,
+          frameTimestampSeconds: 0,
+        },
+      } : node);
+    }
     return {
       nodes,
-      edges: addEdge({ ...connection, targetHandle, id: `edge-${crypto.randomUUID()}` }, state.edges),
+      edges: addEdge({ ...connection, targetHandle, id: `edge-${crypto.randomUUID()}` }, edges),
+      lastError: null,
       ...(switchedVideoInput ? { agentMessage: "视频节点已切换为支持图片素材的 Seedance Assets 模式。" } : {}),
     };
   }),
@@ -485,7 +517,99 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return { nodes, edges: withVideoTargetHandles(nodes, state.edges) };
   }),
   removeNode: (id) => set((state) => { const undoStack = appendUndoEntry(state.undoStack, state); return { nodes: state.nodes.filter((node) => node.id !== id), edges: state.edges.filter((edge) => edge.source !== id && edge.target !== id), selectedNodeId: state.selectedNodeId === id ? null : state.selectedNodeId, undoStack, canUndo: true }; }),
-  duplicateNode: (id) => { const original = get().nodes.find((node) => node.id === id); if (!original) return; const clone: CanvasNode = { ...original, id: `${original.data.nodeType}-${crypto.randomUUID()}`, position: { x: original.position.x + 36, y: original.position.y + 36 }, selected: true, data: { ...original.data, title: `${original.data.title} copy`, status: "idle", output: undefined, error: undefined } }; set((state) => { const undoStack = appendUndoEntry(state.undoStack, state); return { nodes: [...state.nodes.map((node) => ({ ...node, selected: false })), clone], selectedNodeId: clone.id, undoStack, canUndo: true }; }); },
+  duplicateNode: (id) => { const original = get().nodes.find((node) => node.id === id); if (!original) return; const clone: CanvasNode = { ...original, id: `${original.data.nodeType}-${crypto.randomUUID()}`, position: { x: original.position.x + 36, y: original.position.y + 36 }, selected: true, data: { ...original.data, title: `${original.data.title} copy`, status: "idle", output: undefined, error: undefined, ...(original.data.nodeType === "videoFrame" ? { imageUrl: undefined, frameSourceVideoNodeId: undefined, frameTimestampSeconds: 0 } : {}) } }; set((state) => { const undoStack = appendUndoEntry(state.undoStack, state); return { nodes: [...state.nodes.map((node) => ({ ...node, selected: false })), clone], selectedNodeId: clone.id, undoStack, canUndo: true }; }); },
+  extractVideoFrame: async (extractorId, mode, timestampSeconds) => {
+    const current = get();
+    const extractor = current.nodes.find((node) => node.id === extractorId && node.data.nodeType === "videoFrame");
+    const sourceEdge = current.edges.find((edge) => edge.target === extractorId && (edge.targetHandle === "video" || !edge.targetHandle));
+    const source = current.nodes.find((node) => node.id === sourceEdge?.source);
+    const videoUrl = source ? videoUrlFrom(source) : "";
+    if (!extractor || !source || !["video", "videoEdit", "motion"].includes(source.data.nodeType) || !videoUrl) {
+      const message = source ? "源视频尚未生成，暂时无法抽帧。" : "请先把一个 VideoNode 连接到视频抽帧节点。";
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    set((state) => ({
+      lastError: null,
+      nodes: state.nodes.map((node) => node.id === extractorId ? { ...node, data: { ...node.data, status: "running", error: undefined } } : node),
+    }));
+    try {
+      const output = await extractVideoFrameRemote({
+        videoUrl,
+        sourceStorageKey: archivedVideoStorageKeyFrom(source),
+        mode,
+        timestampSeconds: mode === "timestamp" ? timestampSeconds : undefined,
+        sourceNodeId: source.id,
+        projectId: extractor.data.workflowId || source.data.workflowId,
+      });
+      const derivedCount = get().edges.filter((edge) => edge.source === extractor.id && edge.sourceHandle === "image").length;
+      const frame = makeNode("reference", {
+        x: extractor.position.x + 470,
+        y: extractor.position.y + derivedCount * 300,
+      });
+      const timestampLabel = `${output.timestampSeconds.toFixed(2)}s`;
+      frame.data = {
+        ...frame.data,
+        title: mode === "last" ? "Reference* 视频尾帧" : `Reference* 当前画面 ${timestampLabel}`,
+        status: "success",
+        imageUrl: output.imageUrl,
+        notes: mode === "last"
+          ? `由「${source.data.title}」的最后有效画面抽取。`
+          : `由「${source.data.title}」在 ${timestampLabel} 抽取。`,
+        frameSourceVideoNodeId: source.id,
+        frameMode: mode,
+        frameTimestampSeconds: output.timestampSeconds,
+        output: {
+          kind: "reference",
+          summary: mode === "last" ? "Video tail frame extracted" : `Video frame extracted at ${timestampLabel}`,
+          value: output,
+          createdAt: new Date().toISOString(),
+        },
+      };
+      const derivationEdge: WorkflowEdge = {
+        id: `edge-${extractor.id}-${frame.id}`,
+        source: extractor.id,
+        sourceHandle: "image",
+        target: frame.id,
+        style: { stroke: "#84cc16", strokeWidth: 2 },
+      };
+      set((state) => ({
+        nodes: [...state.nodes.map((node) => node.id === extractor.id ? {
+          ...node,
+          selected: false,
+          data: {
+            ...node.data,
+            status: "success" as const,
+            error: undefined,
+            imageUrl: output.imageUrl,
+            frameSourceVideoNodeId: source.id,
+            frameMode: mode,
+            frameTimestampSeconds: output.timestampSeconds,
+            output: {
+              kind: "image",
+              summary: mode === "last" ? "Video tail frame extracted" : `Video frame extracted at ${timestampLabel}`,
+              value: output,
+              createdAt: new Date().toISOString(),
+            },
+          },
+        } : { ...node, selected: false }), { ...frame, selected: true }],
+        edges: [...state.edges, derivationEdge],
+        selectedNodeId: frame.id,
+        undoStack: appendUndoEntry(state.undoStack, state),
+        canUndo: true,
+        lastError: null,
+        agentMessage: mode === "last" ? "已抽取视频尾帧并创建 Reference 节点。" : "已抽取当前画面并创建 Reference 节点。",
+      }));
+      return frame.id;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "视频抽帧失败。";
+      set((state) => ({
+        lastError: message,
+        nodes: state.nodes.map((node) => node.id === extractorId ? { ...node, data: { ...node.data, status: "error", error: message } } : node),
+      }));
+      throw error;
+    }
+  },
   createImageRevision: async (sourceId, annotations, instruction) => { const source = get().nodes.find((node) => node.id === sourceId); const sourceImageUrl = source ? imageUrlFrom(source) : ""; if (!source || !sourceImageUrl) { set({ lastError: "The source image is unavailable for revision." }); return; } const revisionPrompt = revisionPromptFrom(source.data.prompt, annotations, instruction); const revision: CanvasNode = { id: `image-${crypto.randomUUID()}`, type: "creative", position: { x: source.position.x + 340, y: source.position.y + 40 }, data: { ...source.data, title: `${source.data.title} — Revision`, status: "running", output: undefined, error: undefined, annotations, revisionOf: source.id, sourceImageUrl, revisionInstruction: instruction } }; set((state) => ({ nodes: [...state.nodes.map((node) => node.id === sourceId ? { ...node, data: { ...node.data, annotations, revisionInstruction: instruction } } : { ...node, selected: false }), revision], selectedNodeId: revision.id, lastError: null })); try { const payload = await requestImageRevision({ sourceImageUrl, prompt: revisionPrompt, size: source.data.size }); const providerOutput = asRecord(payload.output); const output = outputFromProvider("image", { ...providerOutput, imageUrl: asText(providerOutput.revisedImageUrl) }); set((state) => ({ nodes: state.nodes.map((node) => node.id === revision.id ? { ...node, data: { ...node.data, status: "success", output } } : node) })); } catch (error) { const message = error instanceof Error ? error.message : "Image revision failed."; set((state) => ({ lastError: message, nodes: state.nodes.map((node) => node.id === revision.id ? { ...node, data: { ...node.data, status: "error", error: message } } : node) })); } },
   createKeyframeBatch: (sourceId) => {
     const state = get();

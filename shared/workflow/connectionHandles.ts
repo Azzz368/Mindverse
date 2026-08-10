@@ -2,7 +2,7 @@ import type { CanvasNodeData, NodeType } from "@/shared/canvas";
 import { videoTargetHandleForNodeType } from "./videoModelPresets";
 
 const textSourceTypes = new Set<NodeType>(["prompt", "text", "script", "storyboard"]);
-const imageSourceTypes = new Set<NodeType>(["image", "reference"]);
+const imageSourceTypes = new Set<NodeType>(["image", "reference", "videoFrame"]);
 const videoSourceTypes = new Set<NodeType>(["video", "videoEdit", "motion"]);
 const audioSourceTypes = new Set<NodeType>(["audio", "voiceTTS"]);
 
@@ -25,6 +25,10 @@ export const targetHandleForNodeConnection = (
 
   if (targetData.nodeType === "video") {
     return videoTargetHandleForNodeType(sourceType, targetData);
+  }
+
+  if (targetData.nodeType === "videoFrame") {
+    return videoSourceTypes.has(sourceType) ? "video" : undefined;
   }
 
   if (targetData.nodeType === "videoEdit") {
