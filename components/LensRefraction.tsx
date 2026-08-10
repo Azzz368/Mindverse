@@ -20,8 +20,8 @@ const LENS_TOP = 335;
 const LENS_WIDTH = 423;
 const LENS_HEIGHT = 134;
 const OUTER_RING_HORIZONTAL_INSET = -12;
-const COWBOY_VIDEO_ZOOM = 1.06;
-const DOG_VIDEO_ZOOM = 1.15;
+const COWBOY_VIDEO_ZOOM = 1;
+const DOG_VIDEO_ZOOM = 1;
 
 function getMediaSize(texture: THREE.Texture) {
   const image = texture.image as HTMLImageElement | HTMLVideoElement | undefined;
@@ -48,7 +48,7 @@ function cropTextureToLens(
   const renderedWidth = media.width * coverScale;
   const renderedHeight = media.height * coverScale;
   const croppedLeft = (renderedWidth - screenWidth) * (0.5 + viewPan.x * 0.24);
-  const croppedTop = (renderedHeight - HERO_HEIGHT) * (0.5 + viewPan.y * 0.1);
+  const croppedTop = (renderedHeight - HERO_HEIGHT) * (0.5 + viewPan.y * 0.2);
 
   const sourceLeft = (croppedLeft + lensScreenLeft) / coverScale;
   const sourceTop = (croppedTop + LENS_TOP) / coverScale;

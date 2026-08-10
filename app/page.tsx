@@ -47,8 +47,8 @@ export default function Home() {
       };
       heroPanRef.current = { ...currentPan };
 
-      // Camera-like background movement: broad horizontal range with a deliberately subtle Y range.
-      const objectPosition = `${50 + currentPan.x * 24}% ${50 + currentPan.y * 10}%`;
+      // Camera-like background movement: broad horizontal range and a visible but controlled Y range.
+      const objectPosition = `${50 + currentPan.x * 24}% ${50 + currentPan.y * 20}%`;
       if (cowboyVideoRef.current) cowboyVideoRef.current.style.objectPosition = objectPosition;
       if (metropolisVideoRef.current) metropolisVideoRef.current.style.objectPosition = objectPosition;
 
@@ -260,7 +260,7 @@ export default function Home() {
         {/* 两段视频以 0.5 秒交叉淡入淡出串联，最后一段结束后保留末帧。 */}
         <video
           ref={cowboyVideoRef}
-          className={`hero-video absolute inset-0 h-full w-full scale-[1.06] object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "cowboy" ? "hero-video--visible" : ""}`}
+          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "cowboy" ? "hero-video--visible" : ""}`}
           src="/website/cowboyfull.mp4"
           muted
           playsInline
@@ -269,8 +269,8 @@ export default function Home() {
         />
         <video
           ref={metropolisVideoRef}
-          className={`hero-video absolute inset-0 h-full w-full scale-[1.15] object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "metropolis" ? "hero-video--visible" : ""}`}
-          src="/website/daduhuianddog.mp4"
+          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "metropolis" ? "hero-video--visible" : ""}`}
+          src="/website/daduhuidog.mp4"
           muted
           playsInline
           preload="auto"
