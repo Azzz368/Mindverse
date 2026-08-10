@@ -2,23 +2,27 @@
 
 import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
+import { LensRefraction } from "@/components/LensRefraction";
 
 export default function Home() {
-  const [heroStage, setHeroStage] = useState<"black" | "sketch" | "render" | "video">("black");
+  const [heroStage, setHeroStage] = useState<"render" | "video">("render");
   const [activeHeroVideo, setActiveHeroVideo] = useState<"cowboy" | "metropolis">("cowboy");
+  const [heroMediaReady, setHeroMediaReady] = useState(false);
+  const heroSectionRef = useRef<HTMLElement>(null);
+  const heroPanRef = useRef({ x: 0, y: 0 });
   const cowboyVideoRef = useRef<HTMLVideoElement>(null);
   const metropolisVideoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    const sketchTimer = window.setTimeout(() => setHeroStage("sketch"), 350);
-    const renderTimer = window.setTimeout(() => setHeroStage("render"), 1950);
-    const videoTimer = window.setTimeout(() => setHeroStage("video"), 3950);
+    const videoTimer = window.setTimeout(() => setHeroStage("video"), 2000);
 
     return () => {
-      window.clearTimeout(sketchTimer);
-      window.clearTimeout(renderTimer);
       window.clearTimeout(videoTimer);
     };
+  }, []);
+
+  useEffect(() => {
+    setHeroMediaReady(true);
   }, []);
 
   useEffect(() => {
@@ -27,6 +31,74 @@ export default function Home() {
       void video?.play();
     }
   }, [activeHeroVideo, heroStage]);
+
+  useEffect(() => {
+    const section = heroSectionRef.current;
+    if (!section) return;
+
+    let targetPan = { x: 0, y: 0 };
+    let currentPan = { x: 0, y: 0 };
+    let animationFrame = 0;
+
+    const applyPan = () => {
+      currentPan = {
+        x: currentPan.x + (targetPan.x - currentPan.x) * 0.12,
+        y: currentPan.y + (targetPan.y - currentPan.y) * 0.12,
+      };
+      heroPanRef.current = { ...currentPan };
+
+      // Camera-like background movement: broad horizontal range with a deliberately subtle Y range.
+      const objectPosition = `${50 + currentPan.x * 24}% ${50 + currentPan.y * 10}%`;
+      if (cowboyVideoRef.current) cowboyVideoRef.current.style.objectPosition = objectPosition;
+      if (metropolisVideoRef.current) metropolisVideoRef.current.style.objectPosition = objectPosition;
+
+      if (
+        Math.abs(targetPan.x - currentPan.x) > 0.001 ||
+        Math.abs(targetPan.y - currentPan.y) > 0.001
+      ) {
+        animationFrame = window.requestAnimationFrame(applyPan);
+      } else {
+        currentPan = { ...targetPan };
+        heroPanRef.current = { ...currentPan };
+      }
+    };
+
+    const updateTargetPan = (event: PointerEvent) => {
+      const rect = section.getBoundingClientRect();
+      const isInsideHero =
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom;
+
+      if (!isInsideHero) {
+        resetTargetPan();
+        return;
+      }
+
+      targetPan = {
+        x: Math.max(-1, Math.min(1, ((event.clientX - rect.left) / rect.width) * 2 - 1)),
+        y: Math.max(-1, Math.min(1, ((event.clientY - rect.top) / rect.height) * 2 - 1)),
+      };
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(applyPan);
+    };
+
+    const resetTargetPan = () => {
+      targetPan = { x: 0, y: 0 };
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(applyPan);
+    };
+
+    // Capture from window so the R3F canvas cannot stop the browser-level movement handler.
+    window.addEventListener("pointermove", updateTargetPan, true);
+    window.addEventListener("blur", resetTargetPan);
+    return () => {
+      window.removeEventListener("pointermove", updateTargetPan, true);
+      window.removeEventListener("blur", resetTargetPan);
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, []);
 
   // Setup liquid glass interactivity
   useEffect(() => {
@@ -162,36 +234,6 @@ export default function Home() {
           transform: scaleX(1);
         }
 
-        .hero-sketch {
-          /* 初始遮罩与 Mindverse 后方的液态玻璃胶囊完全同尺寸。 */
-          clip-path: inset(41.8% 35.5% 42.5% 35.5% round 74px);
-        }
-
-        .hero-sketch--expanded {
-          animation: hero-pill-expand 600ms cubic-bezier(0.42, 0, 0.58, 1) forwards;
-        }
-
-        @keyframes hero-pill-expand {
-          0% {
-            clip-path: inset(41.8% 34.3% 41.8% 34.3% round 74px);
-          }
-          50% {
-            clip-path: inset(-1.5% -1.5% -1.5% -1.5% round 50px);
-          }
-          100% {
-            clip-path: inset(0 0 0 0 round 0);
-          }
-        }
-
-        .hero-render {
-          clip-path: inset(0 0 0 100%);
-          transition: clip-path 2000ms cubic-bezier(0.65, 0, 0.35, 1);
-        }
-
-        .hero-render--visible {
-          clip-path: inset(0 0 0 0);
-        }
-
         .hero-video {
           opacity: 0;
           transition: opacity 500ms ease-in-out;
@@ -205,26 +247,20 @@ export default function Home() {
       
       {/* ======================= Desktop - 2 ======================= */}
       <section 
+        ref={heroSectionRef}
         className="relative w-full h-[816px] bg-black overflow-hidden flex justify-center"
       >
-        {/* 黑屏起始后，线稿从主标题玻璃胶囊的位置扩展至全屏。 */}
-        <img
-          src="/website/1.png"
-          alt=""
-          className={`hero-sketch absolute inset-0 h-full w-full object-cover pointer-events-none select-none ${heroStage !== "black" ? "hero-sketch--expanded" : ""}`}
-        />
-
-        {/* 2 秒内由右至左切入真实渲染图。 */}
+        {/* 直接展示渲染图，2 秒后进入视频。 */}
         <img
           src="/website/2.png"
           alt=""
-          className={`hero-render absolute inset-0 h-full w-full object-cover pointer-events-none select-none ${heroStage === "render" || heroStage === "video" ? "hero-render--visible" : ""}`}
+          className="absolute inset-0 h-full w-full object-cover pointer-events-none select-none"
         />
 
         {/* 两段视频以 0.5 秒交叉淡入淡出串联，最后一段结束后保留末帧。 */}
         <video
           ref={cowboyVideoRef}
-          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "cowboy" ? "hero-video--visible" : ""}`}
+          className={`hero-video absolute inset-0 h-full w-full scale-[1.06] object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "cowboy" ? "hero-video--visible" : ""}`}
           src="/website/cowboyfull.mp4"
           muted
           playsInline
@@ -233,8 +269,8 @@ export default function Home() {
         />
         <video
           ref={metropolisVideoRef}
-          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "metropolis" ? "hero-video--visible" : ""}`}
-          src="/website/metroplis.mp4"
+          className={`hero-video absolute inset-0 h-full w-full scale-[1.15] object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "metropolis" ? "hero-video--visible" : ""}`}
+          src="/website/daduhuianddog.mp4"
           muted
           playsInline
           preload="auto"
@@ -299,15 +335,15 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Center Pill Shapes标题后面液态玻璃 (Rectangle 5, 6, 7) */}
-          <div className="absolute top-[280px] left-[493.5px] w-[453px] h-[134px] pointer-events-none z-10 glass-card !shadow-none !bg-transparent rounded-[74px]">
-             {/* 利用 glass-card 自身效果代替 Rectangle 5 & 6 */}
-             <div className="glass-filter" />
-             <div className="glass-overlay !bg-white/10" />
-             <div className="glass-specular" />
-             <div className="absolute top-[11px] left-[16px] w-[421px] h-[112px] rounded-[74px] border-[1px] border-white/20" />
-             {/* Rectangle 7 (Border) */}
-             <div className="absolute top-0 left-0 w-[453px] h-[134px] border-[3px] border-white/40 rounded-[74px] box-border" />
+          {/* Lens position: top controls Y (up/down), left controls X (left/right). */}
+          <div className="pointer-events-none absolute top-[335px] left-[508.5px] h-[134px] w-[423px] overflow-hidden rounded-[74px] z-10">
+            <LensRefraction
+              stage={heroStage}
+              activeVideo={activeHeroVideo}
+              cowboyVideo={heroMediaReady ? cowboyVideoRef.current : null}
+              metropolisVideo={heroMediaReady ? metropolisVideoRef.current : null}
+              heroPanRef={heroPanRef}
+            />
           </div>
 
           {/* Mind verse (Big Title) */}
