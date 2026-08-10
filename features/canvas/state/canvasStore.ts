@@ -86,7 +86,7 @@ const withRunMetadata = (value: unknown, provider?: string, polling?: unknown) =
 const pollProviderFor = (node: CanvasNode, value: Record<string, unknown>) =>
   node.data.nodeType === "video" ? asText(value.provider) || node.data.videoProvider : undefined;
 const videoProviderFrom = (value: string | undefined): CanvasNodeData["videoProvider"] | undefined =>
-  value === "mock" || value === "302ai" || value === "302-sora2" || value === "tokenstar" || value === "kling" ? value : undefined;
+  value === "mock" || value === "302ai" || value === "302-sora2" || value === "tokenstar" || value === "kling" || value === "hkgai" ? value : undefined;
 const restoreStatuses = (nodes: CanvasNode[]): CanvasNode[] => nodes.map((node) => { if (node.data.status !== "running") return node; const polling = ["pending", "running"].includes(asText(asRecord(node.data.output?.value).status)); const status: CanvasNodeData["status"] = polling ? "waiting" : "idle"; return { ...node, data: { ...node.data, status } }; });
 const targetHandleForConnection = (source: CanvasNode, target: CanvasNode, preferredHandle?: string | null) =>
   targetHandleForNodeConnection(source.data.nodeType, target.data, preferredHandle);

@@ -1,7 +1,7 @@
 import { asRecord, asText } from "./values";
 import { DEFAULT_QWEN_VOICE_MODEL, qwenTtsLanguageTypes } from "@/shared/api/qwenContracts";
 import { imagePromptWithPreset } from "@/shared/workflow/imagePromptPresets";
-import { videoAspectRatioForPreset, videoInputPortsForPreset, videoModelPatch, videoModelPresetIdFromData, videoReferenceLimitForPreset, type VideoInputPortKind } from "@/shared/workflow/videoModelPresets";
+import { videoAspectRatioForPreset, videoInputPortsForPreset, videoModelPatch, videoModelPresetIdFromData, videoPromptMaxLengthForPreset, videoReferenceLimitForPreset, type VideoInputPortKind } from "@/shared/workflow/videoModelPresets";
 import { clampStoryboardSceneCount, storyboardSceneFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation, WorkflowEdge } from "@/shared/canvas";
 
@@ -327,12 +327,16 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
     const referenceAudioUrls = audioLimit === undefined ? allReferenceAudioUrls : allReferenceAudioUrls.slice(0, audioLimit);
     const promptSources = textSources.length ? textSources : supportedKinds.has("text") ? upstream.filter((source) => nodeKind(source) === "text") : [];
     const videoPrompt = ownPromptFrom(d) || promptFrom(node, promptSources);
+    const promptMaxLength = videoPromptMaxLengthForPreset(activeVideoModel);
     const orderedPromptReferences = (d.videoReferenceNodeIds || [])
       .map((referenceId) => upstream.find((source) => source.id === referenceId))
       .filter((source): source is CanvasNode => Boolean(source));
+    const compiledVideoPrompt = activeVideoModel === "minimax-h3-hkgai"
+      ? imagePromptReferences(videoPrompt)
+      : videoPromptReferences(videoPrompt, orderedPromptReferences);
 
     return {
-      prompt: limitProviderPrompt(videoPromptReferences(videoPrompt, orderedPromptReferences)),
+      prompt: limitProviderPrompt(compiledVideoPrompt, promptMaxLength),
       videoModelPreset: activeVideoModel,
       negativePrompt: d.negativePrompt,
       model: activeVideoPatch.model,

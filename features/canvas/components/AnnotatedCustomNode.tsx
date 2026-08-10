@@ -10,7 +10,7 @@ import { VideoEditComposer, type VideoEditSource } from "./VideoEditComposer";
 import { VideoFrameNode } from "./VideoFrameNode";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
-import { DIGITAL_HUMAN_VIDEO_PROMPT, videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, videoReferenceLimitForPreset, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
+import { DIGITAL_HUMAN_VIDEO_PROMPT, videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, videoPromptMaxLengthForPreset, videoReferenceLimitForPreset, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
 import { DEFAULT_STORYBOARD_SCENE_COUNT, clampStoryboardSceneCount } from "@/shared/workflow/storyPipeline";
 import { audioUrlFrom, imageUrlFrom, videoUrlFrom } from "@/features/canvas/domain/nodeInputCompiler";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/shared/canvas";
@@ -96,11 +96,13 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
   const videoAspectRatios = videoAspectRatiosForPreset(activeVideoModel);
   const videoAspectRatio = videoAspectRatioForPreset(activeVideoModel, data.aspectRatio);
   const sourceControlsVideoRatio = videoAspectRatioControlForPreset(activeVideoModel) === "source";
+  const isHKGAIMinimax = activeVideoModel === "minimax-h3-hkgai";
+  const videoPromptMaxLength = videoPromptMaxLengthForPreset(activeVideoModel);
   const textInput = (key: keyof CanvasNodeData, value: string | undefined) => (
     <ImeInput className={inp} value={value ?? ""} onValueChange={(next) => set({ [key]: next } as Partial<CanvasNodeData>)} />
   );
-  const textArea = (key: keyof CanvasNodeData, value: string | undefined, rows: number) => (
-    <ImeTextarea className={ta} rows={rows} value={value ?? ""} onValueChange={(next) => set({ [key]: next } as Partial<CanvasNodeData>)} />
+  const textArea = (key: keyof CanvasNodeData, value: string | undefined, rows: number, maxLength?: number) => (
+    <ImeTextarea className={ta} rows={rows} maxLength={maxLength} value={value ?? ""} onValueChange={(next) => set({ [key]: next } as Partial<CanvasNodeData>)} />
   );
   return (
     <div className="nodrag nowheel absolute inset-0 z-20 flex flex-col rounded-xl bg-white dark:bg-[#101c29]"
@@ -117,13 +119,14 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
         {data.nodeType === "image" && <><label className={wrap}><span className={lbl}>图像提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>尺寸</span><select className={sel} value={data.size ?? "1024x1024"} onChange={e => set({ size: e.target.value })}>{["1024x1024","1536x1024","1024x1536","auto"].map(o=><option key={o}>{o}</option>)}</select></label></>}
         {data.nodeType === "video" && <>
           <label className={wrap}><span className={lbl}>模型</span><select className={sel} value={activeVideoModel} onChange={e => set(videoModelSelectionPatch(e.target.value as VideoModelPresetId, data.aspectRatio))}>{videoModelOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
-          <label className={wrap}><span className={lbl}>动效提示词</span>{textArea("prompt", data.prompt, 3)}</label>
+          <label className={wrap}><span className={lbl}>动效提示词</span>{textArea("prompt", data.prompt, 3, videoPromptMaxLength)}</label>
           {sourceControlsVideoRatio && <label className={wrap}><span className={lbl}>首帧 URL（可选）</span>{textInput("referenceImageUrl", data.referenceImageUrl)}</label>}
           {provider === "tokenstar" && (activeVideoModel === "kling-v3-tokenstar" || activeVideoModel === "kling-v3-omni-tokenstar") && <label className={wrap}><span className={lbl}>主体元素 ID（逗号分隔）</span>{textInput("klingElementId", data.klingElementId)}</label>}
           {provider === "tokenstar" && activeVideoPatch.generateAudio !== undefined && <div className="mb-3 flex items-center justify-between"><span className={lbl} style={{marginBottom:0}}>生成音频</span><button onClick={() => set({ generateAudio: data.generateAudio === false })} className={`relative h-5 w-9 rounded-full transition-colors ${data.generateAudio !== false ? "bg-[#030303] dark:bg-cyan-500" : "bg-[#c9ccd1] dark:bg-slate-600"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${data.generateAudio !== false ? "translate-x-[18px]" : "translate-x-0.5"}`} /></button></div>}
-          <label className={wrap}><span className={lbl}>分辨率</span><select className={sel} value={data.resolution ?? ""} onChange={e => set({ resolution: e.target.value || undefined })}><option value="">服务器默认</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+          {!isHKGAIMinimax && <label className={wrap}><span className={lbl}>分辨率</span><select className={sel} value={data.resolution ?? ""} onChange={e => set({ resolution: e.target.value || undefined })}><option value="">服务器默认</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>}
           <label className={wrap}><span className={lbl}>时长</span><select className={sel} value={String(data.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}><option value="">服务器默认</option>{videoDurationOptions.map(n=><option key={n} value={n}>{n}s</option>)}</select></label>
           <label className={wrap}><span className={lbl}>画面比例</span><select className={sel} value={videoAspectRatio} onChange={e => set({ aspectRatio: e.target.value })}>{videoAspectRatios.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}</select></label>
+          {isHKGAIMinimax && <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">HKGAI OpenAI 视频接口：提示词最多 7,000 字符，最多连接 2 张参考图；支持 5–15 秒和 16:9、9:16、1:1，分辨率由所选比例自动映射。</p>}
           {sourceControlsVideoRatio && <p className="mb-3 text-[10px] leading-4 text-amber-700 dark:text-amber-300">该模型由首帧素材决定输出比例。运行前会校验首帧必须与所选比例一致。</p>}
         </>}
         {data.nodeType === "videoEdit" && <>
@@ -345,7 +348,7 @@ function HandleDot({ label, handleId, borderColorClass, bgClass, connectedBgClas
   );
 }
 
-function AutoGrowTextarea({ value, onChange, placeholder, minHeight = 80, maxHeight, className }: { value: string; onChange: (v: string) => void; placeholder?: string; minHeight?: number; maxHeight?: number; className?: string }) {
+function AutoGrowTextarea({ value, onChange, placeholder, minHeight = 80, maxHeight, maxLength, className }: { value: string; onChange: (v: string) => void; placeholder?: string; minHeight?: number; maxHeight?: number; maxLength?: number; className?: string }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const resize = (el: HTMLTextAreaElement | null) => {
     if (!el) return;
@@ -364,6 +367,7 @@ function AutoGrowTextarea({ value, onChange, placeholder, minHeight = 80, maxHei
       onValueChange={onChange}
       onInput={(event) => resize(event.currentTarget)}
       placeholder={placeholder}
+      maxLength={maxLength}
       rows={1}
       style={{ minHeight, ...(maxHeight ? { maxHeight } : {}) }}
       className={`w-full resize-none border-none bg-transparent text-[14px] font-medium leading-7 tracking-wide text-[#030303] outline-none placeholder:font-normal placeholder:text-[#939393] dark:text-slate-100 dark:placeholder:text-slate-500 ${className || ""}`}
@@ -820,6 +824,8 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const videoAspectRatios = videoAspectRatiosForPreset(activeVideoModel);
   const videoAspectRatio = videoAspectRatioForPreset(activeVideoModel, data.aspectRatio);
   const sourceControlsVideoRatio = videoAspectRatioControlForPreset(activeVideoModel) === "source";
+  const isHKGAIMinimax = activeVideoModel === "minimax-h3-hkgai";
+  const videoPromptMaxLength = videoPromptMaxLengthForPreset(activeVideoModel);
   const inputPorts = isVideoEdit
     ? [
         { id: "video", label: "Video", kind: "video" as const },
@@ -856,9 +862,13 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
     }
     const material = materialOptions.find((item) => item.node.id === nodeId);
     const kindLimit = material ? videoReferenceLimitForPreset(activeVideoModel, material.kind) : undefined;
-    const withoutReplacedKind = material && kindLimit === 1
-      ? current.filter((itemId: string) => materialOptions.find((item) => item.node.id === itemId)?.kind !== material.kind)
-      : current;
+    let withoutReplacedKind = current;
+    if (material && kindLimit !== undefined) {
+      const selectedOfKind = current.filter((itemId: string) => materialOptions.find((item) => item.node.id === itemId)?.kind === material.kind);
+      const removeCount = Math.max(0, selectedOfKind.length - kindLimit + 1);
+      const removeIds = new Set(selectedOfKind.slice(0, removeCount));
+      withoutReplacedKind = current.filter((itemId: string) => !removeIds.has(itemId));
+    }
     const next = [...withoutReplacedKind, nodeId].slice(0, 7);
     updateNodeData(id, { videoReferenceNodeIds: next, videoReferenceSelectionActive: true });
   };
@@ -1035,7 +1045,9 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                placeholder="描述你想要生成的画面内容，可用 @1、@2 引用上方素材..."
                minHeight={96}
                maxHeight={220}
+               maxLength={videoPromptMaxLength}
             />
+            {isHKGAIMinimax && <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#676f7b] dark:text-slate-400"><span>最多 2 张参考图 · 5–15 秒</span><span className="tabular-nums">{Array.from(data.prompt || "").length} / 7000</span></div>}
             </>}
          </div>
          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[#e7eaf0] px-6 py-4 dark:border-slate-800">
@@ -1058,11 +1070,11 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                  onChange={v => updateNodeData(id, { aspectRatio: String(v) })}
               />}
               {!isVideoEdit && <PillDropdown
-                 value={data.duration || 15} 
+                 value={data.duration || (isHKGAIMinimax ? 5 : 15)}
                  options={videoDurationOptions.map((value) => ({ value, label: `${value}s` }))}
                  onChange={v => updateNodeData(id, { duration: Number(v) })}
               />}
-              {!isVideoEdit && <PillDropdown
+              {!isVideoEdit && !isHKGAIMinimax && <PillDropdown
                  value={data.resolution || "1080p"} 
                  options={[{value: "1080p", label: "1080p"}, {value: "720p", label: "720p"}, {value: "480p", label: "480p"}]}
                  onChange={v => updateNodeData(id, { resolution: String(v) })}

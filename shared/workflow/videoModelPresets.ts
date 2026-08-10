@@ -8,13 +8,14 @@ export type VideoModelPresetId =
   | "kling-v3-tokenstar"
   | "kling-v3-omni-tokenstar"
   | "kling-v3-text-tokenstar"
+  | "minimax-h3-hkgai"
   | "sora-2";
 
 export const DEFAULT_VIDEO_MODEL_PRESET_ID: VideoModelPresetId = "seedance-asset-fast";
 
 export type VideoModelPatch = {
   videoModelPreset: VideoModelPresetId;
-  videoProvider: "302ai" | "302-sora2" | "tokenstar" | "kling";
+  videoProvider: "302ai" | "302-sora2" | "tokenstar" | "kling" | "hkgai";
   model: string;
   videoInputMode?: "text-to-video" | "image-to-video";
   tokenstarMode?: "text-to-video" | "asset-video" | "kling-image" | "kling-text" | "kling-omni";
@@ -43,6 +44,7 @@ export type VideoModelPreset = {
   inputPorts: VideoInputPort[];
   aspectRatios: VideoAspectRatio[];
   aspectRatioControl: VideoAspectRatioControl;
+  promptMaxLength?: number;
   referenceLimits?: Partial<Record<Exclude<VideoInputPortKind, "text">, number>>;
 };
 
@@ -136,6 +138,17 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     aspectRatios: ["16:9", "9:16", "1:1"],
     aspectRatioControl: "native",
   },
+  "minimax-h3-hkgai": {
+    id: "minimax-h3-hkgai",
+    label: "minimax_h3",
+    desc: "HKGAI MiniMax H3 · prompt 7k · up to 2 images",
+    patch: { videoModelPreset: "minimax-h3-hkgai", videoProvider: "hkgai", model: "t2_minimax-h3_bf16_7k2p", videoInputMode: "image-to-video", duration: 5 },
+    inputPorts: [textPort, imagePort],
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    aspectRatioControl: "native",
+    promptMaxLength: 7000,
+    referenceLimits: { image: 2, video: 0, audio: 0 },
+  },
   "sora-2": {
     id: "sora-2",
     label: "Sora 2",
@@ -175,6 +188,8 @@ export const videoReferenceLimitForPreset = (
   kind: Exclude<VideoInputPortKind, "text">,
 ) => videoModelPresets[id].referenceLimits?.[kind];
 
+export const videoPromptMaxLengthForPreset = (id: VideoModelPresetId) => videoModelPresets[id].promptMaxLength;
+
 export const videoInputKindForNodeType = (nodeType: string): VideoInputPortKind | undefined => {
   if (nodeType === "image" || nodeType === "reference" || nodeType === "videoFrame") return "image";
   if (nodeType === "video" || nodeType === "videoEdit") return "video";
@@ -207,6 +222,7 @@ export const videoModelPresetIdFromData = (data: {
 }): VideoModelPresetId => {
   if (data.videoModelPreset && data.videoModelPreset in videoModelPresets) return data.videoModelPreset as VideoModelPresetId;
   if (data.videoProvider === "302-sora2") return "sora-2";
+  if (data.videoProvider === "hkgai" && data.model === "t2_minimax-h3_bf16_7k2p") return "minimax-h3-hkgai";
   if (data.videoProvider === "302ai" && data.model === "gen-4.5") return "gen-4.5";
   if (data.videoProvider === "kling") return "kling-v2.6";
   if (data.videoProvider === "tokenstar" && data.tokenstarMode === "asset-video" && ["seedance-asset-fast", "seedance-2.0-asset-fast"].includes(data.model || "")) return "seedance-asset-fast";

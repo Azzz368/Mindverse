@@ -9,6 +9,7 @@ const availabilityForVideoPreset = (id: VideoModelPresetId): CapabilityAvailabil
   const provider = videoModelPresets[id].patch.videoProvider;
   if (provider === "tokenstar") return configured(process.env.TOKENSTAR_API_KEY);
   if (provider === "kling") return configured(process.env.KLING_API_KEY);
+  if (provider === "hkgai") return configured(process.env.HKGAI_MAAS_API_KEY || process.env.HKGAI_API_KEY);
   return configured(process.env.AI_302_API_KEY);
 };
 
@@ -22,7 +23,7 @@ const videoCapabilities = (id: VideoModelPresetId) => {
     "video_generation",
     id === "digital-human-video" ? "digital_human_video" : "",
     kinds.has("image") ? "image_to_video" : "text_to_video",
-    kinds.has("image") && (id.includes("assets") || id.includes("omni") || id.includes("asset-fast")) ? "multi_reference_video" : "",
+    kinds.has("image") && (id.includes("assets") || id.includes("omni") || id.includes("asset-fast") || id === "minimax-h3-hkgai") ? "multi_reference_video" : "",
     kinds.has("audio") ? "audio_reference" : "",
     kinds.has("video") ? "video_reference" : "",
   ].filter(Boolean);
@@ -38,6 +39,7 @@ const constraintsByPreset: Partial<Record<VideoModelPresetId, CapabilityConstrai
   "kling-v3-tokenstar": { minDuration: 3, maxDuration: 15, maxImages: 1, resolutions: ["720p", "1080p"] },
   "kling-v3-omni-tokenstar": { minDuration: 3, maxDuration: 15, maxImages: 7, maxVideos: 1, maxAudios: 0, resolutions: ["720p", "1080p"] },
   "kling-v3-text-tokenstar": { minDuration: 3, maxDuration: 15, maxImages: 0, maxVideos: 0, maxAudios: 0, resolutions: ["720p", "1080p"] },
+  "minimax-h3-hkgai": { minDuration: 5, maxDuration: 15, maxImages: 2, maxVideos: 0, maxAudios: 0, maxTextInputs: 1, promptMaxLength: 7000 },
   "sora-2": { allowedDurations: [4, 8, 12], maxImages: 1, resolutions: ["720p", "1080p"] },
 };
 

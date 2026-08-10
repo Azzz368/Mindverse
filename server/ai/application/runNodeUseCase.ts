@@ -5,6 +5,8 @@ import type { KlingVideoMode } from "@/server/ai/tokenstar/klingVideoProvider";
 import { generateTokenStarImage, generateTokenStarImageRevision, isTokenStarImageModel } from "@/server/ai/tokenstar/tokenstarImageProvider";
 import { createKlingImageVideo as tsKlingImage, createKlingTextVideo, createKlingOmniVideo, createSeedanceAssetVideo, createSeedanceVideo } from "@/server/ai/tokenstar/tokenstarVideoProvider";
 import { createSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
+import { createHKGAIMinimaxVideo } from "@/server/ai/hkgaiVideoProvider";
+import { AIProviderError } from "@/server/ai/errors";
 import { createFfmpegVideoEdit } from "@/server/video/ffmpegEditRunner";
 import { enqueueMotionJob } from "@/server/motion/motionJobRunner";
 import { clampStoryboardSceneCount, parseScript, scriptInstruction } from "@/shared/workflow/storyPipeline";
@@ -58,6 +60,22 @@ async function runSora2Video(input: Record<string, unknown>): Promise<RunNodeRes
   const output = await createSora2ImageVideo({ prompt, image, duration: optionalNumber(input.duration), resolution: optionalText(input.resolution) });
   const verified = await verifyCompletedVideoAspectRatio(output, input.aspectRatio);
   return { ok: true, provider: "302-sora2", output: await archiveResultMedia(verified, { sourceProvider: "302-sora2", mediaTypeHint: "video" }), polling: { intervalMs: 5000 } };
+}
+
+async function runHKGAIMinimaxVideo(input: Record<string, unknown>): Promise<RunNodeResult> {
+  try {
+    const output = await createHKGAIMinimaxVideo({
+      prompt: text(input.prompt),
+      image: optionalText(input.image),
+      referenceImageUrls: urls(input.referenceImageUrls),
+      duration: optionalNumber(input.duration),
+      aspectRatio: optionalText(input.aspectRatio),
+    });
+    return { ok: true, provider: "hkgai", output, polling: { intervalMs: Number(process.env.HKGAI_VIDEO_POLL_INTERVAL_MS || 5000) } };
+  } catch (error) {
+    if (error instanceof AIProviderError) return fail(error.message, error.status, error.code);
+    return fail(error instanceof Error ? error.message : "HKGAI minimax_h3 video request failed.", 500, "HKGAI_VIDEO_ERROR");
+  }
 }
 
 async function runKlingVideo(input: Record<string, unknown>): Promise<RunNodeResult> {
@@ -223,7 +241,8 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
   }
 
   if (nodeType === "video" && rawInput.videoProvider === "302-sora2") return runSora2Video(rawInput);
-  if (nodeType === "video" && (rawInput.videoProvider === "kling" || rawInput.videoProvider === "" || (!rawInput.videoProvider && process.env.AI_VIDEO_PROVIDER !== "302ai" && process.env.AI_VIDEO_PROVIDER !== "tokenstar"))) return runKlingVideo(rawInput);
+  if (nodeType === "video" && (rawInput.videoProvider === "hkgai" || (!rawInput.videoProvider && process.env.AI_VIDEO_PROVIDER === "hkgai"))) return runHKGAIMinimaxVideo(rawInput);
+  if (nodeType === "video" && (rawInput.videoProvider === "kling" || rawInput.videoProvider === "" || (!rawInput.videoProvider && process.env.AI_VIDEO_PROVIDER !== "302ai" && process.env.AI_VIDEO_PROVIDER !== "tokenstar" && process.env.AI_VIDEO_PROVIDER !== "hkgai"))) return runKlingVideo(rawInput);
   if (nodeType === "video" && (rawInput.videoProvider === "tokenstar" || (!rawInput.videoProvider && process.env.AI_VIDEO_PROVIDER === "tokenstar"))) return runTokenstarVideo(rawInput);
 
   const provider = getAIProvider();

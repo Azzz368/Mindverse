@@ -3,6 +3,7 @@ import { getAIProvider, getImageAIProvider } from "@/server/ai/provider";
 import { pollKlingImageVideo } from "@/server/ai/klingVideoProvider";
 import { pollKlingOmniVideo, pollKlingVideo, pollSeedanceVideo } from "@/server/ai/tokenstar/tokenstarVideoProvider";
 import { pollSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
+import { pollHKGAIMinimaxVideo } from "@/server/ai/hkgaiVideoProvider";
 import { archiveResultMedia } from "@/server/storage/mediaArchive";
 import { verifyCompletedVideoAspectRatio } from "@/server/ai/videoAspectRatio";
 import type { RunNodeResult } from "./runNodeUseCase";
@@ -32,6 +33,12 @@ export async function pollTaskUseCase(params: PollTaskParams): Promise<RunNodeRe
     const output = await pollSora2ImageVideo(pollUrl, taskId);
     const verified = await verifyCompletedVideoAspectRatio(output, expectedAspectRatio);
     return { ok: true, provider: "302-sora2", output: await archiveResultMedia(verified, { sourceProvider: "302-sora2", sourceTaskId: taskId, mediaTypeHint: "video" }), polling: { intervalMs: 5000 } };
+  }
+
+  if (type === "video" && (videoProvider === "hkgai" || (!videoProvider && process.env.AI_VIDEO_PROVIDER === "hkgai"))) {
+    const output = await pollHKGAIMinimaxVideo(taskId);
+    const verified = await verifyCompletedVideoAspectRatio(output, expectedAspectRatio);
+    return { ok: true, provider: "hkgai", output: verified, polling: { intervalMs: verified.status === "completed" || verified.status === "failed" ? 0 : Number(process.env.HKGAI_VIDEO_POLL_INTERVAL_MS || 5000) } };
   }
 
   if (type === "video" && (videoProvider === "kling" || (!videoProvider && process.env.AI_VIDEO_PROVIDER === "kling"))) {
