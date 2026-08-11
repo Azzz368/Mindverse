@@ -48,6 +48,12 @@ const nodeImageUrl = (node: CanvasNode) => {
 const materialLabel = (node: CanvasNode) => node.data.title || (({ reference: "Reference", image: "Image", videoFrame: "Video Frame", video: "Video", videoEdit: "Video", motion: "Video", audio: "Audio", voiceTTS: "Audio" } as Partial<Record<CanvasNodeData["nodeType"], string>>)[node.data.nodeType] || "Material");
 type VideoMaterialKind = "image" | "video" | "audio";
 type VideoMaterialOption = { node: CanvasNode; kind: VideoMaterialKind; url: string; label: string };
+type ContextIRApiResponse = {
+  ok?: boolean;
+  output?: { taskId?: string; status?: string; enhancedPrompt?: string; truncated?: boolean; errorMessage?: string };
+  polling?: { intervalMs?: number };
+  error?: { message?: string };
+};
 
 const videoMaterialKind = (node: CanvasNode): VideoMaterialKind | undefined => {
   if (node.data.nodeType === "image" || node.data.nodeType === "reference" || node.data.nodeType === "videoFrame") return "image";
@@ -819,6 +825,10 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const selectedFrameTimeRef = useRef(0);
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
+  const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
+  const [promptEnhanceMessage, setPromptEnhanceMessage] = useState("");
+  const [promptEnhanceFailed, setPromptEnhanceFailed] = useState(false);
+  const promptEnhanceRequestRef = useRef(0);
   const isVideoEdit = data.nodeType === "videoEdit";
   const activeVideoModel = videoModelPresetIdFromData(data);
   const videoAspectRatios = videoAspectRatiosForPreset(activeVideoModel);
@@ -854,6 +864,10 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
     .filter((item): item is VideoMaterialOption => Boolean(item));
   const selectedReferenceIds = (data.videoReferenceNodeIds || []).filter((refId: string) => materialOptions.some((item) => item.node.id === refId));
   const selectedMaterials = selectedReferenceIds.map((refId: string) => materialOptions.find((item) => item.node.id === refId)).filter(Boolean) as typeof materialOptions;
+  const contextIRImageUrls = (data.videoReferenceSelectionActive === true ? selectedMaterials : materialOptions)
+    .filter((item) => item.kind === "image")
+    .slice(0, 2)
+    .map((item) => item.url);
   const toggleMaterial = (nodeId: string) => {
     const current = selectedReferenceIds;
     if (current.includes(nodeId)) {
@@ -872,9 +886,76 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
     const next = [...withoutReplacedKind, nodeId].slice(0, 7);
     updateNodeData(id, { videoReferenceNodeIds: next, videoReferenceSelectionActive: true });
   };
+
+  const enhanceMinimaxPrompt = async () => {
+    const sourcePrompt = String(data.prompt || "").trim();
+    if (!sourcePrompt) {
+      setPromptEnhanceFailed(true);
+      setPromptEnhanceMessage("请先输入需要增强的视频提示词。");
+      return;
+    }
+    const requestId = promptEnhanceRequestRef.current + 1;
+    promptEnhanceRequestRef.current = requestId;
+    setIsEnhancingPrompt(true);
+    setPromptEnhanceFailed(false);
+    setPromptEnhanceMessage("正在创建 MiniMax Context IR 任务…");
+    const readResponse = async (response: Response) => {
+      const payload = await response.json() as ContextIRApiResponse;
+      if (!response.ok || payload.ok !== true) throw new Error(payload.error?.message || `Context IR request failed (${response.status}).`);
+      return payload;
+    };
+    try {
+      const created = await readResponse(await fetch("/api/ai/minimax-h3-context-ir", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: sourcePrompt.replace(/@(?:image[_\s-]?|reference[_\s-]?image[_\s-]?|ref[_\s-]?)?(\d+)/gi, (_, index: string) => `reference image ${Number(index)}`),
+          duration: Number(data.duration) || 5,
+          ratio: videoAspectRatio,
+          imageUrls: contextIRImageUrls,
+        }),
+      }));
+      const taskId = created.output?.taskId;
+      if (!taskId) throw new Error("MiniMax Context IR did not return a task_id.");
+      let intervalMs = Math.max(1000, Number(created.polling?.intervalMs) || 2500);
+      const deadline = Date.now() + 5 * 60_000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        if (promptEnhanceRequestRef.current !== requestId) return;
+        const queried = await readResponse(await fetch(`/api/ai/minimax-h3-context-ir?taskId=${encodeURIComponent(taskId)}`, { cache: "no-store" }));
+        const output = queried.output;
+        if (output?.status === "queued" || output?.status === "running") {
+          intervalMs = Math.max(1000, Number(queried.polling?.intervalMs) || intervalMs);
+          setPromptEnhanceMessage(output.status === "queued" ? "Context IR 正在排队…" : "Context IR 正在分析提示词和参考图…");
+          continue;
+        }
+        if (output?.status !== "succeeded" || !output.enhancedPrompt) throw new Error(output?.errorMessage || `Context IR task ${output?.status || "failed"}.`);
+        updateNodeData(id, { prompt: output.enhancedPrompt });
+        setPromptEnhanceFailed(false);
+        setPromptEnhanceMessage(output.truncated ? "增强完成，结果已裁剪至 minimax_h3 的 7,000 字符上限。" : "提示词增强完成，可继续编辑或直接生成视频。");
+        return;
+      }
+      throw new Error("Context IR task timed out after 5 minutes.");
+    } catch (error) {
+      if (promptEnhanceRequestRef.current !== requestId) return;
+      setPromptEnhanceFailed(true);
+      setPromptEnhanceMessage(error instanceof Error ? error.message : "提示词增强失败，请稍后重试。");
+    } finally {
+      if (promptEnhanceRequestRef.current === requestId) setIsEnhancingPrompt(false);
+    }
+  };
   useEffect(() => {
     updateNodeInternals(id);
   }, [id, inputPortKey, updateNodeInternals]);
+
+  useEffect(() => {
+    if (!isHKGAIMinimax) {
+      setIsEnhancingPrompt(false);
+      setPromptEnhanceMessage("");
+      setPromptEnhanceFailed(false);
+    }
+    return () => { promptEnhanceRequestRef.current += 1; };
+  }, [isHKGAIMinimax]);
 
   useEffect(() => {
     videoRef.current?.pause();
@@ -1047,7 +1128,21 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                maxHeight={220}
                maxLength={videoPromptMaxLength}
             />
-            {isHKGAIMinimax && <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#676f7b] dark:text-slate-400"><span>最多 2 张参考图 · 5–15 秒</span><span className="tabular-nums">{Array.from(data.prompt || "").length} / 7000</span></div>}
+            {isHKGAIMinimax && <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#676f7b] dark:text-slate-400">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={(event) => { event.stopPropagation(); void enhanceMinimaxPrompt(); }}
+                  disabled={isEnhancingPrompt || !String(data.prompt || "").trim()}
+                  className="nodrag rounded-full bg-violet-100 px-3 py-1.5 text-[11px] font-bold text-violet-800 transition hover:bg-violet-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-violet-950/60 dark:text-violet-200 dark:hover:bg-violet-900/70"
+                >
+                  {isEnhancingPrompt ? "增强中…" : "增强提示词"}
+                </button>
+                <span>MiniMax Context IR · 最多 2 张参考图</span>
+              </div>
+              <span className="tabular-nums">{Array.from(data.prompt || "").length} / 7000</span>
+            </div>}
+            {isHKGAIMinimax && promptEnhanceMessage && <p className={`mt-2 text-[11px] leading-4 ${promptEnhanceFailed ? "text-red-600 dark:text-red-300" : "text-violet-700 dark:text-violet-300"}`}>{promptEnhanceMessage}</p>}
             </>}
          </div>
          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[#e7eaf0] px-6 py-4 dark:border-slate-800">
