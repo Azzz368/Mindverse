@@ -129,7 +129,7 @@ type MediaReferenceKind = "image" | "video" | "audio";
 const mediaReferenceKindForNode = (node: CanvasNode): MediaReferenceKind | undefined => {
   if (node.data.nodeType === "image" || node.data.nodeType === "reference" || node.data.nodeType === "videoFrame") return "image";
   if (node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") return "video";
-  if (node.data.nodeType === "audio" || node.data.nodeType === "voiceTTS") return "audio";
+  if (node.data.nodeType === "audio" || node.data.nodeType === "musicGeneration" || node.data.nodeType === "hkgaiTTS" || node.data.nodeType === "voiceTTS") return "audio";
   return undefined;
 };
 
@@ -177,7 +177,7 @@ const legacyVideoHandleKind = (handleId: string | undefined | null): VideoInputP
 const nodeKind = (source: CanvasNode): VideoInputPortKind | undefined => {
   if (source.data.nodeType === "image" || source.data.nodeType === "reference" || source.data.nodeType === "videoFrame") return "image";
   if (source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion") return "video";
-  if (source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS") return "audio";
+  if (source.data.nodeType === "audio" || source.data.nodeType === "musicGeneration" || source.data.nodeType === "hkgaiTTS" || source.data.nodeType === "voiceTTS") return "audio";
   if (["text", "prompt", "script", "storyboard"].includes(source.data.nodeType)) return "text";
   return undefined;
 };
@@ -367,7 +367,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion")
       .map(videoUrlFrom);
     const upstreamAudioUrls = upstream
-      .filter((source) => source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS")
+      .filter((source) => source.data.nodeType === "audio" || source.data.nodeType === "musicGeneration" || source.data.nodeType === "hkgaiTTS" || source.data.nodeType === "voiceTTS")
       .map(audioUrlFrom);
     return {
       prompt: limitProviderPrompt(ownPromptFrom(d) || prompt),
@@ -405,7 +405,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       .map(imageUrlFrom)
       .filter(Boolean);
     const referenceAudioUrls = upstream
-      .filter((source) => source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS")
+      .filter((source) => source.data.nodeType === "audio" || source.data.nodeType === "musicGeneration" || source.data.nodeType === "hkgaiTTS" || source.data.nodeType === "voiceTTS")
       .map(audioUrlFrom)
       .filter(Boolean);
     return {
@@ -445,6 +445,29 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       targetModel: clonedVoice?.targetModel || d.targetModel || DEFAULT_QWEN_VOICE_MODEL,
       voiceProvider: clonedVoice?.voiceProvider || d.voiceProvider,
       languageType,
+    };
+  }
+
+  if (d.nodeType === "musicGeneration") {
+    const connections = upstreamConnectionsFrom(upstream, incomingEdges);
+    const textSource = connections.find((connection) => connection.targetHandle === "text")?.node
+      || connections.find((connection) => ["text", "prompt", "script", "storyboard"].includes(connection.node.data.nodeType))?.node;
+    return {
+      name: d.musicName || "mindverse_track",
+      tags: d.musicTags || "",
+      userPrompt: (d.prompt || "").trim() || (textSource ? generatedTextFrom(textSource) : limitProviderPrompt(prompt)),
+    };
+  }
+
+  if (d.nodeType === "hkgaiTTS") {
+    const connections = upstreamConnectionsFrom(upstream, incomingEdges);
+    const textSource = connections.find((connection) => connection.targetHandle === "text")?.node
+      || connections.find((connection) => ["text", "prompt", "script", "storyboard"].includes(connection.node.data.nodeType))?.node;
+    return {
+      text: (d.ttsText || d.inputText || "").trim() || (textSource ? generatedTextFrom(textSource) : limitProviderPrompt(prompt)),
+      voiceId: d.voice || "",
+      instructions: d.ttsInstructions,
+      xVectorOnly: d.xVectorOnly !== false,
     };
   }
 

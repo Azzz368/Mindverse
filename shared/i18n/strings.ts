@@ -136,7 +136,7 @@ const zh: Strings = {
   addPrefix: "添加",
   nodeNames: {
     prompt: "提示词", text: "文本", image: "图像", video: "视频", videoFrame: "视频抽帧",
-    audio: "音频", voiceClone: "人声克隆", voiceTTS: "克隆人声生成", storyboard: "分镜", storyboardImage: "分镜帧",
+    audio: "音频", musicGeneration: "HKGAI 音乐生成", hkgaiTTS: "HKGAI 语音生成", voiceClone: "人声克隆", voiceTTS: "克隆人声生成", storyboard: "分镜", storyboardImage: "分镜帧",
     reference: "参考", output: "输出",
   },
   inspector: "属性",
@@ -254,7 +254,7 @@ const en: Strings = {
   addPrefix: "Add",
   nodeNames: {
     prompt: "Prompt", text: "Text", image: "Image", video: "Video", videoFrame: "Video Frame",
-    audio: "Audio", voiceClone: "Voice Clone", voiceTTS: "Cloned Voice TTS", storyboard: "Storyboard", storyboardImage: "Storyboard Image",
+    audio: "Audio", musicGeneration: "HKGAI Music", hkgaiTTS: "HKGAI TTS", voiceClone: "Voice Clone", voiceTTS: "Cloned Voice TTS", storyboard: "Storyboard", storyboardImage: "Storyboard Image",
     reference: "Reference", output: "Output",
   },
   inspector: "Inspector",

@@ -6,6 +6,8 @@ import { generateTokenStarImage, generateTokenStarImageRevision, isTokenStarImag
 import { createKlingImageVideo as tsKlingImage, createKlingTextVideo, createKlingOmniVideo, createSeedanceAssetVideo, createSeedanceVideo } from "@/server/ai/tokenstar/tokenstarVideoProvider";
 import { createSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
 import { createHKGAIMinimaxVideo } from "@/server/ai/hkgaiVideoProvider";
+import { createVolcengineOmniHuman } from "@/server/ai/volcengineOmniHumanProvider";
+import { generateHKGAIMusic, synthesizeHKGAISpeech } from "@/server/ai/hkgaiAudioProvider";
 import { AIProviderError } from "@/server/ai/errors";
 import { createFfmpegVideoEdit } from "@/server/video/ffmpegEditRunner";
 import { enqueueMotionJob } from "@/server/motion/motionJobRunner";
@@ -17,14 +19,14 @@ import { assertSourceAspectRatio, verifyCompletedVideoAspectRatio } from "@/serv
 import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER, type QwenVoiceProvider } from "@/shared/api/qwenContracts";
 import type { GenerateAudioInput, GenerateImageInput, GenerateImageRevisionInput, GenerateStoryboardInput, GenerateTextInput, GenerateVideoInput } from "@/server/ai/types";
 
-export type RunnableNodeType = "text" | "script" | "image" | "image-revision" | "video" | "videoEdit" | "motion" | "audio" | "voiceClone" | "voiceTTS" | "storyboard";
+export type RunnableNodeType = "text" | "script" | "image" | "image-revision" | "video" | "videoEdit" | "motion" | "audio" | "musicGeneration" | "hkgaiTTS" | "voiceClone" | "voiceTTS" | "storyboard";
 
 export type RunNodeResult =
   | { ok: true; provider: string; output: unknown; polling: { intervalMs: number; maxAttempts?: number } }
   | { ok: false; error: { message: string; code?: string; status: number } };
 
 export const isRunnableNodeType = (value: unknown): value is RunnableNodeType =>
-  ["text", "script", "image", "image-revision", "video", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "storyboard"].includes(String(value));
+  ["text", "script", "image", "image-revision", "video", "videoEdit", "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "storyboard"].includes(String(value));
 
 const fail = (message: string, status = 400, code?: string): RunNodeResult => ({ ok: false, error: { message, status, ...(code ? { code } : {}) } });
 
@@ -75,6 +77,27 @@ async function runHKGAIMinimaxVideo(input: Record<string, unknown>): Promise<Run
   } catch (error) {
     if (error instanceof AIProviderError) return fail(error.message, error.status, error.code);
     return fail(error instanceof Error ? error.message : "HKGAI minimax_h3 video request failed.", 500, "HKGAI_VIDEO_ERROR");
+  }
+}
+
+async function runVolcengineOmniHuman(input: Record<string, unknown>): Promise<RunNodeResult> {
+  try {
+    const imageReferences = [...new Set([optionalText(input.image), ...(urls(input.referenceImageUrls) || [])].filter((value): value is string => Boolean(value)))];
+    const audioReferences = [...new Set([...(urls(input.referenceAudioUrls) || []), optionalText(input.referenceAudioAssetUrl)].filter((value): value is string => Boolean(value)))];
+    if (imageReferences.length !== 1 || audioReferences.length !== 1) {
+      return fail("OmniHuman 1.5 requires exactly one image and one audio input.", 400, "OMNIHUMAN_INPUT_REQUIRED");
+    }
+    const output = await createVolcengineOmniHuman({
+      imageUrl: imageReferences[0],
+      audioUrl: audioReferences[0],
+      prompt: optionalText(input.prompt),
+      resolution: optionalText(input.resolution),
+      seed: optionalNumber(input.seed),
+    });
+    return { ok: true, provider: "volcengine", output, polling: { intervalMs: Number(process.env.VOLCENGINE_OMNIHUMAN_POLL_INTERVAL_MS || 10_000) } };
+  } catch (error) {
+    if (error instanceof AIProviderError) return fail(error.message, error.status, error.code);
+    return fail(error instanceof Error ? error.message : "Volcengine OmniHuman request failed.", 500, "VOLCENGINE_OMNIHUMAN_ERROR");
   }
 }
 
@@ -240,7 +263,41 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
     }
   }
 
+  if (nodeType === "musicGeneration") {
+    try {
+      const output = await generateHKGAIMusic({
+        name: text(rawInput.name),
+        tags: text(rawInput.tags),
+        userPrompt: text(rawInput.userPrompt),
+        nodeId: optionalText(rawInput.nodeId),
+        projectId: optionalText(rawInput.projectId),
+      });
+      return { ok: true, provider: "hkgai-music", output, polling: { intervalMs: 0 } };
+    } catch (error) {
+      if (error instanceof AIProviderError) return fail(error.message, error.status, error.code);
+      return fail(error instanceof Error ? error.message : "HKGAI music request failed.", 500, "HKGAI_MUSIC_ERROR");
+    }
+  }
+
+  if (nodeType === "hkgaiTTS") {
+    try {
+      const output = await synthesizeHKGAISpeech({
+        text: text(rawInput.text),
+        voiceId: text(rawInput.voiceId),
+        instructions: optionalText(rawInput.instructions),
+        xVectorOnly: typeof rawInput.xVectorOnly === "boolean" ? rawInput.xVectorOnly : true,
+        nodeId: optionalText(rawInput.nodeId),
+        projectId: optionalText(rawInput.projectId),
+      });
+      return { ok: true, provider: "hkgai-tts", output, polling: { intervalMs: 0 } };
+    } catch (error) {
+      if (error instanceof AIProviderError) return fail(error.message, error.status, error.code);
+      return fail(error instanceof Error ? error.message : "HKGAI TTS request failed.", 500, "HKGAI_TTS_ERROR");
+    }
+  }
+
   if (nodeType === "video" && rawInput.videoProvider === "302-sora2") return runSora2Video(rawInput);
+  if (nodeType === "video" && rawInput.videoProvider === "volcengine") return runVolcengineOmniHuman(rawInput);
   if (nodeType === "video" && (rawInput.videoProvider === "hkgai" || (!rawInput.videoProvider && process.env.AI_VIDEO_PROVIDER === "hkgai"))) return runHKGAIMinimaxVideo(rawInput);
   if (nodeType === "video" && (rawInput.videoProvider === "kling" || rawInput.videoProvider === "" || (!rawInput.videoProvider && process.env.AI_VIDEO_PROVIDER !== "302ai" && process.env.AI_VIDEO_PROVIDER !== "tokenstar" && process.env.AI_VIDEO_PROVIDER !== "hkgai"))) return runKlingVideo(rawInput);
   if (nodeType === "video" && (rawInput.videoProvider === "tokenstar" || (!rawInput.videoProvider && process.env.AI_VIDEO_PROVIDER === "tokenstar"))) return runTokenstarVideo(rawInput);

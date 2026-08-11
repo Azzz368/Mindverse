@@ -32,7 +32,7 @@ const legacyLocalPaths = (remotePath: string) => [
   .map((root) => path.join(root, ...remotePath.split("/")));
 const canUseLocalFallback = () => process.env.WORKFLOW_STORAGE_PROVIDER === "local" || process.env.NODE_ENV !== "production";
 const executableNodeTypes = new Set([
-  "script", "storyboard", "storyboardImage", "image", "video", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "output",
+  "script", "storyboard", "storyboardImage", "image", "video", "videoEdit", "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "output",
 ]);
 
 const isSuccessfulWorkflowSnapshot = (snapshot: CanvasSnapshot) => {

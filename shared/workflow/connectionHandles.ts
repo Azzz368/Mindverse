@@ -4,7 +4,7 @@ import { videoTargetHandleForNodeType } from "./videoModelPresets";
 const textSourceTypes = new Set<NodeType>(["prompt", "text", "script", "storyboard"]);
 const imageSourceTypes = new Set<NodeType>(["image", "reference", "videoFrame"]);
 const videoSourceTypes = new Set<NodeType>(["video", "videoEdit", "motion"]);
-const audioSourceTypes = new Set<NodeType>(["audio", "voiceTTS"]);
+const audioSourceTypes = new Set<NodeType>(["audio", "musicGeneration", "hkgaiTTS", "voiceTTS"]);
 
 export const targetHandleForNodeConnection = (
   sourceType: NodeType,
@@ -39,6 +39,10 @@ export const targetHandleForNodeConnection = (
 
   if (targetData.nodeType === "voiceTTS") {
     if (sourceType === "voiceClone") return "voice";
+    return textSourceTypes.has(sourceType) ? "text" : undefined;
+  }
+
+  if (targetData.nodeType === "musicGeneration" || targetData.nodeType === "hkgaiTTS") {
     return textSourceTypes.has(sourceType) ? "text" : undefined;
   }
 

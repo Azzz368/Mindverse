@@ -3,6 +3,7 @@ export type VideoModelPresetId =
   | "seedance-2.0-assets"
   | "seedance-asset-fast"
   | "digital-human-video"
+  | "omnihuman-1.5-volcengine"
   | "gen-4.5"
   | "kling-v2.6"
   | "kling-v3-tokenstar"
@@ -15,7 +16,7 @@ export const DEFAULT_VIDEO_MODEL_PRESET_ID: VideoModelPresetId = "seedance-asset
 
 export type VideoModelPatch = {
   videoModelPreset: VideoModelPresetId;
-  videoProvider: "302ai" | "302-sora2" | "tokenstar" | "kling" | "hkgai";
+  videoProvider: "302ai" | "302-sora2" | "tokenstar" | "kling" | "hkgai" | "volcengine";
   model: string;
   videoInputMode?: "text-to-video" | "image-to-video";
   tokenstarMode?: "text-to-video" | "asset-video" | "kling-image" | "kling-text" | "kling-omni";
@@ -91,6 +92,17 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     inputPorts: [imagePort, audioPort],
     aspectRatios: ["9:16", "16:9", "1:1"],
     aspectRatioControl: "native",
+    referenceLimits: { image: 1, audio: 1, video: 0 },
+  },
+  "omnihuman-1.5-volcengine": {
+    id: "omnihuman-1.5-volcengine",
+    label: "OmniHuman 1.5",
+    desc: "Volcengine Seedance digital human · one image + one audio",
+    patch: { videoModelPreset: "omnihuman-1.5-volcengine", videoProvider: "volcengine", model: "jimeng_realman_avatar_picture_omni_v15", videoInputMode: "image-to-video", resolution: "1080p", generateAudio: false },
+    inputPorts: [imagePort, audioPort],
+    aspectRatios: ["9:16", "16:9", "1:1"],
+    aspectRatioControl: "source",
+    promptMaxLength: 300,
     referenceLimits: { image: 1, audio: 1, video: 0 },
   },
   "gen-4.5": {
@@ -193,7 +205,7 @@ export const videoPromptMaxLengthForPreset = (id: VideoModelPresetId) => videoMo
 export const videoInputKindForNodeType = (nodeType: string): VideoInputPortKind | undefined => {
   if (nodeType === "image" || nodeType === "reference" || nodeType === "videoFrame") return "image";
   if (nodeType === "video" || nodeType === "videoEdit") return "video";
-  if (nodeType === "audio" || nodeType === "voiceTTS") return "audio";
+  if (nodeType === "audio" || nodeType === "musicGeneration" || nodeType === "hkgaiTTS" || nodeType === "voiceTTS") return "audio";
   if (nodeType === "text" || nodeType === "prompt" || nodeType === "script" || nodeType === "storyboard") return "text";
   return undefined;
 };
@@ -223,6 +235,7 @@ export const videoModelPresetIdFromData = (data: {
   if (data.videoModelPreset && data.videoModelPreset in videoModelPresets) return data.videoModelPreset as VideoModelPresetId;
   if (data.videoProvider === "302-sora2") return "sora-2";
   if (data.videoProvider === "hkgai" && data.model === "t2_minimax-h3_bf16_7k2p") return "minimax-h3-hkgai";
+  if (data.videoProvider === "volcengine" && data.model === "jimeng_realman_avatar_picture_omni_v15") return "omnihuman-1.5-volcengine";
   if (data.videoProvider === "302ai" && data.model === "gen-4.5") return "gen-4.5";
   if (data.videoProvider === "kling") return "kling-v2.6";
   if (data.videoProvider === "tokenstar" && data.tokenstarMode === "asset-video" && ["seedance-asset-fast", "seedance-2.0-asset-fast"].includes(data.model || "")) return "seedance-asset-fast";

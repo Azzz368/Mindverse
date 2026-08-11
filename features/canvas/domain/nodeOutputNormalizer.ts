@@ -56,6 +56,11 @@ export const outputFromProvider = (nodeType: CanvasNode["data"]["nodeType"], val
     const audioUrl = asText(data.audioUrl || data.url || data.resultUrl);
     return makeOutput("audio", audioUrl ? "Cloned voice audio generated" : "Cloned voice TTS request submitted", { ...data, audioUrl, url: asText(data.url) || audioUrl });
   }
+  if (nodeType === "musicGeneration" || nodeType === "hkgaiTTS") {
+    const audioUrl = asText(data.audioUrl || data.url || data.resultUrl);
+    const summary = nodeType === "musicGeneration" ? "HKGAI music generated" : "HKGAI speech generated";
+    return makeOutput("audio", audioUrl ? summary : `${summary} request submitted`, { ...data, audioUrl, url: asText(data.url) || audioUrl });
+  }
   const url = asText(data.imageUrl || data.videoUrl || data.audioUrl || data.resultUrl || data.finalVideoUrl);
   const status = asText(data.status);
   const polling = ["pending", "running"].includes(status);
@@ -64,4 +69,4 @@ export const outputFromProvider = (nodeType: CanvasNode["data"]["nodeType"], val
 };
 
 export const canRunRemotely = (type: CanvasNode["data"]["nodeType"]) =>
-  ["text", "script", "image", "video", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "storyboard"].includes(type);
+  ["text", "script", "image", "video", "videoEdit", "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "storyboard"].includes(type);

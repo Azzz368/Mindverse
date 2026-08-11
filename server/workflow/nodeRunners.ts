@@ -1,6 +1,7 @@
 import "server-only";
 import { getAIProvider, getImageAIProvider, getTextAIProvider } from "@/server/ai/provider";
 import { createMotionComposition } from "@/server/motion/motionCompositionRunner";
+import { generateHKGAIMusic, synthesizeHKGAISpeech } from "@/server/ai/hkgaiAudioProvider";
 import { MAX_STORYBOARD_SCENE_COUNT, clampStoryboardSceneCount, parseScript, promptsFromStoryboard, scriptInstruction } from "@/shared/workflow/storyPipeline";
 import type { CanvasNode, NodeOutput } from "@/shared/canvas";
 
@@ -18,6 +19,8 @@ export async function runCanvasNode(node: CanvasNode, inputs: unknown[] = []): P
     case "videoEdit": return output("videoEdit", "Video edit plan prepared", { editPlan: d.editPlan, preserveAudio: d.preserveAudio !== false, originalVolume: d.originalVolume, backgroundVolume: d.backgroundVolume, fadeIn: d.fadeIn, fadeOut: d.fadeOut, resolution: d.resolution, fps: d.fps, aspectRatio: d.aspectRatio });
     case "motion": return output("motion", "Motion video rendered", await createMotionComposition({ prompt, compositionJson: d.compositionJson, motionMode: "codex-hyperframes", codexInstruction: prompt, hyperframesProjectId: d.hyperframesProjectId || d.hyperframesProjectDir?.split(/[\\/]/).filter(Boolean).at(-1) }));
     case "audio": { const value = await aiProvider.generateAudio({ text: prompt, model: d.model, voice: d.voice, emotion: d.emotion, volume: d.volume, responseFormat: "mp3" }); return output("audio", value.audioUrl ? "Audio generated" : "Audio task complete", value); }
+    case "musicGeneration": { const value = await generateHKGAIMusic({ name: d.musicName || "mindverse_track", tags: d.musicTags || "", userPrompt: d.prompt || prompt }); return output("audio", "HKGAI music generated", value); }
+    case "hkgaiTTS": { const value = await synthesizeHKGAISpeech({ text: d.ttsText || prompt, voiceId: d.voice || "", instructions: d.ttsInstructions, xVectorOnly: d.xVectorOnly !== false }); return output("audio", "HKGAI speech generated", value); }
     case "voiceClone": {
       if (!d.voice) throw new Error("Create or select a cloned voice before running this node.");
       return output("clonedVoice", `Cloned voice ready: ${d.voice}`, { kind: "clonedVoice", voice: d.voice, targetModel: d.targetModel, voiceProvider: d.voiceProvider || "qwen_tts", language: d.language, fallbackMode: d.fallbackMode, fallbackReason: d.fallbackReason });

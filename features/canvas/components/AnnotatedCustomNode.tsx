@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { ImageAnnotationEditor } from "./ImageAnnotationEditor";
 import { ImeInput, ImeTextarea } from "./ImeTextFields";
 import { VoiceCloneNodeLayout, VoiceTTSNodeLayout } from "./VoiceNodes";
+import { HKGAITTSNodeLayout, MusicGenerationNodeLayout } from "./HKGAIAudioNodes";
 import { VideoEditComposer, type VideoEditSource } from "./VideoEditComposer";
 import { VideoFrameNode } from "./VideoFrameNode";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
@@ -22,6 +23,8 @@ const GLOW_COLORS: Record<string, string> = {
   motion: "#2563eb",
   image: "#3bf657",
   audio: "#f5510b",
+  musicGeneration: "#f5510b",
+  hkgaiTTS: "#f5510b",
   voiceClone: "#14b8a6",
   voiceTTS: "#f5510b",
   text: "#ebe46b",
@@ -32,7 +35,7 @@ const GLOW_COLORS: Record<string, string> = {
   reference: "#64748b",
   output: "#64748b",
 };
-const RUNNABLE_TYPES = new Set(["prompt", "text", "script", "image", "video", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "storyboard", "output"]);
+const RUNNABLE_TYPES = new Set(["prompt", "text", "script", "image", "video", "videoEdit", "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "storyboard", "output"]);
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value : "";
 const videoPortStyles: Record<VideoInputPortKind, { border: string; connected: string }> = {
@@ -45,7 +48,7 @@ const videoDurationOptions = Array.from({ length: 11 }, (_, index) => index + 5)
 const nodeImageUrl = (node: CanvasNode) => {
   return imageUrlFrom(node);
 };
-const materialLabel = (node: CanvasNode) => node.data.title || (({ reference: "Reference", image: "Image", videoFrame: "Video Frame", video: "Video", videoEdit: "Video", motion: "Video", audio: "Audio", voiceTTS: "Audio" } as Partial<Record<CanvasNodeData["nodeType"], string>>)[node.data.nodeType] || "Material");
+const materialLabel = (node: CanvasNode) => node.data.title || (({ reference: "Reference", image: "Image", videoFrame: "Video Frame", video: "Video", videoEdit: "Video", motion: "Video", audio: "Audio", musicGeneration: "Audio", hkgaiTTS: "Audio", voiceTTS: "Audio" } as Partial<Record<CanvasNodeData["nodeType"], string>>)[node.data.nodeType] || "Material");
 type VideoMaterialKind = "image" | "video" | "audio";
 type VideoMaterialOption = { node: CanvasNode; kind: VideoMaterialKind; url: string; label: string };
 type ContextIRApiResponse = {
@@ -58,7 +61,7 @@ type ContextIRApiResponse = {
 const videoMaterialKind = (node: CanvasNode): VideoMaterialKind | undefined => {
   if (node.data.nodeType === "image" || node.data.nodeType === "reference" || node.data.nodeType === "videoFrame") return "image";
   if (node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") return "video";
-  if (node.data.nodeType === "audio" || node.data.nodeType === "voiceTTS") return "audio";
+  if (node.data.nodeType === "audio" || node.data.nodeType === "musicGeneration" || node.data.nodeType === "hkgaiTTS" || node.data.nodeType === "voiceTTS") return "audio";
   return undefined;
 };
 const videoMaterialUrl = (node: CanvasNode, kind: VideoMaterialKind) => kind === "image" ? nodeImageUrl(node) : kind === "video" ? videoUrlFrom(node) : audioUrlFrom(node);
@@ -188,7 +191,7 @@ function NodePreview({ node, t, onView, onViewVideo, onAnnotate }: { node: Canva
       </div>
     </div>
   );
-  if ((node.data.nodeType === "audio" || node.data.nodeType === "voiceTTS") && audioUrl) return <audio className="mt-2 w-full" controls src={audioUrl}/>;
+  if ((node.data.nodeType === "audio" || node.data.nodeType === "musicGeneration" || node.data.nodeType === "hkgaiTTS" || node.data.nodeType === "voiceTTS") && audioUrl) return <audio className="mt-2 w-full" controls src={audioUrl}/>;
   if ((node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") && videoUrl) {
     const composition = record(details.composition || details.motionComposition);
     const canvas = record(composition.canvas);
@@ -835,6 +838,8 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const videoAspectRatio = videoAspectRatioForPreset(activeVideoModel, data.aspectRatio);
   const sourceControlsVideoRatio = videoAspectRatioControlForPreset(activeVideoModel) === "source";
   const isHKGAIMinimax = activeVideoModel === "minimax-h3-hkgai";
+  const isOmniHuman = activeVideoModel === "omnihuman-1.5-volcengine";
+  const isDigitalHumanModel = activeVideoModel === "digital-human-video" || isOmniHuman;
   const videoPromptMaxLength = videoPromptMaxLengthForPreset(activeVideoModel);
   const inputPorts = isVideoEdit
     ? [
@@ -1095,7 +1100,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                     <span className="absolute right-0.5 top-0.5 rounded-full bg-[#030303]/85 px-1.5 py-0.5 text-[10px] font-bold text-white">@{index + 1}</span>
                   </button>
                 ))}
-                {!selectedMaterials.length && <span className="text-[12px] text-[#676f7b] dark:text-slate-400">{activeVideoModel === "digital-human-video" ? "请选择一张人物图和一段音频" : "输入 @ 可选择连接的图片、视频或音频素材"}</span>}
+                {!selectedMaterials.length && <span className="text-[12px] text-[#676f7b] dark:text-slate-400">{isDigitalHumanModel ? "请选择一张人物图和一段音频" : "输入 @ 可选择连接的图片、视频或音频素材"}</span>}
               </div>
             </div>}
             {supportedMaterialKinds.size > 0 && materialPickerOpen && (
@@ -1117,7 +1122,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                     </button>
                   );
                 })}
-                {!materialOptions.length && <div className="col-span-6 px-2 py-6 text-center text-[12px] text-[#676f7b] dark:text-slate-400">{activeVideoModel === "digital-human-video" ? "请先连接一张人物图和一段音频" : "请先把图片、视频或音频节点连到这个 VideoNode"}</div>}
+                {!materialOptions.length && <div className="col-span-6 px-2 py-6 text-center text-[12px] text-[#676f7b] dark:text-slate-400">{isDigitalHumanModel ? "请先连接一张人物图和一段音频" : "请先把图片、视频或音频节点连到这个 VideoNode"}</div>}
               </div>
             )}
             <AutoGrowTextarea
@@ -1143,6 +1148,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
               <span className="tabular-nums">{Array.from(data.prompt || "").length} / 7000</span>
             </div>}
             {isHKGAIMinimax && promptEnhanceMessage && <p className={`mt-2 text-[11px] leading-4 ${promptEnhanceFailed ? "text-red-600 dark:text-red-300" : "text-violet-700 dark:text-violet-300"}`}>{promptEnhanceMessage}</p>}
+            {isOmniHuman && <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#676f7b] dark:text-slate-400"><span>必须连接 1 张图片 + 1 段音频；音频需少于 60 秒，建议 15 秒以内。</span><span className="tabular-nums">{Array.from(data.prompt || "").length} / 300</span></div>}
             </>}
          </div>
          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[#e7eaf0] px-6 py-4 dark:border-slate-800">
@@ -1154,24 +1160,29 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                    const presetId = String(v) as VideoModelPresetId;
                    updateNodeData(id, {
                      ...videoModelSelectionPatch(presetId, data.aspectRatio),
-                     ...(presetId === "digital-human-video" && (!data.prompt || data.prompt === "A gentle cinematic movement") ? { prompt: DIGITAL_HUMAN_VIDEO_PROMPT } : {}),
-                     ...(presetId === "digital-human-video" ? { videoReferenceNodeIds: [], videoReferenceSelectionActive: false } : {}),
+                     ...((presetId === "digital-human-video" || presetId === "omnihuman-1.5-volcengine") && (!data.prompt || data.prompt === "A gentle cinematic movement") ? { prompt: DIGITAL_HUMAN_VIDEO_PROMPT } : {}),
+                     ...(presetId === "digital-human-video" || presetId === "omnihuman-1.5-volcengine" ? { videoReferenceNodeIds: [], videoReferenceSelectionActive: false } : {}),
                    });
                  }}
               />}
-              {!isVideoEdit && <PillDropdown
+              {!isVideoEdit && !isOmniHuman && <PillDropdown
                  value={videoAspectRatio}
                  options={videoAspectRatios.map((ratio) => ({ value: ratio, label: ratio }))}
                  onChange={v => updateNodeData(id, { aspectRatio: String(v) })}
               />}
-              {!isVideoEdit && <PillDropdown
+              {!isVideoEdit && !isOmniHuman && <PillDropdown
                  value={data.duration || (isHKGAIMinimax ? 5 : 15)}
                  options={videoDurationOptions.map((value) => ({ value, label: `${value}s` }))}
                  onChange={v => updateNodeData(id, { duration: Number(v) })}
               />}
-              {!isVideoEdit && !isHKGAIMinimax && <PillDropdown
+              {!isVideoEdit && !isHKGAIMinimax && !isOmniHuman && <PillDropdown
                  value={data.resolution || "1080p"} 
                  options={[{value: "1080p", label: "1080p"}, {value: "720p", label: "720p"}, {value: "480p", label: "480p"}]}
+                 onChange={v => updateNodeData(id, { resolution: String(v) })}
+              />}
+              {!isVideoEdit && isOmniHuman && <PillDropdown
+                 value={data.resolution || "1080p"}
+                 options={[{value: "1080p", label: "1080p"}, {value: "720p", label: "720p Fast"}]}
                  onChange={v => updateNodeData(id, { resolution: String(v) })}
               />}
               {isVideoEdit && <span className="rounded-full bg-[#f1eafd] px-3 py-1.5 text-[11px] font-bold text-[#5f18c8] dark:bg-violet-950/50 dark:text-violet-200">{editVideoSources.length} 段视频 · {editAudioSources.length} 条音频</span>}
@@ -1184,7 +1195,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
               Run
             </button>
          </div>
-         {!isVideoEdit && sourceControlsVideoRatio && <p className="shrink-0 border-t border-[#e7eaf0] px-6 py-2 text-[11px] text-amber-700 dark:border-slate-800 dark:text-amber-300">该模型的比例由首帧决定。首帧与所选比例不一致时会在提交前停止。</p>}
+         {!isVideoEdit && sourceControlsVideoRatio && <p className="shrink-0 border-t border-[#e7eaf0] px-6 py-2 text-[11px] text-amber-700 dark:border-slate-800 dark:text-amber-300">{isOmniHuman ? "OmniHuman 输出比例由输入图片决定；720p 自动启用快速模式，1080p 使用标准模式。" : "该模型的比例由首帧决定。首帧与所选比例不一致时会在提交前停止。"}</p>}
       </div>
 
       {previewOpen && videoUrl && typeof document !== "undefined" && createPortal(
@@ -1301,6 +1312,12 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
   }
   if (data.nodeType === "audio") {
     return <AudioNodeLayout id={id} data={data} selected={selected!} runNode={runNode} />;
+  }
+  if (data.nodeType === "musicGeneration") {
+    return <MusicGenerationNodeLayout id={id} data={data} selected={selected!} runNode={runNode} />;
+  }
+  if (data.nodeType === "hkgaiTTS") {
+    return <HKGAITTSNodeLayout id={id} data={data} selected={selected!} runNode={runNode} />;
   }
   if (data.nodeType === "text" || data.nodeType === "script") {
     return <TextNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} />;
