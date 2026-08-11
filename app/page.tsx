@@ -366,14 +366,14 @@ export default function Home() {
 
       {/* ======================= Desktop - 3 ======================= */}
       <section 
-        className="relative w-full overflow-x-hidden h-[1197px] flex justify-center" 
+        className="relative w-full overflow-x-hidden h-[1099px] flex justify-center" 
         style={{ background: "linear-gradient(180deg, #FFFFFF 0%, #F7F4D8 18.75%, #F2E2AB 37.5%, rgba(162, 116, 59, 0.8) 58.65%, rgba(77, 47, 24, 0.95) 77.4%, #160D0A 96.15%)" }}
       >
         {/* Frame 1 overlay */}
-        <div className="absolute top-0 left-0 w-full h-[1197px] bg-black/[0.004] pointer-events-none" />
+        <div className="absolute top-0 left-0 w-full h-[1099px] bg-black/[0.004] pointer-events-none" />
 
-        {/* 内部约束容器保留元素定位尺寸 (1440px 居中) */}
-        <div className="relative w-full max-w-[1440px] h-[1197px] pointer-events-none">
+        {/* 保留 Figma 的顶部 98px 留白；缩短区块尾部等量的无内容滚动距离。 */}
+        <div className="relative w-full max-w-[1440px] h-[1099px] pointer-events-none">
           {/* Ellipses / Glow Effects */}
           <div className="absolute top-[863px] left-[292px] w-[633.62px] h-[200px] bg-[#0D0702] blur-[100px] -rotate-[18.31deg] pointer-events-none" />
           <div className="absolute top-[836px] left-[-119px] w-[399.77px] h-[200px] bg-[#0D0702] blur-[100px] rotate-[62.91deg] pointer-events-none" />
