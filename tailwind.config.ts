@@ -12,6 +12,7 @@ export default {
     extend: {
       fontFamily: {
         epilogue: ["var(--font-epilogue)", "sans-serif"],
+        baskervville: ["var(--font-baskervville)", "serif"],
       },
     },
   },

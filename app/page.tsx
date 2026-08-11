@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from "react";
 import { LensRefraction } from "@/components/LensRefraction";
 
 export default function Home() {
-  const [heroStage, setHeroStage] = useState<"render" | "video">("render");
+  const [heroStage, setHeroStage] = useState<"black" | "video">("black");
   const [activeHeroVideo, setActiveHeroVideo] = useState<"cowboy" | "metropolis">("cowboy");
   const [heroMediaReady, setHeroMediaReady] = useState(false);
   const heroSectionRef = useRef<HTMLElement>(null);
@@ -14,10 +14,11 @@ export default function Home() {
   const metropolisVideoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    const videoTimer = window.setTimeout(() => setHeroStage("video"), 2000);
+    // Keep the first paint black, then immediately start the normal 0.2 s video fade.
+    const revealFrame = window.requestAnimationFrame(() => setHeroStage("video"));
 
     return () => {
-      window.clearTimeout(videoTimer);
+      window.cancelAnimationFrame(revealFrame);
     };
   }, []);
 
@@ -200,17 +201,6 @@ export default function Home() {
           filter: url(#glass-filter-_r_b_);
         }
 
-        .get-started-overlay {
-          clip-path: inset(0 100% 0 0);
-          transition: clip-path 350ms ease-out;
-        }
-
-        .get-started-link:hover .get-started-overlay,
-        .get-started-link:focus-visible .get-started-overlay,
-        .get-started-link:active .get-started-overlay {
-          clip-path: inset(0 0 0 0);
-        }
-
         .start-now-pill {
           overflow: hidden;
           isolation: isolate;
@@ -236,7 +226,7 @@ export default function Home() {
 
         .hero-video {
           opacity: 0;
-          transition: opacity 500ms ease-in-out;
+          transition: opacity 200ms ease-in-out;
         }
 
         .hero-video--visible {
@@ -250,18 +240,11 @@ export default function Home() {
         ref={heroSectionRef}
         className="relative w-full h-[816px] bg-black overflow-hidden flex justify-center"
       >
-        {/* 直接展示渲染图，2 秒后进入视频。 */}
-        <img
-          src="/website/2.png"
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover pointer-events-none select-none"
-        />
-
-        {/* 两段视频以 0.5 秒交叉淡入淡出串联，最后一段结束后保留末帧。 */}
+        {/* 首帧保持黑屏，Cowboy 随后于 0.2 秒内渐显为完整画面。 */}
         <video
           ref={cowboyVideoRef}
           className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "cowboy" ? "hero-video--visible" : ""}`}
-          src="/website/cowboyfull.mp4"
+          src="/website/fullcowboy.mp4"
           muted
           playsInline
           preload="auto"
@@ -280,12 +263,8 @@ export default function Home() {
         {/* --- Figma 居中的 1440px 容器层 (用于约束元素的定位) --- */}
         <div className="relative w-full max-w-[1440px] h-[816px] pointer-events-none">
         
-          {/* 顶部导航兰 (Rectangle 2) 容器内的绝对定位 */}
-          <header className="absolute top-0 -left-[100vw] !w-[300vw] h-[54px] glass-card shadow-none !border-none !rounded-none !bg-transparent box-border z-50 pointer-events-auto">
-            <div className="glass-filter !backdrop-blur-xl opacity-80 border-b border-black/10 mix-blend-difference" />
-            <div className="glass-overlay" />
-            <div className="glass-specular" />
-          </header>
+          {/* 50% 透明度的磨砂导航背景，避免与中心透镜竞争视觉焦点。 */}
+          <header className="absolute top-0 -left-[100vw] !w-[300vw] h-[54px] bg-white/16 backdrop-blur-md border-b border-white/15 box-border z-50 pointer-events-auto" />
           
           <div className="absolute top-0 left-0 w-full h-[54px] z-50 hover:cursor-default pointer-events-auto">
             {/* Logo "Mindverse" */}
@@ -336,9 +315,9 @@ export default function Home() {
           </div>
 
           {/* Lens position: top controls Y (up/down), left controls X (left/right). */}
-          <div className="pointer-events-none absolute top-[335px] left-[508.5px] h-[134px] w-[423px] overflow-hidden rounded-[74px] z-10">
+          <div className={`pointer-events-none absolute top-[335px] left-[508.5px] h-[134px] w-[423px] overflow-hidden rounded-[74px] z-10 transition-opacity duration-[200ms] ease-in-out ${heroStage === "video" ? "opacity-100" : "opacity-0"}`}>
             <LensRefraction
-              stage={heroStage}
+              stage="video"
               activeVideo={activeHeroVideo}
               cowboyVideo={heroMediaReady ? cowboyVideoRef.current : null}
               metropolisVideo={heroMediaReady ? metropolisVideoRef.current : null}
@@ -346,9 +325,9 @@ export default function Home() {
             />
           </div>
 
-          {/* Mind verse (Big Title) */}
-          <div className="absolute top-[375px] left-[430px] w-[581px] h-[66px] pointer-events-none z-20">
-            <h1 className="text-center italic font-normal text-[64px] leading-[66px] text-white drop-shadow-lg">
+          {/* Mindverse (Big Title) */}
+          <div className="absolute top-[370px] left-[430px] w-[581px] h-[66px] pointer-events-none z-20">
+            <h1 className="font-baskervville text-center text-[55px] font-bold italic leading-[66px] text-white drop-shadow-lg">
               MINDVERSE
             </h1>
           </div>
@@ -357,18 +336,11 @@ export default function Home() {
           <Link
             href="/workspace"
             aria-label="Get Started"
-            className="get-started-link absolute top-[500px] left-[553px] flex h-[71px] w-[334px] items-start justify-center font-semibold text-[40px] leading-[41px] text-white drop-shadow-md z-20 pointer-events-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+            className="get-started-link absolute top-[500px] left-[565px] flex h-[71px] w-[334px] items-start justify-center font-semibold text-[40px] leading-[41px] text-white transition-colors duration-[350ms] ease-out hover:text-black focus-visible:text-black active:text-black z-20 pointer-events-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
           >
             <span className="flex items-start justify-center gap-5 pt-[2px]">
               <span>Get Started</span>
               <svg aria-hidden="true" className="mt-[-1px] h-[37px] w-[42px] shrink-0" fill="none" viewBox="0 0 42 37">
-                <path d="M2 1L20 18.5L2 36" stroke="currentColor" strokeWidth="3" />
-                <path d="M12 1L30 18.5L12 36" stroke="currentColor" strokeWidth="3" />
-              </svg>
-            </span>
-            <span aria-hidden="true" className="get-started-overlay absolute inset-0 flex items-start justify-center gap-5 pt-[2px] text-black">
-              <span>Get Started</span>
-              <svg className="mt-[-1px] h-[37px] w-[42px] shrink-0" fill="none" viewBox="0 0 42 37">
                 <path d="M2 1L20 18.5L2 36" stroke="currentColor" strokeWidth="3" />
                 <path d="M12 1L30 18.5L12 36" stroke="currentColor" strokeWidth="3" />
               </svg>
@@ -403,7 +375,6 @@ export default function Home() {
                   <div className="w-[295px] h-[160px] bg-[#000000]/15 rounded-[13px] border border-white/20 shadow-sm" />
                   <div className="w-[295px] h-[160px] bg-[#FFFFFF]/25 rounded-[13px] border border-white/30 shadow-sm" />
                   <div className="w-[295px] h-[160px] bg-[#000000]/20 rounded-[13px] border border-white/20 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#FFFFFF]/20 rounded-[13px] border border-white/20 shadow-sm" />
                 </div>
               ))}
             </div>
@@ -420,7 +391,6 @@ export default function Home() {
                   <div className="w-[295px] h-[160px] bg-[#FFFFFF]/25 rounded-[13px] border border-white/30 shadow-sm" />
                   <div className="w-[295px] h-[160px] bg-[#000000]/10 rounded-[13px] border border-white/20 shadow-sm" />
                   <div className="w-[295px] h-[160px] bg-[#FFFFFF]/15 rounded-[13px] border border-white/10 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#000000]/15 rounded-[13px] border border-white/20 shadow-sm" />
                 </div>
               ))}
             </div>

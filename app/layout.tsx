@@ -18,13 +18,18 @@ const epilogue = localFont({
   variable: "--font-epilogue",
 });
 
+const baskervville = localFont({
+  src: "../public/fonts/Baskervville/Baskervville-BoldItalic.ttf",
+  variable: "--font-baskervville",
+});
+
 export const metadata: Metadata = { title: "Mindverse", description: "Creative AI workflow canvas" };
 
 const themeScript = `try{const t=localStorage.getItem('theme');const d=window.matchMedia('(prefers-color-scheme: dark)').matches;if(t==='dark'||(!t&&d))document.documentElement.classList.add('dark')}catch(e){}`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN" className={`${epilogue.variable}`}>
+    <html lang="zh-CN" className={`${epilogue.variable} ${baskervville.variable}`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>

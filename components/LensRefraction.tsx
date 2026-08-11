@@ -7,10 +7,9 @@ import {
   MeshTransmissionMaterial,
   RoundedBox,
   useFBO,
-  useTexture,
 } from "@react-three/drei";
 
-type HeroStage = "render" | "video";
+type HeroStage = "black" | "video";
 type HeroVideo = "cowboy" | "metropolis";
 
 const HERO_HEIGHT = 816;
@@ -79,7 +78,6 @@ function HeroBackdrop({
   heroPanRef: RefObject<{ x: number; y: number }>;
 }) {
   const { width, height } = useThree((state) => state.viewport);
-  const render = useTexture("/website/2.png");
   const cowboyTexture = useMemo(
     () => (cowboyVideo ? new THREE.VideoTexture(cowboyVideo) : null),
     [cowboyVideo],
@@ -98,11 +96,11 @@ function HeroBackdrop({
   );
 
   const texture =
-    stage === "render"
-      ? render
+    stage === "black"
+      ? null
       : activeVideo === "cowboy"
-        ? cowboyTexture ?? render
-        : metropolisTexture ?? render;
+        ? cowboyTexture
+        : metropolisTexture;
 
   useFrame(() => {
     if (texture) {
