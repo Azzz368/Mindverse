@@ -224,6 +224,20 @@ export default function Home() {
           transform: scaleX(1);
         }
 
+        .footer-nav a,
+        .footer-bottom-link {
+          transition: color 350ms ease-out;
+        }
+
+        .footer-nav a:hover,
+        .footer-nav a:focus-visible,
+        .footer-nav a:active,
+        .footer-bottom-link:hover,
+        .footer-bottom-link:focus-visible,
+        .footer-bottom-link:active {
+          color: #000;
+        }
+
         .hero-video {
           opacity: 0;
           transition: opacity 200ms ease-in-out;
@@ -336,7 +350,8 @@ export default function Home() {
           <Link
             href="/workspace"
             aria-label="Get Started"
-            className="get-started-link absolute top-[500px] left-[565px] flex h-[71px] w-[334px] items-start justify-center font-semibold text-[40px] leading-[41px] text-white transition-colors duration-[350ms] ease-out hover:text-black focus-visible:text-black active:text-black z-20 pointer-events-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+            className="get-started-link font-baskervville-bold absolute top-[500px] left-[565px] flex h-[71px] w-[334px] items-start justify-center text-[40px] font-bold leading-[41px] text-white transition-colors duration-[350ms] ease-out hover:text-black focus-visible:text-black active:text-black z-20 pointer-events-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+            style={{ fontFamily: "var(--font-baskervville-bold)" }}
           >
             <span className="flex items-start justify-center gap-5 pt-[2px]">
               <span>Get Started</span>
@@ -408,6 +423,120 @@ export default function Home() {
           <div className="absolute top-[628px] left-[619px] w-[708px] h-[471px] bg-[#D9D9D9]/80 backdrop-blur-md border-2 border-white/50 rounded-[30px] box-border shadow-[0_20px_50px_rgb(0,0,0,0.2)] transform transition-transform hover:-translate-y-2 cursor-pointer pointer-events-auto" />
         </div>
       </section>
+
+      {/* ======================= MacBook Pro 16 - Footer ======================= */}
+      <footer className="font-epilogue relative h-[1117px] w-full overflow-hidden bg-[#060402] font-normal text-white">
+        {/* Figma background atmosphere */}
+        <div className="pointer-events-none absolute inset-x-[-105px] top-[465px] h-[1009px] bg-[rgba(42,29,20,0.89)] blur-[90px]" />
+        <div className="pointer-events-none absolute inset-x-0 top-[684px] h-[884px] bg-[#3C2F1C] blur-[85px]" />
+        <div className="pointer-events-none absolute inset-x-0 top-[889px] h-[442px] bg-[#4A3923] blur-[75px]" />
+        <div className="pointer-events-none absolute left-1/2 top-[936px] h-[452px] w-[1170px] -translate-x-1/2 bg-[#7B6954] blur-[75px]" />
+        <div className="pointer-events-none absolute left-1/2 top-[1060px] h-[174px] w-[818px] -translate-x-1/2 bg-[#B79D7D] blur-[75px]" />
+        <div className="pointer-events-none absolute left-1/2 top-[870px] h-[176px] w-[1618px] -translate-x-1/2 rounded-[50%] border-[18px] border-[#9E6796] blur-[97px]" />
+
+        <div className="relative mx-auto h-full w-full max-w-[1440px]">
+          <div className="absolute left-[73px] top-[666px] w-[162px]">
+            <h3 className="font-baskervville text-[15px] font-bold leading-[19px]">AI Video Generator</h3>
+            <nav className="footer-nav mt-[17px] flex flex-col gap-[1px] text-[13px] leading-[25px] text-[#A3A3A3]">
+              <Link href="#">Text to Video</Link>
+              <Link href="#">Image to Video</Link>
+              <Link href="#">One-Click Agent Video</Link>
+              <Link href="#">Auto Video Editor</Link>
+              <Link href="#">Frame Interpolation</Link>
+              <Link href="#">Cartoon Video Generator</Link>
+              <Link href="#">Music Video Generator</Link>
+            </nav>
+          </div>
+
+          <div className="absolute left-[298px] top-[666px] w-[162px]">
+            <h3 className="font-baskervville text-[15px] font-bold leading-[19px]">AI Canvas &amp; Workflow</h3>
+            <nav className="footer-nav mt-[17px] flex flex-col gap-[1px] text-[13px] leading-[25px] text-[#A3A3A3]">
+              <Link href="#">Storyboard Generator</Link>
+              <Link href="#">Scene Library</Link>
+              <Link href="#">Character Lock</Link>
+              <Link href="#">Script to Storyboard</Link>
+              <Link href="#">Clip Sequencer</Link>
+              <Link href="#">Batch Video Production</Link>
+              <Link href="#">Node Workflow</Link>
+            </nav>
+          </div>
+
+          <div className="absolute left-[544px] top-[666px] w-[162px]">
+            <h3 className="font-baskervville text-[15px] font-bold leading-[19px]">AI Digital Human</h3>
+            <nav className="footer-nav mt-[17px] flex flex-col gap-[1px] text-[13px] leading-[25px] text-[#A3A3A3]">
+              <Link href="#">Digital Human Maker</Link>
+              <Link href="#">Talking Avatar Generator</Link>
+              <Link href="#">Photo to Avatar</Link>
+              <Link href="#">Face Consistency Lock</Link>
+              <Link href="#">Lip-Sync Generator</Link>
+              <Link href="#">Voice Cloning</Link>
+              <Link href="#">Virtual Presenter</Link>
+              <Link href="#">Multi-Language Avatar</Link>
+            </nav>
+          </div>
+
+          <div className="absolute left-[755px] top-[666px] w-[162px]">
+            <h3 className="font-baskervville text-[15px] font-bold leading-[19px]">Resource</h3>
+            <nav className="footer-nav mt-[17px] flex flex-col gap-[1px] text-[13px] leading-[25px] text-[#A3A3A3]">
+              <Link href="#">Help Center</Link>
+              <Link href="#">API Documentation</Link>
+              <Link href="#">Templates</Link>
+              <Link href="#">Pricing</Link>
+              <Link href="#">Blog</Link>
+              <Link href="#">Case Studies</Link>
+              <Link href="#">Community</Link>
+              <Link href="#">Contact Us</Link>
+            </nav>
+          </div>
+
+          <div className="absolute left-[1034px] top-[702px] w-[335px] text-right text-[15px] font-normal leading-[18px]">
+            A dreamland that fulfills all your imaginations.
+          </div>
+
+          <div className="absolute left-[1191px] top-[661px] w-[226px] text-center">
+            <div className="font-baskervville text-[20px] font-bold italic leading-[26px]">MINDVERSE</div>
+            <div className="absolute left-[88px] top-[83px] grid h-[89px] w-[89px] grid-cols-7 grid-rows-7 gap-[2px] bg-white p-[7px]">
+              {Array.from({ length: 49 }, (_, index) => (
+                <span key={index} className={(index * 7 + Math.floor(index / 3)) % 5 < 2 ? "bg-black" : "bg-white"} />
+              ))}
+            </div>
+            <div className="absolute left-[7px] top-[198px] flex items-center gap-[18px]">
+              <Link href="#" aria-label="TikTok" className="transition-opacity hover:opacity-70">
+                <svg aria-hidden="true" className="h-6 w-[21px] invert" viewBox="0 0 21 24" fill="none"><path d="M15.4401 0H11.2968V16.3478C11.2968 18.2957 9.70322 19.8957 7.72007 19.8957C5.73693 19.8957 4.14334 18.2957 4.14334 16.3478C4.14334 14.4348 5.70152 12.8695 7.61385 12.8V8.69567C3.39966 8.7652 0 12.1391 0 16.3478C0 20.5913 3.47049 24 7.7555 24C12.0405 24 15.5109 20.5565 15.5109 16.3478V7.9652C17.0691 9.07827 18.9814 9.73913 21 9.77393V5.66957C17.8837 5.56522 15.4401 3.06087 15.4401 0Z" fill="black" /></svg>
+              </Link>
+              <Link href="#" aria-label="YouTube" className="transition-opacity hover:opacity-70">
+                <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 20 20" fill="none"><rect width="20" height="20" rx="10" fill="white" /><path d="M15.8236 7.13717C15.6864 6.62737 15.2844 6.22541 14.7746 6.08815C13.8432 5.83325 10.1177 5.83325 10.1177 5.83325C10.1177 5.83325 6.39224 5.83325 5.46087 6.07835C4.96087 6.2156 4.5491 6.62737 4.41185 7.13717C4.16675 8.06855 4.16675 9.99992 4.16675 9.99992C4.16675 9.99992 4.16675 11.9411 4.41185 12.8627C4.5491 13.3725 4.95106 13.7744 5.46087 13.9117C6.40204 14.1666 10.1177 14.1666 10.1177 14.1666C10.1177 14.1666 13.8432 14.1666 14.7746 13.9215C15.2844 13.7842 15.6864 13.3823 15.8236 12.8725C16.0687 11.9411 16.0687 10.0097 16.0687 10.0097C16.0687 10.0097 16.0785 8.06855 15.8236 7.13717Z" fill="black" /><path d="M8.9314 11.7842L12.0294 9.99989L8.9314 8.21558V11.7842Z" fill="white" /></svg>
+              </Link>
+              <Link href="#" aria-label="Instagram" className="transition-opacity hover:opacity-70">
+                <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 20 20" fill="none"><path d="M19.944 5.8767C19.8959 4.81185 19.7239 4.08327 19.4799 3.44676C19.2238 2.79023 18.8837 2.22978 18.3276 1.67734C17.7715 1.1249 17.2154 0.776621 16.5593 0.52442C15.9231 0.276221 15.195 0.108086 14.1308 0.060048C13.0626 0.0120096 12.7225 0 10.01 0C7.29342 0 6.95335 0.0120096 5.88914 0.060048C4.82493 0.108086 4.09678 0.280224 3.46065 0.52442C2.80052 0.780625 2.24041 1.1209 1.6883 1.67734C1.13619 2.23379 0.788118 2.79023 0.536068 3.44676C0.292019 4.08327 0.119985 4.81185 0.0719749 5.8767C0.0239653 6.94556 0.0119629 7.28583 0.0119629 10C0.0119629 12.7182 0.0239653 13.0584 0.0719749 14.1233C0.119985 15.1882 0.292019 15.9167 0.536068 16.5532C0.792119 17.2098 1.13219 17.7702 1.6883 18.3227C2.24041 18.8791 2.80052 19.2234 3.45665 19.4756C4.09278 19.7238 4.82093 19.8919 5.88514 19.94C6.95335 19.988 7.29342 20 10.006 20C12.7225 20 13.0626 19.988 14.1268 19.94C15.191 19.8919 15.9191 19.7198 16.5553 19.4756C17.2114 19.2194 17.7715 18.8791 18.3236 18.3227C18.8757 17.7662 19.2238 17.2098 19.4759 16.5532C19.7239 15.9167 19.8919 15.1882 19.94 14.1233C19.988 13.0544 20 12.7142 20 10C20 7.28583 19.992 6.94155 19.944 5.8767ZM18.1476 14.0432C18.1036 15.02 17.9396 15.5524 17.8035 15.9007C17.6235 16.3651 17.4034 16.7014 17.0514 17.0536C16.6993 17.4059 16.3672 17.6181 15.8991 17.8062C15.5471 17.9424 15.015 18.1065 14.0428 18.1505C12.9906 18.1986 12.6745 18.2106 10.002 18.2106C7.32943 18.2106 7.01336 18.1986 5.96115 18.1505C4.98496 18.1065 4.45285 17.9424 4.10478 17.8062C3.64069 17.6261 3.30462 17.4059 2.95255 17.0536C2.60048 16.7014 2.38844 16.3691 2.2004 15.9007C2.06437 15.5484 1.90034 15.016 1.85633 14.0432C1.80832 12.9904 1.79632 12.6741 1.79632 10C1.79632 7.32586 1.80832 7.00961 1.85633 5.95677C1.90034 4.97998 2.06437 4.44756 2.2004 4.09928C2.38044 3.63491 2.60048 3.29864 2.95255 2.94636C3.30462 2.59408 3.63669 2.38191 4.10478 2.19376C4.45685 2.05765 4.98896 1.89352 5.96115 1.84948C7.01336 1.80144 7.32943 1.78943 10.002 1.78943C12.6745 1.78943 12.9906 1.80144 14.0428 1.84948C15.019 1.89352 15.5511 2.05765 15.8991 2.19376C16.3632 2.3739 16.6993 2.59408 17.0514 2.94636C17.4034 3.29864 17.6155 3.63091 17.8035 4.09928C17.9396 4.45156 18.1036 4.98399 18.1476 5.95677C18.1956 7.00961 18.2076 7.32586 18.2076 10C18.2076 12.6741 18.1916 12.9904 18.1476 14.0432Z" fill="white" /><path d="M10.002 4.85986C7.16145 4.85986 4.86499 7.1617 4.86499 9.99998C4.86499 12.8422 7.16545 15.1401 10.002 15.1401C12.8386 15.1401 15.139 12.8342 15.139 9.99998C15.139 7.1577 12.8426 4.85986 10.002 4.85986ZM10.002 13.3346C8.16165 13.3346 6.66935 11.8414 6.66935 9.99998C6.66935 8.1585 8.16165 6.66531 10.002 6.66531C11.8424 6.66531 13.3347 8.1585 13.3347 9.99998C13.3347 11.8414 11.8424 13.3346 10.002 13.3346Z" fill="white" /><path d="M15.3392 5.86066C16.002 5.86066 16.5394 5.32297 16.5394 4.6597C16.5394 3.99643 16.002 3.45874 15.3392 3.45874C14.6763 3.45874 14.1389 3.99643 14.1389 4.6597C14.1389 5.32297 14.6763 5.86066 15.3392 5.86066Z" fill="white" /></svg>
+              </Link>
+              <Link href="#" aria-label="Facebook" className="transition-opacity hover:opacity-70">
+                <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 20 20" fill="none"><rect width="20" height="20" rx="10" fill="white" /><path d="M13.8926 12.8906L14.3359 10H11.5625V8.125C11.5625 7.33398 11.9492 6.5625 13.1914 6.5625H14.4531V4.10156C14.4531 4.10156 13.3086 3.90625 12.2148 3.90625C9.92969 3.90625 8.4375 5.29102 8.4375 7.79688V10H5.89844V12.8906H8.4375V19.8789C8.94727 19.959 9.46875 20 10 20C10.5313 20 11.0527 19.959 11.5625 19.8789V12.8906H13.8926Z" fill="black" /></svg>
+              </Link>
+              <Link href="#" aria-label="Twitter" className="transition-opacity hover:opacity-70">
+                <svg aria-hidden="true" className="h-4 w-[19px]" viewBox="0 0 19 16" fill="none"><path d="M17.0475 3.98396C17.0552 4.15996 17.0552 4.32796 17.0552 4.50396C17.063 9.83998 13.1426 16 5.97319 16C3.85865 16 1.7827 15.368 0 14.184C0.308692 14.224 0.617384 14.24 0.926076 14.24C2.6779 14.24 4.38343 13.632 5.76483 12.504C4.09789 12.472 2.6316 11.344 2.12226 9.69598C2.70877 9.81598 3.31072 9.79198 3.8818 9.62398C2.06824 9.25598 0.764013 7.59997 0.756296 5.67197C0.756296 5.65597 0.756296 5.63997 0.756296 5.62397C1.29651 5.93597 1.90617 6.11197 2.52356 6.12797C0.818034 4.94396 0.28554 2.58396 1.31966 0.735951C3.30301 3.26396 6.22015 4.79196 9.35337 4.95996C9.03696 3.55996 9.46913 2.08796 10.4801 1.09595C12.0467 -0.432053 14.5162 -0.352052 15.998 1.27195C16.87 1.09595 17.7112 0.759951 18.4752 0.28795C18.182 1.22395 17.5723 2.01596 16.762 2.51996C17.5337 2.42396 18.29 2.20796 19 1.88795C18.4752 2.70396 17.8115 3.40796 17.0475 3.98396Z" fill="white" /></svg>
+              </Link>
+            </div>
+          </div>
+
+          <div className="absolute left-[72.5px] top-[1012px] h-px w-[1295px] bg-white/50" />
+          <div className="absolute left-[73px] top-[1035px] h-[18px] w-[645px] text-[15px] font-normal leading-[18px]">
+            <span className="absolute left-0 top-0 flex items-center gap-[7px]">
+              <svg aria-hidden="true" className="h-[10px] w-[10px]" fill="none" viewBox="0 0 10 10"><path d="M5.00003 9.64289C7.56421 9.64289 9.64289 7.56421 9.64289 5.00003C9.64289 2.43586 7.56421 0.357178 5.00003 0.357178C2.43586 0.357178 0.357178 2.43586 0.357178 5.00003C0.357178 7.56421 2.43586 9.64289 5.00003 9.64289Z" stroke="white" strokeLinecap="round" strokeLinejoin="round" /><path d="M5.00007 6.78578C5.98629 6.78578 6.78578 5.98629 6.78578 5.00007C6.78578 4.01385 5.98629 3.21436 5.00007 3.21436C4.01385 3.21436 3.21436 4.01385 3.21436 5.00007C3.21436 5.98629 4.01385 6.78578 5.00007 6.78578Z" stroke="white" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              2026 MNDVERSE Ltd.
+            </span>
+            <span className="absolute left-[187px] top-0 h-[17px] w-px bg-white/50" />
+            <Link href="#" className="footer-bottom-link absolute left-[207px] top-0">Terms of Service</Link>
+            <svg aria-hidden="true" className="pointer-events-none absolute left-[341px] top-[3px] h-[13px] w-[192px]" fill="none" viewBox="0 0 192 13"><path d="M0.180298 12.6731L12.1803 0.173096" stroke="white" strokeWidth="0.5" /><path d="M179.18 12.6731L191.18 0.173096" stroke="white" strokeWidth="0.5" /></svg>
+            <Link href="#" className="footer-bottom-link absolute left-[366px] top-0">Cookie preferences</Link>
+            <Link href="#" className="footer-bottom-link absolute left-[545px] top-0">Privacy Policy</Link>
+          </div>
+          <div className="absolute left-[1265px] top-[1035px] flex items-center gap-3 text-[15px] font-normal leading-[18px]">
+            <svg aria-hidden="true" className="h-[21px] w-[21px]" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke="currentColor" /><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" stroke="currentColor" /></svg>
+            <button type="button" className="flex items-center gap-2">English<svg aria-hidden="true" className="h-[5px] w-[10px]" fill="none" viewBox="0 0 10 5"><path d="m1 1 4 3 4-3" stroke="currentColor" /></svg></button>
+          </div>
+        </div>
+      </footer>
 
     </div>
   );

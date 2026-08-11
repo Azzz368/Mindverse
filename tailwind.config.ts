@@ -13,6 +13,7 @@ export default {
       fontFamily: {
         epilogue: ["var(--font-epilogue)", "sans-serif"],
         baskervville: ["var(--font-baskervville)", "serif"],
+        "baskervville-bold": ["var(--font-baskervville-bold)", "serif"],
       },
     },
   },

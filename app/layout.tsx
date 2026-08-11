@@ -23,13 +23,18 @@ const baskervville = localFont({
   variable: "--font-baskervville",
 });
 
+const baskervvilleBold = localFont({
+  src: "../public/fonts/Baskervville/Baskervville-Bold.ttf",
+  variable: "--font-baskervville-bold",
+});
+
 export const metadata: Metadata = { title: "Mindverse", description: "Creative AI workflow canvas" };
 
 const themeScript = `try{const t=localStorage.getItem('theme');const d=window.matchMedia('(prefers-color-scheme: dark)').matches;if(t==='dark'||(!t&&d))document.documentElement.classList.add('dark')}catch(e){}`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN" className={`${epilogue.variable} ${baskervville.variable}`}>
+    <html lang="zh-CN" className={`${epilogue.variable} ${baskervville.variable} ${baskervvilleBold.variable}`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
