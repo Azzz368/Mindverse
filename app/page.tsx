@@ -6,12 +6,16 @@ import { LensRefraction } from "@/components/LensRefraction";
 
 export default function Home() {
   const [heroStage, setHeroStage] = useState<"black" | "video">("black");
-  const [activeHeroVideo, setActiveHeroVideo] = useState<"cowboy" | "metropolis">("cowboy");
+  const [activeHeroVideo, setActiveHeroVideo] = useState<"fullCowboy" | "partCowboy" | "daduhuidog" | "basketball">("fullCowboy");
   const [heroMediaReady, setHeroMediaReady] = useState(false);
   const heroSectionRef = useRef<HTMLElement>(null);
   const heroPanRef = useRef({ x: 0, y: 0 });
-  const cowboyVideoRef = useRef<HTMLVideoElement>(null);
-  const metropolisVideoRef = useRef<HTMLVideoElement>(null);
+  const fullCowboyVideoRef = useRef<HTMLVideoElement>(null);
+  const partCowboyVideoRef = useRef<HTMLVideoElement>(null);
+  const daduhuidogVideoRef = useRef<HTMLVideoElement>(null);
+  const basketballVideoRef = useRef<HTMLVideoElement>(null);
+  const [hoveredTopCard, setHoveredTopCard] = useState<number | null>(null);
+  const [topCard3Frame, setTopCard3Frame] = useState(1);
 
   useEffect(() => {
     // Keep the first paint black, then immediately start the normal 0.2 s video fade.
@@ -28,10 +32,29 @@ export default function Home() {
 
   useEffect(() => {
     if (heroStage === "video") {
-      const video = activeHeroVideo === "cowboy" ? cowboyVideoRef.current : metropolisVideoRef.current;
+      const video = {
+        fullCowboy: fullCowboyVideoRef.current,
+        partCowboy: partCowboyVideoRef.current,
+        daduhuidog: daduhuidogVideoRef.current,
+        basketball: basketballVideoRef.current,
+      }[activeHeroVideo];
+      if (video?.ended) video.currentTime = 0;
       void video?.play();
     }
   }, [activeHeroVideo, heroStage]);
+
+  useEffect(() => {
+    if (hoveredTopCard !== 3) {
+      setTopCard3Frame(1);
+      return;
+    }
+
+    const frameTimer = window.setInterval(() => {
+      setTopCard3Frame((frame) => (frame % 6) + 1);
+    }, 120);
+
+    return () => window.clearInterval(frameTimer);
+  }, [hoveredTopCard]);
 
   useEffect(() => {
     const section = heroSectionRef.current;
@@ -50,8 +73,9 @@ export default function Home() {
 
       // Camera-like background movement: broad horizontal range and a visible but controlled Y range.
       const objectPosition = `${50 + currentPan.x * 24}% ${50 + currentPan.y * 20}%`;
-      if (cowboyVideoRef.current) cowboyVideoRef.current.style.objectPosition = objectPosition;
-      if (metropolisVideoRef.current) metropolisVideoRef.current.style.objectPosition = objectPosition;
+      [fullCowboyVideoRef, partCowboyVideoRef, daduhuidogVideoRef, basketballVideoRef].forEach((videoRef) => {
+        if (videoRef.current) videoRef.current.style.objectPosition = objectPosition;
+      });
 
       if (
         Math.abs(targetPan.x - currentPan.x) > 0.001 ||
@@ -150,8 +174,35 @@ export default function Home() {
     };
   }, []);
 
+  const renderTopImageCard = (cardNumber: 1 | 2 | 3) => {
+    const isHovered = hoveredTopCard === cardNumber;
+    const activeSource =
+      cardNumber === 3
+        ? `/website/flowvideo/toplist/3/${topCard3Frame}.png`
+        : `/website/flowvideo/toplist/${cardNumber}/1.png`;
+
+    return (
+      <div
+        className="relative h-[160px] w-[295px] shrink-0 overflow-hidden rounded-[13px] border border-white/20 shadow-sm"
+        onMouseEnter={() => setHoveredTopCard(cardNumber)}
+        onMouseLeave={() => setHoveredTopCard(null)}
+      >
+        <img
+          src={`/website/flowvideo/toplist/${cardNumber}/before.png`}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+        <img
+          src={activeSource}
+          alt=""
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-[350ms] ease-out ${isHovered ? "opacity-100" : "opacity-0"}`}
+        />
+      </div>
+    );
+  };
+
   return (
-    <div className="w-full bg-white relative overflow-x-hidden font-epilogue">
+    <div className="w-full bg-white relative overflow-clip font-epilogue">
       {/* Global SVG Filters for Liquid Glass Effect */}
       <svg style={{ display: "none" }}>
         <filter id="glass-distortion">
@@ -248,30 +299,51 @@ export default function Home() {
         }
 
       `}} />
-      
+
+      {/* 单一连续容器：Hero、轮播、页脚共享同一个正常文档流和同一条页面滚动条，
+          不再作为三个独立的 <section>/<footer> 区块各自成一个滚动或裁剪单元。 */}
+      <main className="relative flex w-full flex-col">
       {/* ======================= Desktop - 2 ======================= */}
       <section 
         ref={heroSectionRef}
         className="relative w-full h-[816px] bg-black overflow-hidden flex justify-center"
       >
-        {/* 首帧保持黑屏，Cowboy 随后于 0.2 秒内渐显为完整画面。 */}
+        {/* 首次播放完整 Cowboy，之后循环播放 Part Cowboy、Daduhuidog、Feichuanlanqiu。 */}
         <video
-          ref={cowboyVideoRef}
-          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "cowboy" ? "hero-video--visible" : ""}`}
+          ref={fullCowboyVideoRef}
+          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "fullCowboy" ? "hero-video--visible" : ""}`}
           src="/website/fullcowboy.mp4"
           muted
           playsInline
           preload="auto"
-          onEnded={() => setActiveHeroVideo("metropolis")}
+          onEnded={() => setActiveHeroVideo("daduhuidog")}
         />
         <video
-          ref={metropolisVideoRef}
-          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "metropolis" ? "hero-video--visible" : ""}`}
+          ref={partCowboyVideoRef}
+          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "partCowboy" ? "hero-video--visible" : ""}`}
+          src="/website/partofcowboy.mp4"
+          muted
+          playsInline
+          preload="auto"
+          onEnded={() => setActiveHeroVideo("daduhuidog")}
+        />
+        <video
+          ref={daduhuidogVideoRef}
+          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "daduhuidog" ? "hero-video--visible" : ""}`}
           src="/website/daduhuidog.mp4"
           muted
           playsInline
           preload="auto"
-          onEnded={(event) => event.currentTarget.pause()}
+          onEnded={() => setActiveHeroVideo("basketball")}
+        />
+        <video
+          ref={basketballVideoRef}
+          className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "basketball" ? "hero-video--visible" : ""}`}
+          src="/website/feichuanlanqiu.mp4"
+          muted
+          playsInline
+          preload="auto"
+          onEnded={() => setActiveHeroVideo("partCowboy")}
         />
 
         {/* --- Figma 居中的 1440px 容器层 (用于约束元素的定位) --- */}
@@ -332,9 +404,12 @@ export default function Home() {
           <div className={`pointer-events-none absolute top-[335px] left-[508.5px] h-[134px] w-[423px] overflow-hidden rounded-[74px] z-10 transition-opacity duration-[200ms] ease-in-out ${heroStage === "video" ? "opacity-100" : "opacity-0"}`}>
             <LensRefraction
               stage="video"
-              activeVideo={activeHeroVideo}
-              cowboyVideo={heroMediaReady ? cowboyVideoRef.current : null}
-              metropolisVideo={heroMediaReady ? metropolisVideoRef.current : null}
+              activeVideoElement={heroMediaReady ? {
+                fullCowboy: fullCowboyVideoRef.current,
+                partCowboy: partCowboyVideoRef.current,
+                daduhuidog: daduhuidogVideoRef.current,
+                basketball: basketballVideoRef.current,
+              }[activeHeroVideo] : null}
               heroPanRef={heroPanRef}
             />
           </div>
@@ -366,61 +441,71 @@ export default function Home() {
 
       {/* ======================= Desktop - 3 ======================= */}
       <section 
-        className="relative w-full overflow-x-hidden h-[1099px] flex justify-center" 
-        style={{ background: "linear-gradient(180deg, #FFFFFF 0%, #F7F4D8 18.75%, #F2E2AB 37.5%, rgba(162, 116, 59, 0.8) 58.65%, rgba(77, 47, 24, 0.95) 77.4%, #160D0A 96.15%)" }}
+        className="relative w-full overflow-clip h-[1606px] flex justify-center" 
+        style={{ background: "linear-gradient(180deg, #FFFFFF 0%, #F7F4D8 18.75%, #F2E2AB 37.5%, rgba(162, 116, 59, 0.8) 58.65%, rgba(77, 47, 24, 0.95) 78.99%, #160D0A 89.29%, #000000 96.4%)" }}
       >
         {/* Frame 1 overlay */}
-        <div className="absolute top-0 left-0 w-full h-[1099px] bg-black/[0.004] pointer-events-none" />
+        <div className="absolute top-0 left-0 w-full h-[1606px] bg-black/[0.004] pointer-events-none" />
 
-        {/* 保留 Figma 的顶部 98px 留白；缩短区块尾部等量的无内容滚动距离。 */}
-        <div className="relative w-full max-w-[1440px] h-[1099px] pointer-events-none">
-          {/* Ellipses / Glow Effects */}
-          <div className="absolute top-[863px] left-[292px] w-[633.62px] h-[200px] bg-[#0D0702] blur-[100px] -rotate-[18.31deg] pointer-events-none" />
-          <div className="absolute top-[836px] left-[-119px] w-[399.77px] h-[200px] bg-[#0D0702] blur-[100px] rotate-[62.91deg] pointer-events-none" />
-          <div className="absolute top-[732px] left-[1131px] w-[461px] h-[551px] bg-[#0D0702] blur-[100px] pointer-events-none" />
+        {/* 内部约束容器保留元素定位尺寸 (1440px 居中) */}
+        <div className="relative w-full max-w-[1440px] h-[1606px] pointer-events-none">
+          {/* Ellipses / Glow Effects (Group 3 坐标已换算为相对本容器的绝对定位) */}
+          <div className="absolute top-[826.2px] left-[114px] w-[653.86px] h-[252.43px] bg-[#0D0702] blur-[100px] pointer-events-none" style={{ transform: "matrix(0.92, -0.39, 0.25, 0.97, 0, 0)" }} />
+          <div className="absolute top-[937px] left-[-356px] w-[493.11px] h-[213.21px] bg-[#0D0702] blur-[100px] pointer-events-none" style={{ transform: "matrix(0.37, 0.93, -0.84, 0.55, 0, 0)" }} />
+          <div className="absolute top-[632px] left-[1019px] w-[461px] h-[1124px] bg-[#0D0702] blur-[100px] pointer-events-none" />
+          <div className="absolute top-[1131px] left-[-178px] w-[802px] h-[227px] bg-[#0D0502] blur-[90px] rotate-[16.25deg] pointer-events-none" />
 
-          {/* Image Grid Row 1 (top: 98px) - Scrolls Left (跨越全屏，向外突围) */}
-          <div className="absolute top-[98px] left-[50%] -translate-x-1/2 w-[100vw] overflow-hidden pointer-events-auto">
-            <div className="animate-marquee-left">
+          {/* Image Grid Row 1 (top: 175px) - Scrolls Left (跨越全屏，向外突围) */}
+          <div
+            className="absolute top-[175px] left-[50%] -translate-x-1/2 w-[100vw] overflow-hidden pointer-events-auto"
+            onMouseLeave={() => setHoveredTopCard(null)}
+          >
+            <div className="animate-marquee-left" style={{ animationPlayState: hoveredTopCard ? "paused" : "running" }}>
               {/* 我们重复两遍内容块，制造无缝轮播 */}
               {[...Array(2)].map((_, i) => (
-                <div key={i} className="flex shrink-0 gap-6 pr-6">
-                  <div className="w-[295px] h-[160px] bg-[#000000]/10 rounded-[13px] border border-white/20 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#FFFFFF]/30 rounded-[13px] border border-white/40 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#000000]/15 rounded-[13px] border border-white/20 shadow-sm" />
+                <div key={i} className="flex shrink-0 gap-[25px] pr-[25px]">
+                  {renderTopImageCard(1)}
+                  {renderTopImageCard(2)}
+                  {renderTopImageCard(3)}
                   <div className="w-[295px] h-[160px] bg-[#FFFFFF]/25 rounded-[13px] border border-white/30 shadow-sm" />
                   <div className="w-[295px] h-[160px] bg-[#000000]/20 rounded-[13px] border border-white/20 shadow-sm" />
+                  <div className="w-[295px] h-[160px] bg-[#FFFFFF]/20 rounded-[13px] border border-white/20 shadow-sm" />
+                  <div className="w-[295px] h-[160px] bg-[#000000]/15 rounded-[13px] border border-white/20 shadow-sm" />
+                  <div className="w-[295px] h-[160px] bg-[#FFFFFF]/30 rounded-[13px] border border-white/40 shadow-sm" />
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Image Grid Row 2 (top: 277px) - Scrolls Right */}
-          <div className="absolute top-[277px] left-[50%] -translate-x-1/2 w-[100vw] overflow-hidden pointer-events-auto">
+          {/* Image Grid Row 2 (top: 354px) - Scrolls Right */}
+          <div className="absolute top-[354px] left-[50%] -translate-x-1/2 w-[100vw] overflow-hidden pointer-events-auto">
             <div className="animate-marquee-right">
               {/* 我们重复两遍内容块，制造无缝轮播 */}
               {[...Array(2)].map((_, i) => (
-                <div key={i} className="flex shrink-0 gap-6 pr-6">
+                <div key={i} className="flex shrink-0 gap-[25px] pr-[25px]">
                   <div className="w-[295px] h-[160px] bg-[#FFFFFF]/30 rounded-[13px] border border-white/40 shadow-sm" />
                   <div className="w-[295px] h-[160px] bg-[#000000]/20 rounded-[13px] border border-white/20 shadow-sm" />
                   <div className="w-[295px] h-[160px] bg-[#FFFFFF]/25 rounded-[13px] border border-white/30 shadow-sm" />
                   <div className="w-[295px] h-[160px] bg-[#000000]/10 rounded-[13px] border border-white/20 shadow-sm" />
                   <div className="w-[295px] h-[160px] bg-[#FFFFFF]/15 rounded-[13px] border border-white/10 shadow-sm" />
+                  <div className="w-[295px] h-[160px] bg-[#000000]/15 rounded-[13px] border border-white/20 shadow-sm" />
+                  <div className="w-[295px] h-[160px] bg-[#FFFFFF]/20 rounded-[13px] border border-white/20 shadow-sm" />
+                  <div className="w-[295px] h-[160px] bg-[#000000]/25 rounded-[13px] border border-white/20 shadow-sm" />
                 </div>
               ))}
             </div>
           </div>
 
           {/* Title: All IN ONE... */}
-          <div className="absolute top-[511px] left-[357px] w-[726px] h-[69px]">
-            <h2 className="text-center font-semibold text-[56px] leading-[57px] text-white drop-shadow-md">
+          <div className="absolute top-[669px] left-[357px] w-[726px] h-[69px]">
+            <h2 className="font-baskervville text-center font-semibold text-[56px] leading-[72px] text-white drop-shadow-md">
               All IN ONE, All IN ONCE.
             </h2>
           </div>
 
           {/* Large UI Mockup Cards */}
-          <div className="absolute top-[628px] left-[177px] w-[403px] h-[279px] bg-[#D9D9D9]/80 backdrop-blur-sm border-2 border-white/50 rounded-[30px] box-border shadow-[0_8px_30px_rgb(0,0,0,0.12)] transform transition-transform hover:-translate-y-2 cursor-pointer pointer-events-auto" />
-          <div className="absolute top-[628px] left-[619px] w-[708px] h-[471px] bg-[#D9D9D9]/80 backdrop-blur-md border-2 border-white/50 rounded-[30px] box-border shadow-[0_20px_50px_rgb(0,0,0,0.2)] transform transition-transform hover:-translate-y-2 cursor-pointer pointer-events-auto" />
+          <div className="absolute top-[885px] left-[177px] w-[403px] h-[279px] bg-[#D9D9D9]/80 backdrop-blur-sm border-2 border-white/50 rounded-[30px] box-border shadow-[0_8px_30px_rgb(0,0,0,0.12)] transform transition-transform hover:-translate-y-2 cursor-pointer pointer-events-auto" />
+          <div className="absolute top-[885px] left-[619px] w-[708px] h-[471px] bg-[#D9D9D9]/80 backdrop-blur-md border-2 border-white/50 rounded-[30px] box-border shadow-[0_20px_50px_rgb(0,0,0,0.2)] transform transition-transform hover:-translate-y-2 cursor-pointer pointer-events-auto" />
         </div>
       </section>
 
@@ -537,6 +622,7 @@ export default function Home() {
           </div>
         </div>
       </footer>
+      </main>
 
     </div>
   );

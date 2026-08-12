@@ -10,7 +10,6 @@ import {
 } from "@react-three/drei";
 
 type HeroStage = "black" | "video";
-type HeroVideo = "cowboy" | "metropolis";
 
 const HERO_HEIGHT = 816;
 const DESIGN_WIDTH = 1440;
@@ -19,8 +18,6 @@ const LENS_TOP = 335;
 const LENS_WIDTH = 423;
 const LENS_HEIGHT = 134;
 const OUTER_RING_HORIZONTAL_INSET = -12;
-const COWBOY_VIDEO_ZOOM = 1;
-const DOG_VIDEO_ZOOM = 1;
 
 function getMediaSize(texture: THREE.Texture) {
   const image = texture.image as HTMLImageElement | HTMLVideoElement | undefined;
@@ -66,52 +63,34 @@ function cropTextureToLens(
 
 function HeroBackdrop({
   stage,
-  activeVideo,
-  cowboyVideo,
-  metropolisVideo,
+  activeVideoElement,
   heroPanRef,
 }: {
   stage: HeroStage;
-  activeVideo: HeroVideo;
-  cowboyVideo: HTMLVideoElement | null;
-  metropolisVideo: HTMLVideoElement | null;
+  activeVideoElement: HTMLVideoElement | null;
   heroPanRef: RefObject<{ x: number; y: number }>;
 }) {
   const { width, height } = useThree((state) => state.viewport);
-  const cowboyTexture = useMemo(
-    () => (cowboyVideo ? new THREE.VideoTexture(cowboyVideo) : null),
-    [cowboyVideo],
-  );
-  const metropolisTexture = useMemo(
-    () => (metropolisVideo ? new THREE.VideoTexture(metropolisVideo) : null),
-    [metropolisVideo],
+  const activeTexture = useMemo(
+    () => (activeVideoElement ? new THREE.VideoTexture(activeVideoElement) : null),
+    [activeVideoElement],
   );
 
   useEffect(
     () => () => {
-      cowboyTexture?.dispose();
-      metropolisTexture?.dispose();
+      activeTexture?.dispose();
     },
-    [cowboyTexture, metropolisTexture],
+    [activeTexture],
   );
 
-  const texture =
-    stage === "black"
-      ? null
-      : activeVideo === "cowboy"
-        ? cowboyTexture
-        : metropolisTexture;
+  const texture = stage === "black" ? null : activeTexture;
 
   useFrame(() => {
     if (texture) {
       cropTextureToLens(
         texture,
         stage === "video" ? heroPanRef.current : { x: 0, y: 0 },
-        stage === "video"
-          ? activeVideo === "cowboy"
-            ? COWBOY_VIDEO_ZOOM
-            : DOG_VIDEO_ZOOM
-          : 1,
+        1,
       );
     }
   });
@@ -174,15 +153,11 @@ function Lens({ children }: { children: ReactNode }) {
 
 export function LensRefraction({
   stage,
-  activeVideo,
-  cowboyVideo,
-  metropolisVideo,
+  activeVideoElement,
   heroPanRef,
 }: {
   stage: HeroStage;
-  activeVideo: HeroVideo;
-  cowboyVideo: HTMLVideoElement | null;
-  metropolisVideo: HTMLVideoElement | null;
+  activeVideoElement: HTMLVideoElement | null;
   heroPanRef: RefObject<{ x: number; y: number }>;
 }) {
   return (
@@ -197,9 +172,7 @@ export function LensRefraction({
         <Lens>
           <HeroBackdrop
             stage={stage}
-            activeVideo={activeVideo}
-            cowboyVideo={cowboyVideo}
-            metropolisVideo={metropolisVideo}
+            activeVideoElement={activeVideoElement}
             heroPanRef={heroPanRef}
           />
         </Lens>
