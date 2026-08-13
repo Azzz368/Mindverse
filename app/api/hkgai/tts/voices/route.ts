@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { normalizeAIError } from "@/server/ai/errors";
 import { uploadHKGAIVoice, type HKGAITTSLanguage } from "@/server/ai/hkgaiAudioProvider";
+import { requireSession } from "@/server/auth/auth";
 
 const languages = new Set<HKGAITTSLanguage>(["auto", "mandarin", "cantonese", "english"]);
 
 export async function POST(request: Request) {
   try {
+    await requireSession(request);
     const form = await request.formData();
     if (form.get("consentConfirmed") !== "true") {
       return NextResponse.json({ ok: false, error: { message: "必须确认已获得声音所有者授权。", code: "CONSENT_REQUIRED", status: 400 } }, { status: 400 });

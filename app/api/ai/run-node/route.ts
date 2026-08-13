@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 import { normalizeAIError } from "@/server/ai/errors";
 import { isRunnableNodeType, runNodeUseCase } from "@/server/ai/application/runNodeUseCase";
+import { requireSession } from "@/server/auth/auth";
 
 export async function POST(request: Request) {
   try {
+    const session = await requireSession(request);
     const body = await request.json() as { nodeType?: unknown; input?: unknown };
     if (!isRunnableNodeType(body.nodeType) || !body.input || typeof body.input !== "object") {
       return NextResponse.json({ ok: false, error: { message: "Invalid nodeType or input.", code: "INVALID_REQUEST", status: 400 } }, { status: 400 });
     }
-    const result = await runNodeUseCase(body.nodeType, body.input as Record<string, unknown>);
+    const result = await runNodeUseCase(body.nodeType, body.input as Record<string, unknown>, { workspaceId: session.workspaceId });
     if (!result.ok) return NextResponse.json(result, { status: result.error.status });
     return NextResponse.json(result);
   } catch (error) {

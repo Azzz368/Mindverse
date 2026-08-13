@@ -18,6 +18,7 @@ import { qwenErrorPayload } from "@/server/qwen/errors";
 import { assertSourceAspectRatio, verifyCompletedVideoAspectRatio } from "@/server/ai/videoAspectRatio";
 import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER, type QwenVoiceProvider } from "@/shared/api/qwenContracts";
 import type { GenerateAudioInput, GenerateImageInput, GenerateImageRevisionInput, GenerateStoryboardInput, GenerateTextInput, GenerateVideoInput } from "@/server/ai/types";
+import { queryPostgres } from "@/server/db/postgres";
 
 export type RunnableNodeType = "text" | "script" | "image" | "image-revision" | "video" | "videoEdit" | "motion" | "audio" | "musicGeneration" | "hkgaiTTS" | "voiceClone" | "voiceTTS" | "storyboard";
 
@@ -166,7 +167,7 @@ async function runScript(input: Record<string, unknown>) {
   return parseScript(result.text, brief, count);
 }
 
-export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Record<string, unknown>): Promise<RunNodeResult> {
+export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Record<string, unknown>, context: { workspaceId?: string } = {}): Promise<RunNodeResult> {
   if (nodeType === "videoEdit") {
     try {
       const output = await createFfmpegVideoEdit({
@@ -216,6 +217,10 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
   if (nodeType === "voiceClone") {
     const voice = text(rawInput.voice);
     if (!voice) return fail("Create or select a cloned voice before running this node.", 400, "VOICE_REQUIRED");
+    if (context.workspaceId) {
+      const owned = await queryPostgres(`SELECT 1 FROM mindverse_voice_assets WHERE workspace_id = $1 AND provider = 'qwen' AND voice_id = $2 AND deleted_at IS NULL LIMIT 1`, [context.workspaceId, voice]);
+      if (!owned.rowCount) return fail("Cloned voice not found in this workspace.", 404, "VOICE_NOT_FOUND");
+    }
     const targetModel = optionalText(rawInput.targetModel) || DEFAULT_QWEN_VOICE_MODEL;
     return {
       ok: true,
@@ -236,9 +241,14 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
 
   if (nodeType === "voiceTTS") {
     try {
+      const voice = text(rawInput.voice);
+      if (context.workspaceId) {
+        const owned = await queryPostgres(`SELECT 1 FROM mindverse_voice_assets WHERE workspace_id = $1 AND provider = 'qwen' AND voice_id = $2 AND deleted_at IS NULL LIMIT 1`, [context.workspaceId, voice]);
+        if (!owned.rowCount) return fail("Cloned voice not found in this workspace.", 404, "VOICE_NOT_FOUND");
+      }
       const output = await synthesizeWithClonedVoice({
         text: text(rawInput.text),
-        voice: text(rawInput.voice),
+        voice,
         targetModel: optionalText(rawInput.targetModel) || DEFAULT_QWEN_VOICE_MODEL,
         voiceProvider: optionalVoiceProvider(rawInput.voiceProvider) || DEFAULT_QWEN_VOICE_PROVIDER,
         languageType: rawInput.languageType === "Chinese" || rawInput.languageType === "English" || rawInput.languageType === "German" || rawInput.languageType === "Italian" || rawInput.languageType === "Portuguese" || rawInput.languageType === "Spanish" || rawInput.languageType === "Japanese" || rawInput.languageType === "Korean" || rawInput.languageType === "French" || rawInput.languageType === "Russian" ? rawInput.languageType : "Auto",
@@ -250,7 +260,7 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
           ...output,
           url: output.audioUrl,
           model: output.model || optionalText(rawInput.targetModel) || DEFAULT_QWEN_VOICE_MODEL,
-          voice: text(rawInput.voice),
+          voice,
           provider: "qwencloud",
           voiceProvider: output.voiceProvider || optionalVoiceProvider(rawInput.voiceProvider) || DEFAULT_QWEN_VOICE_PROVIDER,
           text: text(rawInput.text),

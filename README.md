@@ -106,6 +106,18 @@ The mock provider creates a local revision preview. Real 302.AI image revision d
 
 Canvas projects auto-save after edits, keep a small browser draft as a recovery copy, and flush the latest change when the page is hidden or left. For Render, set `WORKFLOW_STORAGE_PROVIDER=bunny` and configure `BUNNY_STORAGE_ZONE`, `BUNNY_ACCESS_KEY`, `BUNNY_STORAGE_REGION`, and `BUNNY_PULL_ZONE_URL`. Do not use `WORKFLOW_STORAGE_PROVIDER=local` in production: Render's local filesystem is ephemeral, so projects can disappear after an instance restart or deploy.
 
+## Accounts and private workspaces
+
+The first account release stores users, sessions, workspace membership, and workflow/Skill metadata in Postgres. Canvas snapshots and media stay in Bunny Storage under workspace-scoped keys. Each request resolves the workspace from the server-side session; the browser no longer sends an access code or a trusted workspace ID.
+
+For Render, configure `DATABASE_URL`, `MINDVERSE_AUTH_SECRET`, `MINDVERSE_REGISTRATION_MODE=invite`, and `MINDVERSE_REGISTRATION_INVITE_CODE`, then run `npm run db:migrate` before deploying the account-enabled build. Generate a long random auth secret with:
+
+```powershell
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
+
+To assign the old `666666` access-code projects and Skills to a registered administrator, set `MINDVERSE_LEGACY_OWNER_EMAIL` and run `npm run workspace:migrate-legacy` once after the schema migration. The import is additive and leaves the legacy Bunny files untouched as a recovery copy.
+
 ## Capability retrieval and RAG
 
 The Agent uses a unified semantic route and capability-plan protocol: Router → Capability Retriever → Planner → deterministic validator → canvas compiler. Skills, Tools, configured models, and runtimes share one executable capability catalog; Planner steps cite `providerCapabilityId` and `evidenceIds` instead of inventing providers.

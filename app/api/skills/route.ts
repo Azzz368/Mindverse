@@ -1,25 +1,24 @@
 import { NextResponse } from "next/server";
+import { authErrorResponse, requireSession } from "@/server/auth/auth";
 import { createSkill, listSkills } from "@/server/storage/skillStorage";
 
 export async function GET(request: Request) {
   try {
-    const accessCode = new URL(request.url).searchParams.get("accessCode");
-    return NextResponse.json({ ok: true, output: await listSkills(accessCode) });
+    const session = await requireSession(request);
+    return NextResponse.json({ ok: true, output: await listSkills(session.workspaceId) });
   } catch (error) {
-    return NextResponse.json(
-      { ok: false, error: { message: error instanceof Error ? error.message : "Could not load skills.", status: 401 } },
-      { status: 401 },
-    );
+    const failure = authErrorResponse(error, "Could not load skills.");
+    return NextResponse.json(failure.body, { status: failure.status });
   }
 }
+
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { accessCode?: unknown; skill?: unknown };
-    return NextResponse.json({ ok: true, output: await createSkill(body.accessCode, body.skill) });
+    const session = await requireSession(request);
+    const body = await request.json() as { skill?: unknown };
+    return NextResponse.json({ ok: true, output: await createSkill({ workspaceId: session.workspaceId, userId: session.userId }, body.skill) });
   } catch (error) {
-    return NextResponse.json(
-      { ok: false, error: { message: error instanceof Error ? error.message : "Could not create skill.", status: 400 } },
-      { status: 400 },
-    );
+    const failure = authErrorResponse(error, "Could not create skill.");
+    return NextResponse.json(failure.body, { status: failure.status });
   }
 }

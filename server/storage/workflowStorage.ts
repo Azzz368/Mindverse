@@ -1,50 +1,80 @@
 import "server-only";
 
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { deleteBunnyFile, getJsonFromBunny, uploadJsonToBunny } from "./bunnyClient";
+import { getJsonFromBunny, uploadJsonToBunny } from "./bunnyClient";
+import { queryPostgres } from "@/server/db/postgres";
 import { agentMemorySummary } from "@/shared/agent/projectMemory";
 import type { CanvasSnapshot } from "@/shared/canvas";
 import { indexProjectMemory } from "@/server/rag/sources/projectSource";
 import { indexSuccessfulWorkflow } from "@/server/rag/sources/workflowSource";
 import { deactivateRagDocument } from "@/server/rag/documentIngestion";
 
-export type WorkflowSummary = { id: string; name: string; createdAt: string; updatedAt: string };
+export type WorkflowSummary = { id: string; name: string; createdAt: string; updatedAt: string; revision: number };
 export type StoredWorkflow = WorkflowSummary & CanvasSnapshot;
+export type WorkflowOwner = { workspaceId: string; userId: string };
 
-const ACCESS_CODE = "666666";
+export class WorkflowStorageError extends Error {
+  constructor(message: string, public status = 400, public code = "WORKFLOW_STORAGE_ERROR") {
+    super(message);
+    this.name = "WorkflowStorageError";
+  }
+}
+
+type WorkflowRow = {
+  id: string;
+  name: string;
+  snapshot_storage_key: string;
+  revision: number;
+  created_at: Date | string;
+  updated_at: Date | string;
+};
+
 const emptySnapshot = (projectName: string): CanvasSnapshot => ({ version: 1, projectName, nodes: [], edges: [] });
-const accountPath = (accessCode: string) => `workflows/access-${accessCode}`;
-const indexPath = (accessCode: string) => `${accountPath(accessCode)}/index.json`;
-const workflowPath = (accessCode: string, workflowId: string) => `${accountPath(accessCode)}/${workflowId}.json`;
-const workspaceLocalStorageRoot = () => path.join(process.cwd(), ".mindverse-local");
-const operatingSystemLocalStorageRoot = () =>
-  path.join(process.env.LOCALAPPDATA || process.env.XDG_DATA_HOME || os.homedir(), "Mindverse", "workflow-storage");
-const localStorageRoot = () =>
-  process.env.MINDVERSE_LOCAL_STORAGE_ROOT ||
-  workspaceLocalStorageRoot();
-const localPath = (remotePath: string) => path.join(localStorageRoot(), ...remotePath.split("/"));
-const legacyLocalPaths = (remotePath: string) => [
-  operatingSystemLocalStorageRoot(),
-  workspaceLocalStorageRoot(),
-].filter((root, index, roots) => root !== localStorageRoot() && roots.indexOf(root) === index)
-  .map((root) => path.join(root, ...remotePath.split("/")));
-const canUseLocalFallback = () => process.env.WORKFLOW_STORAGE_PROVIDER === "local" || process.env.NODE_ENV !== "production";
-const executableNodeTypes = new Set([
-  "script", "storyboard", "storyboardImage", "image", "video", "videoEdit", "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "output",
-]);
+const snapshotPath = (workspaceId: string, workflowId: string, revision: number) =>
+  `workspaces/${workspaceId}/workflows/${workflowId}/snapshots/revision-${revision}.json`;
+const localRoot = () => process.env.MINDVERSE_LOCAL_STORAGE_ROOT || path.join(process.cwd(), ".mindverse-local");
+const localPath = (remotePath: string) => path.join(localRoot(), ...remotePath.split("/"));
+const useLocal = () => process.env.WORKFLOW_STORAGE_PROVIDER === "local";
+const executableNodeTypes = new Set(["script", "storyboard", "storyboardImage", "image", "video", "videoEdit", "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "output"]);
+
+const iso = (value: Date | string) => new Date(value).toISOString();
+const summaryFromRow = (row: WorkflowRow): WorkflowSummary => ({
+  id: row.id,
+  name: row.name,
+  revision: row.revision,
+  createdAt: iso(row.created_at),
+  updatedAt: iso(row.updated_at),
+});
+
+async function writeSnapshot(storageKey: string, value: StoredWorkflow) {
+  if (!useLocal()) return uploadJsonToBunny(storageKey, value).then(() => undefined);
+  const target = localPath(storageKey);
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, JSON.stringify(value, null, 2), "utf8");
+}
+
+async function readSnapshot(storageKey: string) {
+  if (!useLocal()) return getJsonFromBunny<StoredWorkflow>(storageKey);
+  try {
+    return JSON.parse(await readFile(localPath(storageKey), "utf8")) as StoredWorkflow;
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null;
+    throw error;
+  }
+}
 
 const isSuccessfulWorkflowSnapshot = (snapshot: CanvasSnapshot) => {
   const executableNodes = snapshot.nodes.filter((node) => executableNodeTypes.has(node.data.nodeType));
   return executableNodes.length > 0 && executableNodes.every((node) => node.data.status === "success" && Boolean(node.data.output));
 };
 
-async function indexWorkflowKnowledge(workflowId: string, workflow: StoredWorkflow) {
+async function indexWorkflowKnowledge(owner: WorkflowOwner, workflowId: string, workflow: StoredWorkflow) {
   try {
     const memory = agentMemorySummary(workflow.agentMemory);
     if (memory) {
       await indexProjectMemory({
+        tenantId: owner.workspaceId,
         projectId: workflowId,
         title: `${workflow.name} project memory`,
         content: `# ${workflow.name}\n\n${memory}`,
@@ -52,178 +82,111 @@ async function indexWorkflowKnowledge(workflowId: string, workflow: StoredWorkfl
       });
     }
     if (isSuccessfulWorkflowSnapshot(workflow)) {
-      await indexSuccessfulWorkflow({ workflowId, snapshot: workflow, projectId: workflowId });
+      await indexSuccessfulWorkflow({ workflowId, snapshot: workflow, tenantId: owner.workspaceId, projectId: workflowId });
     }
   } catch (error) {
     console.warn("Workflow saved, but RAG indexing failed.", error instanceof Error ? error.message : error);
   }
 }
 
-export const isValidAccessCode = (value: unknown) => typeof value === "string" && value.trim() === ACCESS_CODE;
-
-const requireAccessCode = (accessCode: unknown) => {
-  if (!isValidAccessCode(accessCode)) throw new Error("Invalid access code.");
-  return ACCESS_CODE;
-};
-
-const readIndex = async (accessCode: string) => {
-  const index = await getJsonFromBunny<{ workflows: WorkflowSummary[] }>(indexPath(accessCode));
-  return { workflows: Array.isArray(index?.workflows) ? index.workflows : [] };
-};
-
-const writeIndex = async (accessCode: string, workflows: WorkflowSummary[]) => {
-  await uploadJsonToBunny(indexPath(accessCode), { workflows });
-};
-
-async function getLocalJson<T>(remotePath: string): Promise<T | null> {
-  try {
-    return JSON.parse(await readFile(localPath(remotePath), "utf8")) as T;
-  } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-      for (const legacyPath of legacyLocalPaths(remotePath)) {
-        try {
-          return JSON.parse(await readFile(legacyPath, "utf8")) as T;
-        } catch (legacyError) {
-          if (legacyError && typeof legacyError === "object" && "code" in legacyError && legacyError.code === "ENOENT") continue;
-          throw legacyError;
-        }
-      }
-      return null;
-    }
-    throw error;
-  }
+async function workflowRow(workspaceId: string, workflowId: string) {
+  const result = await queryPostgres<WorkflowRow>(
+    `SELECT id, name, snapshot_storage_key, revision, created_at, updated_at
+       FROM mindverse_workflows
+      WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL
+      LIMIT 1`,
+    [workflowId, workspaceId],
+  );
+  return result.rows[0];
 }
 
-async function uploadLocalJson(remotePath: string, value: unknown) {
-  const filePath = localPath(remotePath);
-  await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, JSON.stringify(value, null, 2), "utf8");
+export async function listWorkflows(workspaceId: string) {
+  const result = await queryPostgres<WorkflowRow>(
+    `SELECT id, name, snapshot_storage_key, revision, created_at, updated_at
+       FROM mindverse_workflows
+      WHERE workspace_id = $1 AND deleted_at IS NULL
+      ORDER BY updated_at DESC`,
+    [workspaceId],
+  );
+  return { workflows: result.rows.map(summaryFromRow) };
 }
 
-async function deleteLocalJson(remotePath: string) {
-  await rm(localPath(remotePath), { force: true });
-}
-
-const readLocalIndex = async (accessCode: string) => {
-  const index = await getLocalJson<{ workflows: WorkflowSummary[] }>(indexPath(accessCode));
-  return { workflows: Array.isArray(index?.workflows) ? index.workflows : [] };
-};
-
-const writeLocalIndex = async (accessCode: string, workflows: WorkflowSummary[]) => {
-  await uploadLocalJson(indexPath(accessCode), { workflows });
-};
-
-async function withLocalFallback<T>(operation: () => Promise<T>, fallback: () => Promise<T>): Promise<T> {
-  if (process.env.WORKFLOW_STORAGE_PROVIDER === "local") return fallback();
-  try {
-    return await operation();
-  } catch (error) {
-    if (!canUseLocalFallback()) throw error;
-    console.warn("Bunny workflow storage unavailable; using local workflow storage.", error instanceof Error ? error.message : error);
-    return fallback();
-  }
-}
-
-export async function listWorkflows(accessCodeValue: unknown) {
-  const accessCode = requireAccessCode(accessCodeValue);
-  return withLocalFallback(() => readIndex(accessCode), () => readLocalIndex(accessCode));
-}
-
-export async function createWorkflow(accessCodeValue: unknown, nameValue: unknown) {
-  const accessCode = requireAccessCode(accessCodeValue);
-  const now = new Date().toISOString();
+export async function createWorkflow(owner: WorkflowOwner, nameValue: unknown) {
+  const now = new Date();
   const id = `workflow-${crypto.randomUUID()}`;
-  const name = typeof nameValue === "string" && nameValue.trim() ? nameValue.trim() : "Untitled workflow";
-  const summary: WorkflowSummary = { id, name, createdAt: now, updatedAt: now };
+  const name = typeof nameValue === "string" && nameValue.trim() ? nameValue.trim().slice(0, 160) : "Untitled workflow";
+  const revision = 1;
+  const storageKey = snapshotPath(owner.workspaceId, id, revision);
+  const summary: WorkflowSummary = { id, name, revision, createdAt: now.toISOString(), updatedAt: now.toISOString() };
   const workflow: StoredWorkflow = { ...summary, ...emptySnapshot(name) };
-  return withLocalFallback(
-    async () => {
-      const index = await readIndex(accessCode);
-      await uploadJsonToBunny(workflowPath(accessCode, id), workflow);
-      await writeIndex(accessCode, [summary, ...index.workflows]);
-      return workflow;
-    },
-    async () => {
-      const index = await readLocalIndex(accessCode);
-      await uploadLocalJson(workflowPath(accessCode, id), workflow);
-      await writeLocalIndex(accessCode, [summary, ...index.workflows]);
-      return workflow;
-    },
+  await writeSnapshot(storageKey, workflow);
+  await queryPostgres(
+    `INSERT INTO mindverse_workflows (id, workspace_id, created_by, name, snapshot_storage_key, revision, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`,
+    [id, owner.workspaceId, owner.userId, name, storageKey, revision, now],
   );
-}
-
-export async function getWorkflow(accessCodeValue: unknown, workflowId: string) {
-  const accessCode = requireAccessCode(accessCodeValue);
-  if (process.env.WORKFLOW_STORAGE_PROVIDER === "local") return getLocalJson<StoredWorkflow>(workflowPath(accessCode, workflowId));
-  try {
-    const remote = await getJsonFromBunny<StoredWorkflow>(workflowPath(accessCode, workflowId));
-    if (remote) return remote;
-    if (canUseLocalFallback()) return getLocalJson<StoredWorkflow>(workflowPath(accessCode, workflowId));
-    return null;
-  } catch (error) {
-    if (!canUseLocalFallback()) throw error;
-    console.warn("Bunny workflow storage unavailable; using local workflow storage.", error instanceof Error ? error.message : error);
-    return getLocalJson<StoredWorkflow>(workflowPath(accessCode, workflowId));
-  }
-}
-
-export async function saveWorkflow(accessCodeValue: unknown, workflowId: string, snapshot: CanvasSnapshot, nameValue?: unknown) {
-  const accessCode = requireAccessCode(accessCodeValue);
-  const workflow = await withLocalFallback(
-    async () => saveWorkflowTo("bunny", accessCode, workflowId, snapshot, nameValue),
-    async () => saveWorkflowTo("local", accessCode, workflowId, snapshot, nameValue),
-  );
-  await indexWorkflowKnowledge(workflowId, workflow);
   return workflow;
 }
 
-export async function renameWorkflow(accessCodeValue: unknown, workflowId: string, nameValue: unknown) {
-  const accessCode = requireAccessCode(accessCodeValue);
-  const existing = await getWorkflow(accessCode, workflowId);
-  if (!existing) throw new Error("Workflow not found.");
-  const name = typeof nameValue === "string" && nameValue.trim() ? nameValue.trim() : existing.name;
-  return saveWorkflow(accessCode, workflowId, { version: 1, projectName: name, nodes: existing.nodes, edges: existing.edges, agentMemory: existing.agentMemory }, name);
+export async function getWorkflow(workspaceId: string, workflowId: string) {
+  const row = await workflowRow(workspaceId, workflowId);
+  if (!row) return null;
+  const snapshot = await readSnapshot(row.snapshot_storage_key);
+  if (!snapshot) throw new WorkflowStorageError("Workflow snapshot is missing.", 502, "SNAPSHOT_MISSING");
+  return { ...snapshot, ...summaryFromRow(row), projectName: snapshot.projectName || row.name } satisfies StoredWorkflow;
 }
 
-export async function deleteWorkflow(accessCodeValue: unknown, workflowId: string) {
-  const accessCode = requireAccessCode(accessCodeValue);
-  await withLocalFallback(
-    async () => {
-      const index = await readIndex(accessCode);
-      await deleteBunnyFile(workflowPath(accessCode, workflowId));
-      await writeIndex(accessCode, index.workflows.filter((item) => item.id !== workflowId));
-    },
-    async () => {
-      const index = await readLocalIndex(accessCode);
-      await deleteLocalJson(workflowPath(accessCode, workflowId));
-      await writeLocalIndex(accessCode, index.workflows.filter((item) => item.id !== workflowId));
-    },
+export async function saveWorkflow(owner: WorkflowOwner, workflowId: string, snapshot: CanvasSnapshot, nameValue?: unknown, expectedRevision?: unknown) {
+  const existing = await workflowRow(owner.workspaceId, workflowId);
+  if (!existing) throw new WorkflowStorageError("Workflow not found.", 404, "WORKFLOW_NOT_FOUND");
+  const clientRevision = Number(expectedRevision);
+  if (Number.isInteger(clientRevision) && clientRevision > 0 && clientRevision !== existing.revision) {
+    throw new WorkflowStorageError("项目已在另一个页面更新，请刷新后重试。", 409, "REVISION_CONFLICT");
+  }
+  const revision = existing.revision + 1;
+  const now = new Date();
+  const name = typeof nameValue === "string" && nameValue.trim() ? nameValue.trim().slice(0, 160) : snapshot.projectName || existing.name;
+  const storageKey = snapshotPath(owner.workspaceId, workflowId, revision);
+  const workflow: StoredWorkflow = {
+    ...snapshot,
+    id: workflowId,
+    name,
+    projectName: name,
+    revision,
+    createdAt: iso(existing.created_at),
+    updatedAt: now.toISOString(),
+  };
+  await writeSnapshot(storageKey, workflow);
+  const update = await queryPostgres(
+    `UPDATE mindverse_workflows
+        SET name = $1, snapshot_storage_key = $2, revision = $3, updated_at = $4
+      WHERE id = $5 AND workspace_id = $6 AND revision = $7 AND deleted_at IS NULL`,
+    [name, storageKey, revision, now, workflowId, owner.workspaceId, existing.revision],
   );
+  if (!update.rowCount) throw new WorkflowStorageError("项目已在另一个页面更新，请刷新后重试。", 409, "REVISION_CONFLICT");
+  await indexWorkflowKnowledge(owner, workflowId, workflow);
+  return workflow;
+}
+
+export async function renameWorkflow(owner: WorkflowOwner, workflowId: string, nameValue: unknown) {
+  const existing = await getWorkflow(owner.workspaceId, workflowId);
+  if (!existing) throw new WorkflowStorageError("Workflow not found.", 404, "WORKFLOW_NOT_FOUND");
+  return saveWorkflow(owner, workflowId, existing, nameValue, existing.revision);
+}
+
+export async function deleteWorkflow(owner: WorkflowOwner, workflowId: string) {
+  const result = await queryPostgres(
+    `UPDATE mindverse_workflows SET deleted_at = now(), updated_at = now()
+      WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL`,
+    [workflowId, owner.workspaceId],
+  );
+  if (!result.rowCount) throw new WorkflowStorageError("Workflow not found.", 404, "WORKFLOW_NOT_FOUND");
   try {
     await Promise.all([
-      deactivateRagDocument("successful_workflow", workflowId, undefined, workflowId),
-      deactivateRagDocument("project_memory", workflowId, undefined, workflowId),
+      deactivateRagDocument("successful_workflow", workflowId, owner.workspaceId, workflowId),
+      deactivateRagDocument("project_memory", workflowId, owner.workspaceId, workflowId),
     ]);
   } catch (error) {
     console.warn("Workflow deleted, but its RAG documents could not be deactivated.", error instanceof Error ? error.message : error);
   }
-}
-
-async function saveWorkflowTo(storage: "bunny" | "local", accessCode: string, workflowId: string, snapshot: CanvasSnapshot, nameValue?: unknown) {
-  const pathForWorkflow = workflowPath(accessCode, workflowId);
-  const existing = storage === "bunny" ? await getJsonFromBunny<StoredWorkflow>(pathForWorkflow) : await getLocalJson<StoredWorkflow>(pathForWorkflow);
-  if (!existing) throw new Error("Workflow not found.");
-  const now = new Date().toISOString();
-  const name = typeof nameValue === "string" && nameValue.trim() ? nameValue.trim() : snapshot.projectName || existing.name;
-  const workflow: StoredWorkflow = { ...existing, ...snapshot, id: workflowId, name, projectName: name, updatedAt: now };
-  const index = storage === "bunny" ? await readIndex(accessCode) : await readLocalIndex(accessCode);
-  const workflows = index.workflows.map((item) => item.id === workflowId ? { id: workflowId, name, createdAt: item.createdAt || existing.createdAt, updatedAt: now } : item);
-  if (storage === "bunny") {
-    await uploadJsonToBunny(pathForWorkflow, workflow);
-    await writeIndex(accessCode, workflows);
-  } else {
-    await uploadLocalJson(pathForWorkflow, workflow);
-    await writeLocalIndex(accessCode, workflows);
-  }
-  return workflow;
 }

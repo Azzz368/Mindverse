@@ -7,7 +7,7 @@ import { CreativeCanvas } from "./CreativeCanvas";
 import { TopBar } from "./TopBar";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { canvasStorage } from "@/features/canvas/services/canvasStorage";
-import { ACCESS_KEY, getWorkflowSnapshot, saveWorkflowSnapshot } from "@/features/workspace/services/workflowClient";
+import { getWorkflowSnapshot, saveWorkflowSnapshot } from "@/features/workspace/services/workflowClient";
 import type { CanvasSnapshot } from "@/shared/canvas";
 import type { StoredSkill } from "@/shared/skills/skillTypes";
 import { cloneSkillCanvasTemplate } from "@/shared/skills/skillTemplate";
@@ -16,7 +16,7 @@ import { hasInlineMedia, snapshotForWorkflowPersistence, snapshotJsonSize } from
 
 const MAX_REMOTE_WORKFLOW_BYTES = 3 * 1024 * 1024;
 const MAX_LOCAL_DRAFT_BYTES = 3 * 1024 * 1024;
-const workflowDraftKey = (workflowId: string) => `mindverse-workflow-draft:${workflowId}`;
+const workflowDraftKey = (workspaceId: string, workflowId: string) => `mindverse-workflow-draft:${workspaceId}:${workflowId}`;
 
 type WorkflowDraft = { savedAt: number; snapshot: CanvasSnapshot };
 
@@ -27,9 +27,9 @@ const isCanvasSnapshot = (value: unknown): value is CanvasSnapshot => Boolean(
   && Array.isArray((value as CanvasSnapshot).edges),
 );
 
-const loadWorkflowDraft = (workflowId: string): WorkflowDraft | null => {
+const loadWorkflowDraft = (workspaceId: string, workflowId: string): WorkflowDraft | null => {
   try {
-    const raw = window.localStorage.getItem(workflowDraftKey(workflowId));
+    const raw = window.localStorage.getItem(workflowDraftKey(workspaceId, workflowId));
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<WorkflowDraft>;
     return typeof value.savedAt === "number" && isCanvasSnapshot(value.snapshot) ? { savedAt: value.savedAt, snapshot: value.snapshot } : null;
@@ -38,10 +38,10 @@ const loadWorkflowDraft = (workflowId: string): WorkflowDraft | null => {
   }
 };
 
-const saveWorkflowDraft = (workflowId: string, snapshot: CanvasSnapshot) => {
+const saveWorkflowDraft = (workspaceId: string, workflowId: string, snapshot: CanvasSnapshot) => {
   try {
     if (hasInlineMedia(snapshot) || snapshotJsonSize(snapshot) > MAX_LOCAL_DRAFT_BYTES) return false;
-    window.localStorage.setItem(workflowDraftKey(workflowId), JSON.stringify({ savedAt: Date.now(), snapshot } satisfies WorkflowDraft));
+    window.localStorage.setItem(workflowDraftKey(workspaceId, workflowId), JSON.stringify({ savedAt: Date.now(), snapshot } satisfies WorkflowDraft));
     return true;
   } catch (error) {
     console.warn("Local workflow draft save failed", error);
@@ -147,7 +147,7 @@ function LocalCanvasPersistence() {
   return null;
 }
 
-export function Workspace({ workflowId }: { workflowId?: string }) {
+export function Workspace({ workflowId, workspaceId = "local" }: { workflowId?: string; workspaceId?: string }) {
   const projectName = useCanvasStore((state) => state.projectName);
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
@@ -159,25 +159,21 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
   const loadedRemoteWorkflow = useRef(!workflowId);
   const saveTimerRef = useRef<number | null>(null);
   const savingRef = useRef(false);
-  const pendingSaveRef = useRef<{ accessCode: string; name: string; snapshot: CanvasSnapshot } | null>(null);
-  const latestSaveRef = useRef<{ accessCode: string; name: string; snapshot: CanvasSnapshot } | null>(null);
+  const revisionRef = useRef<number | undefined>(undefined);
+  const pendingSaveRef = useRef<{ name: string; snapshot: CanvasSnapshot; expectedRevision?: number } | null>(null);
+  const latestSaveRef = useRef<{ name: string; snapshot: CanvasSnapshot; expectedRevision?: number } | null>(null);
   const flushSaveRef = useRef<() => Promise<void>>(async () => undefined);
   const lastSavedJsonRef = useRef("");
 
   useEffect(() => {
     if (!workflowId || typeof window === "undefined") return;
-    const accessCode = window.localStorage.getItem(ACCESS_KEY) || "";
-    if (!accessCode) {
-      window.location.href = "/workspace";
-      return;
-    }
     loadedRemoteWorkflow.current = false;
     latestSaveRef.current = null;
     pendingSaveRef.current = null;
     lastSavedJsonRef.current = "";
     void (async () => {
       try {
-        const payload = await getWorkflowSnapshot(workflowId, accessCode);
+        const payload = await getWorkflowSnapshot(workflowId);
         if (!payload.output) throw new Error("Workflow not found.");
         const remoteSnapshot: CanvasSnapshot = {
           version: 1,
@@ -186,7 +182,8 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
           edges: Array.isArray(payload.output.edges) ? payload.output.edges as never : [],
           agentMemory: payload.output.agentMemory,
         };
-        const draft = loadWorkflowDraft(workflowId);
+        revisionRef.current = payload.output.revision ?? 1;
+        const draft = loadWorkflowDraft(workspaceId, workflowId);
         const remoteUpdatedAt = Date.parse((payload.output as { updatedAt?: string }).updatedAt || "") || 0;
         const shouldRecoverDraft = Boolean(draft && draft.savedAt > remoteUpdatedAt);
         const initialSnapshot = shouldRecoverDraft ? draft!.snapshot : remoteSnapshot;
@@ -203,10 +200,10 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
         // Do not immediately write a just-loaded workflow back to Render. A
         // legacy snapshot can contain inline media and used to cause a large
         // read → serialize → PUT loop as soon as the canvas finished loading.
-        lastSavedJsonRef.current = shouldRecoverDraft ? "" : JSON.stringify({ accessCode, name: loaded.projectName, snapshot });
+        lastSavedJsonRef.current = shouldRecoverDraft ? "" : JSON.stringify({ name: loaded.projectName, snapshot, expectedRevision: revisionRef.current });
         loadedRemoteWorkflow.current = true;
       } catch (error) {
-        const draft = loadWorkflowDraft(workflowId);
+        const draft = loadWorkflowDraft(workspaceId, workflowId);
         if (draft) {
           setProjectName(draft.snapshot.projectName || "Untitled workflow");
           setCanvas(draft.snapshot.nodes, draft.snapshot.edges, draft.snapshot.agentMemory || null);
@@ -219,7 +216,7 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
         window.location.href = "/workspace";
       }
     })();
-  }, [setCanvas, setProjectName, workflowId]);
+  }, [setCanvas, setProjectName, workflowId, workspaceId]);
 
   useEffect(() => {
     normalizeVideoConnections();
@@ -231,18 +228,20 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
 
   useEffect(() => {
     if (!workflowId || !loadedRemoteWorkflow.current || typeof window === "undefined") return;
-    const accessCode = window.localStorage.getItem(ACCESS_KEY) || "";
-    if (!accessCode) return;
-
     const flushSave = async () => {
       if (!workflowId || savingRef.current) return;
       const next = pendingSaveRef.current;
       if (!next) return;
       pendingSaveRef.current = null;
       savingRef.current = true;
+      let savedSuccessfully = false;
       try {
-        await saveWorkflowSnapshot(workflowId, next);
-        lastSavedJsonRef.current = JSON.stringify(next);
+        const saved = await saveWorkflowSnapshot(workflowId, next);
+        if (saved.output?.revision) revisionRef.current = saved.output.revision;
+        const completed = { ...next, expectedRevision: revisionRef.current };
+        lastSavedJsonRef.current = JSON.stringify(completed);
+        latestSaveRef.current = latestSaveRef.current ? { ...latestSaveRef.current, expectedRevision: revisionRef.current } : completed;
+        savedSuccessfully = true;
       } catch (error) {
         pendingSaveRef.current = pendingSaveRef.current || next;
         console.error("Remote workflow save failed", error);
@@ -251,8 +250,9 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
         savingRef.current = false;
         // Do not retry a failed request in a tight loop. The next edit, page
         // hide, or explicit navigation will retry the queued latest snapshot.
-        if (!pendingSaveRef.current) return;
-        if (lastSavedJsonRef.current === JSON.stringify(next)) void flushSave();
+        if (!savedSuccessfully || !pendingSaveRef.current) return;
+        pendingSaveRef.current = { ...pendingSaveRef.current, expectedRevision: revisionRef.current };
+        void flushSave();
       }
     };
     flushSaveRef.current = flushSave;
@@ -268,11 +268,11 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
       useCanvasStore.setState({ lastError: `画布快照超过 ${MAX_REMOTE_WORKFLOW_BYTES / 1024 / 1024}MB，无法保存。请拆分工作流或移除过大的节点内容。` });
       return;
     }
-    const payload = { accessCode, name: projectName, snapshot };
+    const payload = { name: projectName, snapshot, expectedRevision: revisionRef.current };
     const payloadJson = JSON.stringify(payload);
     latestSaveRef.current = payload;
     if (payloadJson === lastSavedJsonRef.current) return;
-    if (!saveWorkflowDraft(workflowId, snapshot)) {
+    if (!saveWorkflowDraft(workspaceId, workflowId, snapshot)) {
       useCanvasStore.setState({ lastError: "本地草稿保存失败；请避免使用内嵌 base64 媒体并检查浏览器存储空间。" });
     }
 
@@ -288,7 +288,7 @@ export function Workspace({ workflowId }: { workflowId?: string }) {
         saveTimerRef.current = null;
       }
     };
-  }, [agentMemory, edges, nodes, projectName, workflowId]);
+  }, [agentMemory, edges, nodes, projectName, workflowId, workspaceId]);
 
   useEffect(() => {
     if (!workflowId || typeof window === "undefined") return;

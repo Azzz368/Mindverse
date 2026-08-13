@@ -23,6 +23,8 @@ import { applyComposedPrompts, fallbackComposedPrompts } from "@/server/agent/co
 import { resolvePromptProfiles } from "@/server/agent/promptProfiles/resolver";
 import { DEFAULT_AGENT_EXECUTION_MODEL, isAgentExecutionModelId, type AgentExecutionModelId } from "@/shared/agent/executionModels";
 import { DIGITAL_HUMAN_VIDEO_PROMPT } from "@/shared/workflow/videoModelPresets";
+import { requireSession } from "@/server/auth/auth";
+import { getWorkflow } from "@/server/storage/workflowStorage";
 
 type RouterSnapshot = {
   projectName: string;
@@ -297,6 +299,7 @@ const numberConstraint = (constraints: Record<string, unknown>, key: string) => 
 const retrievalRequestFrom = (
   route: AgentSemanticRoute,
   snapshot: RouterSnapshot,
+  workspaceId: string,
   workflowId?: string,
   rawUserMessage?: string,
   sourceNodeIds: string[] = route.targetNodeIds,
@@ -330,7 +333,7 @@ const retrievalRequestFrom = (
       aspectRatio: constraintText("aspectRatio"),
       resolution: constraintText("resolution"),
       projectId: workflowId,
-      tenantId: "shared",
+      tenantId: workspaceId,
       availability: ["available"],
     },
     limit: 10,
@@ -389,6 +392,7 @@ const requirementSkillGuidanceFrom = (bundle?: CapabilityEvidenceBundle) => {
 };
 
 export async function POST(request: Request) {
+  let workspaceId = "";
   let run = createAgentRunRecorder();
   let executionMode: AgentRunExecutionMode = "browser";
   let executionModel: AgentExecutionModelId = DEFAULT_AGENT_EXECUTION_MODEL;
@@ -417,13 +421,14 @@ export async function POST(request: Request) {
       skillUsage: checkpointSkillUsage,
     } : undefined;
     try {
-      await persistAgentRunTrace(trace, { executionMode, request: runRequest, checkpoint });
+      await persistAgentRunTrace(trace, { workspaceId, executionMode, request: runRequest, checkpoint });
     } catch (storageError) {
       console.warn("Unable to persist Agent run checkpoint.", storageError instanceof Error ? storageError.message : storageError);
     }
     return NextResponse.json({ ...responsePayload, agentRun: trace }, init);
   };
   try {
+    workspaceId = (await requireSession(request)).workspaceId;
     const body = await request.json() as {
       userMessage?: unknown;
       canvasSnapshot?: unknown;
@@ -440,7 +445,7 @@ export async function POST(request: Request) {
     const userMessage = text(body.userMessage);
     const resumeRunId = text(body.resumeRunId);
     if (resumeRunId) {
-      const existingRun = await getAgentRun(resumeRunId);
+      const existingRun = await getAgentRun(resumeRunId, workspaceId);
       if (existingRun) {
         run = createAgentRunRecorder(existingRun);
         resumedExecutionModel = existingRun.request?.executionModel;
@@ -450,6 +455,11 @@ export async function POST(request: Request) {
     if (!userMessage) {
       run.finish("blocked", "blocked", "The Agent request did not include a user message.");
       return respond({ ok: false, error: { message: "userMessage is required." } }, { status: 400 });
+    }
+    const workflowId = text(body.workflowId);
+    if (workflowId && !await getWorkflow(workspaceId, workflowId)) {
+      run.finish("blocked", "blocked", "Workflow not found in this workspace.");
+      return respond({ ok: false, error: { message: "Workflow not found." } }, { status: 404 });
     }
     if (body.executionModel !== undefined && !isAgentExecutionModelId(body.executionModel)) {
       run.finish("blocked", "blocked", "Unsupported Agent execution model.");
@@ -479,7 +489,7 @@ export async function POST(request: Request) {
     runRequest = {
       userMessage,
       selectedNodeIds,
-      workflowId: text(body.workflowId) || undefined,
+      workflowId: workflowId || undefined,
       executionModel,
     };
     const customSkill = customSkillFrom(body.customSkill);
@@ -670,7 +680,7 @@ export async function POST(request: Request) {
     if (intent === "create" || intent === "edit") {
       const retrievalStartedAt = Date.now();
       const sourceNodeIds = [...new Set([...semanticRoute.targetNodeIds, ...agentSourceNodeIds])];
-      const retrievalQuery = retrievalRequestFrom(semanticRoute, snapshot, runRequest?.workflowId, userMessage, sourceNodeIds);
+      const retrievalQuery = retrievalRequestFrom(semanticRoute, snapshot, workspaceId, runRequest?.workflowId, userMessage, sourceNodeIds);
       run.add("tooling", "Retrieving Skills, Tools, models, and workflow evidence before evaluating missing requirements.", {
         kind: "tool",
         metadata: { requiredCapabilities: retrievalQuery.requiredCapabilities.length, targetNodes: sourceNodeIds.length, attachments: agentSourceNodeIds.length },

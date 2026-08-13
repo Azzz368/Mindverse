@@ -81,6 +81,7 @@ export type AgentRunLease = {
 
 export type AgentRunRecord = AgentRunTrace & {
   schemaVersion: 1;
+  workspaceId?: string;
   revision: number;
   executionMode: AgentRunExecutionMode;
   request?: {

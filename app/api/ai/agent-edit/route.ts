@@ -8,6 +8,7 @@ import { approvalRequiredStepIds, bindPlanCapabilities, bindRoutedCanvasInputs, 
 import type { CapabilityRetrievalRequest } from "@/shared/agent/capabilityTypes";
 import type { CanvasNode, WorkflowEdge } from "@/shared/canvas";
 import { optionalAgentExecutionModelFrom } from "@/shared/agent/executionModels";
+import { requireSession } from "@/server/auth/auth";
 
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const stringArray = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : [];
@@ -28,6 +29,7 @@ const numberConstraint = (constraints: Record<string, unknown>, key: string) => 
 
 export async function POST(request: Request) {
   try {
+    const session = await requireSession(request);
     const body = await request.json() as { userInstruction?: unknown; canvasSnapshot?: unknown; selectedNodeIds?: unknown; executionModel?: unknown };
     const userInstruction = text(body.userInstruction);
     if (!userInstruction) return NextResponse.json({ ok: false, error: { message: "userInstruction is required." } }, { status: 400 });
@@ -51,7 +53,7 @@ export async function POST(request: Request) {
       duration: numberConstraint(semanticRoute.constraints, "duration"),
       aspectRatio: typeof semanticRoute.constraints.aspectRatio === "string" ? semanticRoute.constraints.aspectRatio : undefined,
       resolution: typeof semanticRoute.constraints.resolution === "string" ? semanticRoute.constraints.resolution : undefined,
-      tenantId: "shared",
+      tenantId: session.workspaceId,
       availability: ["available"],
     };
     const evidenceBundle = await retrieveCapabilities({

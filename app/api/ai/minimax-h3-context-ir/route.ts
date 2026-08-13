@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { normalizeAIError } from "@/server/ai/errors";
 import { createH3ContextIR, queryH3ContextIR } from "@/server/ai/minimaxH3ContextIR";
+import { requireSession } from "@/server/auth/auth";
 
 const text = (value: unknown) => typeof value === "string" ? value : undefined;
 const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : undefined;
@@ -13,6 +14,7 @@ const errorResponse = (error: unknown) => {
 
 export async function POST(request: Request) {
   try {
+    await requireSession(request);
     const body = await request.json() as Record<string, unknown>;
     const output = await createH3ContextIR({
       prompt: text(body.prompt) || "",
@@ -28,6 +30,7 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   try {
+    await requireSession(request);
     const taskId = new URL(request.url).searchParams.get("taskId") || "";
     const output = await queryH3ContextIR(taskId);
     return NextResponse.json({ ok: true, output, polling: { intervalMs: output.status === "queued" || output.status === "running" ? Number(process.env.MINIMAX_CONTEXT_IR_POLL_INTERVAL_MS || 2500) : 0 } });

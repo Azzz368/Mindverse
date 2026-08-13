@@ -20,6 +20,7 @@ import { resolvePromptProfiles } from "@/server/agent/promptProfiles/resolver";
 import { indexPromptProfileDocument } from "@/server/rag/sources/promptProfileSource";
 
 let staticSync: Promise<void> | undefined;
+const workspaceSkillSync = new Map<string, Promise<void>>();
 
 const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9_\-\u3400-\u9fff]+/g, " ").trim();
 const terms = (value: string) => new Set(normalize(value).split(/\s+/).filter(Boolean));
@@ -57,7 +58,7 @@ const catalogScore = (record: CapabilityRecord, request: CapabilityRetrievalRequ
   return capabilityScore * 0.55 + lexicalScore * 0.25 + compositionBonus + (record.kind === "skill" ? 0.02 : 0);
 };
 
-async function syncStaticKnowledge(records: CapabilityRecord[]) {
+async function syncStaticKnowledge(records: CapabilityRecord[], tenantId?: string) {
   if (!postgresConfigured()) return;
   if (!staticSync) {
     staticSync = (async () => {
@@ -70,11 +71,6 @@ async function syncStaticKnowledge(records: CapabilityRecord[]) {
           else await indexModelDocument(record);
         }
       }));
-      try {
-        await backfillSkillRagDocuments("666666");
-      } catch (error) {
-        console.warn("Stored Skill RAG backfill failed; continuing with the indexed capability catalog.", error instanceof Error ? error.message : error);
-      }
       await Promise.all(builtInPromptProfiles.map((profile) => indexPromptProfileDocument(profile)));
     })().catch((error) => {
       staticSync = undefined;
@@ -82,6 +78,15 @@ async function syncStaticKnowledge(records: CapabilityRecord[]) {
     });
   }
   await staticSync;
+  if (tenantId && /^[0-9a-f-]{36}$/i.test(tenantId)) {
+    if (!workspaceSkillSync.has(tenantId)) {
+      workspaceSkillSync.set(tenantId, backfillSkillRagDocuments(tenantId).then(() => undefined).catch((error) => {
+        workspaceSkillSync.delete(tenantId);
+        console.warn("Workspace Skill RAG backfill failed; continuing with available evidence.", error instanceof Error ? error.message : error);
+      }));
+    }
+    await workspaceSkillSync.get(tenantId);
+  }
 }
 
 const catalogEvidence = (record: CapabilityRecord, score: number): CapabilityEvidence => ({
@@ -152,7 +157,7 @@ export async function retrieveCapabilities(
   let retrievalMode: CapabilityEvidenceBundle["retrievalMode"] = "catalog";
   if (postgresConfigured()) {
     try {
-      await syncStaticKnowledge(catalog);
+      await syncStaticKnowledge(catalog, request.filters.tenantId);
       retrievedEvidence = await hybridRetrieve(request, 30);
       retrievalMode = "postgres-hybrid";
     } catch (error) {

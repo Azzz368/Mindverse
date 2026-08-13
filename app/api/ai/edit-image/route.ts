@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { normalizeAIError } from "@/server/ai/errors";
 import { getImageAIProvider } from "@/server/ai/provider";
 import { archiveResultMedia } from "@/server/storage/mediaArchive";
+import { requireSession } from "@/server/auth/auth";
 
 type EditRequest = { sourceImageUrl?: unknown; prompt?: unknown; maskImageUrl?: unknown; annotationDocument?: unknown; annotationSnapshotDataUrl?: unknown; size?: unknown; quality?: unknown; outputFormat?: unknown };
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
@@ -9,6 +10,7 @@ const finalImageInstruction = "Do not include arrows, labels, rectangles, text a
 
 export async function POST(request: Request) {
   try {
+    await requireSession(request);
     const body = await request.json() as EditRequest;
     const sourceImageUrl = text(body.sourceImageUrl);
     const prompt = text(body.prompt);

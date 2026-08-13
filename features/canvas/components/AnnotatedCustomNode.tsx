@@ -759,7 +759,8 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
             value={data.prompt ?? ""}
             onChange={(v) => updateNodeData(id, { prompt: v })}
             placeholder="描述你想生成的图像，可用 @1、@2 引用素材..."
-            minHeight={80}
+            minHeight={96}
+            maxHeight={220}
           />
         </div>
         <div className="flex items-center justify-between px-6 pb-6">

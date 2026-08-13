@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { normalizeAIError } from "@/server/ai/errors";
 import { isPollableTaskType, pollTaskUseCase } from "@/server/ai/application/pollTaskUseCase";
+import { requireSession } from "@/server/auth/auth";
 
 export async function POST(request: Request) {
   try {
+    await requireSession(request);
     const body = await request.json() as { type?: unknown; taskId?: unknown; provider?: unknown; pollUrl?: unknown; pollAction?: unknown; expectedAspectRatio?: unknown };
     if (!isPollableTaskType(body.type) || typeof body.taskId !== "string" || !body.taskId) {
       return NextResponse.json({ ok: false, error: { message: "A valid task type and taskId are required.", code: "INVALID_REQUEST", status: 400 } }, { status: 400 });
