@@ -10,6 +10,7 @@ Mindverse is a node-based creative workspace for text, image, video, audio, agen
 - A Video Frame Extractor node can receive a VideoNode and create a connected Reference node from either the current frame or the final frame.
 - Video integrations include Kling, TokenStar Seedance, HKGAI MiniMax H3, and Volcengine Seedance OmniHuman 1.5. HKGAI Context IR can enhance MiniMax H3 prompts.
 - Audio integrations include HKGAI Music and TTS nodes, including reference-voice creation for supported TTS models.
+- The MiniMax H3 2K Regeneration node supports either a connected eligible H3 768P source video or a whitelisted recent `source_task_id`, using the server-only `MINIMAX_API_KEY`.
 
 For validation results, open issues, deployment notes, and the next development priorities, see [`WORKSPACE_HANDOFF.md`](WORKSPACE_HANDOFF.md).
 
@@ -113,6 +114,15 @@ TokenStar validates the real media container, not only the file name. A `.mp3` f
 To select a group, hold `Shift`, press the left mouse button on empty canvas space, drag around the desired nodes, and release. The orange dashed frame remains after release. Drag the frame to move the selected nodes together, or use its actions to run in dependency order, delete, or clear the selection.
 
 Frame extraction is implemented as a separate node under the Video category instead of adding controls to the VideoNode preview. Connect a completed VideoNode to the extractor, choose **Current frame** or **Final frame**, and run it. The extractor creates a Reference node and a visible video-to-image connection. **Current frame** uses the playback position remembered by the VideoNode rather than resetting to zero when its expanded preview closes.
+
+## MiniMax H3 2K video regeneration
+
+Add **MiniMax H3 2K Regeneration** from the Video category. This is not a general-purpose upscaler: it only regenerates a source that meets the MiniMax-H3 768P output specification into a 2K result.
+
+- **Connected source video:** connect exactly one eligible H3 768P video to `base_video`. Supply the final prompt actually sent during the original generation, plus the same first/last frames and reference image/video/audio inputs when applicable.
+- **Source task ID:** enter a succeeded official MiniMax `/v2/video_generation` task ID owned by the same account. This mode requires whitelist access and the task must remain inside MiniMax's seven-day query window.
+
+Both modes use the existing server-only `MINIMAX_API_KEY`. Optional timing can be configured with `MINIMAX_REGENERATION_POLL_INTERVAL_MS`; the target resolution is fixed by the API at `2K`.
 
 ## Image annotation and revision
 

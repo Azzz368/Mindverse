@@ -9,6 +9,7 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   script: { storyBrief: "A fictional creative story", scriptTone: "Cinematic, warm, fictional", numberOfScenes: 3, model: "" },
   image: { prompt: "A cinematic editorial image", model: "gpt-image-2(tokenstar)", size: "2048x2048", aspectRatio: "1:1", resolution: "2K", referenceImageUrl: "" },
   video: { prompt: "A gentle cinematic movement", aspectRatio: "16:9", referenceImageUrl: "", fps: "", ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID), referenceImageAssetUrl: "", referenceVideoAssetUrl: "", referenceAudioAssetUrl: "" },
+  videoRegeneration: { prompt: "", regenerationMode: "base-video", resolution: "2K", aigcWatermark: false },
   videoFrame: { frameMode: "last" },
   videoEdit: { prompt: "", editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" },
   motion: { prompt: "", compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")), motionMode: "codex-hyperframes" },
@@ -23,8 +24,8 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   output: { format: "Creative package" },
 };
 export function makeNode(type: NodeType, position = { x: 140, y: 120 }): CanvasNode {
-  const prefix = type === "videoEdit" ? "Video" : type === "videoFrame" ? "Video Frame" : type === "motion" ? "Motion" : `${type[0].toUpperCase()}${type.slice(1)}`;
-  const title = type === "image" ? "Image* GPT Image 2 (TokenStar)" : type === "videoFrame" ? "Video* 视频抽帧" : type === "musicGeneration" ? "Audio* HKGAI Music" : type === "hkgaiTTS" ? "Audio* HKGAI TTS" : type === "voiceClone" ? "Voice* Clone" : type === "voiceTTS" ? "Voice* Cloned TTS" : `${prefix}* New ${prefix}`;
+  const prefix = type === "videoEdit" ? "Video" : type === "videoRegeneration" ? "Video Regeneration" : type === "videoFrame" ? "Video Frame" : type === "motion" ? "Motion" : `${type[0].toUpperCase()}${type.slice(1)}`;
+  const title = type === "image" ? "Image* GPT Image 2 (TokenStar)" : type === "videoRegeneration" ? "Video* MiniMax H3 2K 再生成" : type === "videoFrame" ? "Video* 视频抽帧" : type === "musicGeneration" ? "Audio* HKGAI Music" : type === "hkgaiTTS" ? "Audio* HKGAI TTS" : type === "voiceClone" ? "Voice* Clone" : type === "voiceTTS" ? "Voice* Cloned TTS" : `${prefix}* New ${prefix}`;
   return { id: `${type}-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: type, title, status: "idle", ...defaults[type] } };
 }
 export type Template = { id: string; name: string; description: string; types: NodeType[] };

@@ -22,7 +22,7 @@ import { buildFixedSceneVideoSkill, type AgentWorkflowSkillId } from "@/shared/a
 
 const DEFAULT_AGENT_IMAGE_MODEL = "gpt-image-2(tokenstar)";
 export const BATCH_RUNNABLE_NODE_TYPES = new Set<NodeType>([
-  "prompt", "text", "script", "storyboard", "image", "video", "videoEdit",
+  "prompt", "text", "script", "storyboard", "image", "video", "videoRegeneration", "videoEdit",
   "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "output",
 ]);
 const imageUrlFromOutput = (output: NodeOutput) => {
@@ -88,7 +88,7 @@ const withRunMetadata = (value: unknown, provider?: string, polling?: unknown) =
   return { ...(value as Record<string, unknown>), ...(provider ? { provider } : {}), ...(polling ? { polling } : {}) };
 };
 const pollProviderFor = (node: CanvasNode, value: Record<string, unknown>) =>
-  node.data.nodeType === "video" ? asText(value.provider) || node.data.videoProvider : undefined;
+  node.data.nodeType === "video" ? asText(value.provider) || node.data.videoProvider : node.data.nodeType === "videoRegeneration" ? "minimax" : undefined;
 const videoProviderFrom = (value: string | undefined): CanvasNodeData["videoProvider"] | undefined =>
   value === "mock" || value === "302ai" || value === "302-sora2" || value === "tokenstar" || value === "kling" || value === "hkgai" || value === "volcengine" ? value : undefined;
 const restoreStatuses = (nodes: CanvasNode[]): CanvasNode[] => nodes.map((node) => { if (node.data.status !== "running") return node; const polling = ["pending", "running"].includes(asText(asRecord(node.data.output?.value).status)); const status: CanvasNodeData["status"] = polling ? "waiting" : "idle"; return { ...node, data: { ...node.data, status } }; });
@@ -109,10 +109,10 @@ const withVideoTargetHandles = (nodes: CanvasNode[], edges: WorkflowEdge[]): Wor
   return edges.flatMap((edge) => {
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
-    const normalizedEdge = source && ["video", "videoEdit", "motion"].includes(source.data.nodeType) && edge.sourceHandle === "frame-output"
+    const normalizedEdge = source && ["video", "videoRegeneration", "videoEdit", "motion"].includes(source.data.nodeType) && edge.sourceHandle === "frame-output"
       ? { ...edge, sourceHandle: undefined }
       : edge;
-    if (!source || !target || !["text", "script", "image", "video", "videoFrame", "videoEdit", "voiceTTS"].includes(target.data.nodeType)) return [normalizedEdge];
+    if (!source || !target || !["text", "script", "image", "video", "videoRegeneration", "videoFrame", "videoEdit", "voiceTTS"].includes(target.data.nodeType)) return [normalizedEdge];
     const targetHandle = targetHandleForConnection(source, target, normalizedEdge.targetHandle);
     return targetHandle ? [{ ...normalizedEdge, targetHandle }] : [];
   });
@@ -515,6 +515,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         },
       } : node);
     }
+    if (target?.data.nodeType === "videoRegeneration" && targetHandle && ["text", "base-video", "first-frame", "last-frame"].includes(targetHandle)) {
+      edges = edges.filter((edge) => edge.target !== target?.id || edge.targetHandle !== targetHandle);
+    }
     return {
       nodes,
       edges: addEdge({ ...connection, targetHandle, id: `edge-${crypto.randomUUID()}` }, edges),
@@ -813,14 +816,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const node = get().nodes.find((item) => item.id === id);
     const value = asRecord(node?.data.output?.value);
     const taskId = asText(value.taskId);
-    if (!node || !taskId || !["image", "video", "audio", "motion"].includes(node.data.nodeType)) return;
+    if (!node || !taskId || !["image", "video", "videoRegeneration", "audio", "motion"].includes(node.data.nodeType)) return;
     set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "running", error: undefined } } : item) }));
     try {
       const payload = await pollTaskRemote({ type: node.data.nodeType, taskId, provider: pollProviderFor(node, value), pollUrl: asText(value.pollUrl) || undefined, pollAction: node.data.nodeType === "video" ? (asText(value.pollAction) || undefined) : undefined, expectedAspectRatio: node.data.nodeType === "video" ? asText(value.expectedAspectRatio) || node.data.aspectRatio : undefined });
       const rawOutput = asRecord(payload.output);
       const providerFromPoll = typeof payload.provider === "string" ? payload.provider : pollProviderFor(node, value);
       const pollVideoProvider = videoProviderFrom(providerFromPoll);
-      const result = outputFromProvider(node.data.nodeType, node.data.nodeType === "video" || node.data.nodeType === "motion" ? { ...rawOutput, provider: providerFromPoll, videoUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl) } : payload.output);
+      const result = outputFromProvider(node.data.nodeType, node.data.nodeType === "video" || node.data.nodeType === "videoRegeneration" || node.data.nodeType === "motion" ? { ...rawOutput, provider: providerFromPoll, videoUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl) } : payload.output);
       const state = asText(rawOutput.status);
       const intervalMs = Number(payload.polling?.intervalMs) || 3000;
       if (state === "pending" || state === "running") schedulePoll(id, () => void get().pollNode(id), intervalMs);

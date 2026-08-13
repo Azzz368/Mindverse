@@ -7,6 +7,7 @@ import { createKlingImageVideo as tsKlingImage, createKlingTextVideo, createKlin
 import { createSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
 import { createHKGAIMinimaxVideo } from "@/server/ai/hkgaiVideoProvider";
 import { createVolcengineOmniHuman } from "@/server/ai/volcengineOmniHumanProvider";
+import { createMiniMaxH3VideoRegeneration } from "@/server/ai/minimaxH3VideoRegeneration";
 import { generateHKGAIMusic, synthesizeHKGAISpeech } from "@/server/ai/hkgaiAudioProvider";
 import { AIProviderError } from "@/server/ai/errors";
 import { createFfmpegVideoEdit } from "@/server/video/ffmpegEditRunner";
@@ -20,14 +21,14 @@ import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER, type QwenVoicePr
 import type { GenerateAudioInput, GenerateImageInput, GenerateImageRevisionInput, GenerateStoryboardInput, GenerateTextInput, GenerateVideoInput } from "@/server/ai/types";
 import { queryPostgres } from "@/server/db/postgres";
 
-export type RunnableNodeType = "text" | "script" | "image" | "image-revision" | "video" | "videoEdit" | "motion" | "audio" | "musicGeneration" | "hkgaiTTS" | "voiceClone" | "voiceTTS" | "storyboard";
+export type RunnableNodeType = "text" | "script" | "image" | "image-revision" | "video" | "videoRegeneration" | "videoEdit" | "motion" | "audio" | "musicGeneration" | "hkgaiTTS" | "voiceClone" | "voiceTTS" | "storyboard";
 
 export type RunNodeResult =
   | { ok: true; provider: string; output: unknown; polling: { intervalMs: number; maxAttempts?: number } }
   | { ok: false; error: { message: string; code?: string; status: number } };
 
 export const isRunnableNodeType = (value: unknown): value is RunnableNodeType =>
-  ["text", "script", "image", "image-revision", "video", "videoEdit", "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "storyboard"].includes(String(value));
+  ["text", "script", "image", "image-revision", "video", "videoRegeneration", "videoEdit", "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "storyboard"].includes(String(value));
 
 const fail = (message: string, status = 400, code?: string): RunNodeResult => ({ ok: false, error: { message, status, ...(code ? { code } : {}) } });
 
@@ -168,6 +169,29 @@ async function runScript(input: Record<string, unknown>) {
 }
 
 export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Record<string, unknown>, context: { workspaceId?: string } = {}): Promise<RunNodeResult> {
+  if (nodeType === "videoRegeneration") {
+    try {
+      if (rawInput.mode !== "source-task" && optionalNumber(rawInput.baseVideoCount) !== 1) {
+        return fail("MiniMax H3 source-video regeneration requires exactly one base_video connection.", 400, "MINIMAX_REGENERATION_BASE_VIDEO_COUNT");
+      }
+      const output = await createMiniMaxH3VideoRegeneration({
+        mode: rawInput.mode === "source-task" ? "source-task" : "base-video",
+        sourceTaskId: optionalText(rawInput.sourceTaskId),
+        prompt: optionalText(rawInput.prompt),
+        baseVideoUrl: optionalText(rawInput.baseVideoUrl),
+        firstFrameUrl: optionalText(rawInput.firstFrameUrl),
+        lastFrameUrl: optionalText(rawInput.lastFrameUrl),
+        referenceImageUrls: urls(rawInput.referenceImageUrls),
+        referenceVideoUrls: urls(rawInput.referenceVideoUrls),
+        referenceAudioUrls: urls(rawInput.referenceAudioUrls),
+        aigcWatermark: rawInput.aigcWatermark === true,
+      });
+      return { ok: true, provider: "minimax", output, polling: { intervalMs: Number(process.env.MINIMAX_REGENERATION_POLL_INTERVAL_MS || 5000) } };
+    } catch (error) {
+      if (error instanceof AIProviderError) return fail(error.message, error.status, error.code);
+      return fail(error instanceof Error ? error.message : "MiniMax H3 video regeneration failed.", 500, "MINIMAX_REGENERATION_ERROR");
+    }
+  }
   if (nodeType === "videoEdit") {
     try {
       const output = await createFfmpegVideoEdit({

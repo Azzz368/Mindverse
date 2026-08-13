@@ -65,7 +65,7 @@ const MORANDI = [
   { label: "淡丁香", bg: "#c8b8d8", text: "#fff" },
 ];
 
-const icons: Record<string, string> = { prompt: "*", text: "T", image: "#", video: "\u25B6", videoEdit: "\u2702", motion: "\u25A3", audio: "~", musicGeneration: "M", hkgaiTTS: "H", voiceClone: "V", voiceTTS: "\u266A", storyboard: "\u25A6", reference: "/", output: "\u2197" };
+const icons: Record<string, string> = { prompt: "*", text: "T", image: "#", video: "\u25B6", videoRegeneration: "2K", videoEdit: "\u2702", motion: "\u25A3", audio: "~", musicGeneration: "M", hkgaiTTS: "H", voiceClone: "V", voiceTTS: "\u266A", storyboard: "\u25A6", reference: "/", output: "\u2197" };
 
 function GhostNode({ type, x, y }: { type: NodeType; x: number; y: number }) {
   return (
@@ -203,6 +203,7 @@ const fallbackSizeFor = (type: string) => ({
   storyboard: { w: 320, h: 420 },
   image: { w: 320, h: 360 },
   video: { w: 320, h: 280 },
+  videoRegeneration: { w: 380, h: 340 },
   videoFrame: { w: 380, h: 320 },
   videoEdit: { w: 320, h: 280 },
   motion: { w: 320, h: 260 },

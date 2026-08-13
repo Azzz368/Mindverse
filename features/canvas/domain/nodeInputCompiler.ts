@@ -128,7 +128,7 @@ type MediaReferenceKind = "image" | "video" | "audio";
 
 const mediaReferenceKindForNode = (node: CanvasNode): MediaReferenceKind | undefined => {
   if (node.data.nodeType === "image" || node.data.nodeType === "reference" || node.data.nodeType === "videoFrame") return "image";
-  if (node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") return "video";
+  if (node.data.nodeType === "video" || node.data.nodeType === "videoRegeneration" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") return "video";
   if (node.data.nodeType === "audio" || node.data.nodeType === "musicGeneration" || node.data.nodeType === "hkgaiTTS" || node.data.nodeType === "voiceTTS") return "audio";
   return undefined;
 };
@@ -364,7 +364,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
 
   if (d.nodeType === "videoEdit") {
     const upstreamVideoUrls = upstream
-      .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion")
+      .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoRegeneration" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion")
       .map(videoUrlFrom);
     const upstreamAudioUrls = upstream
       .filter((source) => source.data.nodeType === "audio" || source.data.nodeType === "musicGeneration" || source.data.nodeType === "hkgaiTTS" || source.data.nodeType === "voiceTTS")
@@ -397,7 +397,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       || previousProjectDir.split(/[\\/]/).filter(Boolean).at(-1)
       || "";
     const referenceVideoUrls = upstream
-      .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoEdit")
+      .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoRegeneration" || source.data.nodeType === "videoEdit")
       .map(videoUrlFrom)
       .filter(Boolean);
     const referenceImageUrls = upstream
@@ -445,6 +445,32 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       targetModel: clonedVoice?.targetModel || d.targetModel || DEFAULT_QWEN_VOICE_MODEL,
       voiceProvider: clonedVoice?.voiceProvider || d.voiceProvider,
       languageType,
+    };
+  }
+
+  if (d.nodeType === "videoRegeneration") {
+    const connections = upstreamConnectionsFrom(upstream, incomingEdges);
+    const sourcesForHandle = (handle: string) => connections.filter((connection) => connection.targetHandle === handle).map((connection) => connection.node);
+    const baseVideoSources = sourcesForHandle("base-video");
+    const baseVideos = baseVideoSources.map(videoUrlFrom).filter(Boolean);
+    const textSources = sourcesForHandle("text");
+    const firstFrameUrl = sourcesForHandle("first-frame").map(imageUrlFrom).find(Boolean);
+    const lastFrameUrl = sourcesForHandle("last-frame").map(imageUrlFrom).find(Boolean);
+    const referenceImageUrls = sourcesForHandle("reference-image").map(imageUrlFrom).filter(Boolean);
+    const referenceVideoUrls = sourcesForHandle("reference-video").map(videoUrlFrom).filter(Boolean);
+    const referenceAudioUrls = sourcesForHandle("reference-audio").map(audioUrlFrom).filter(Boolean);
+    return {
+      mode: d.regenerationMode || "base-video",
+      sourceTaskId: d.sourceTaskId,
+      prompt: limitProviderPrompt(ownPromptFrom(d) || (textSources[0] ? generatedTextFrom(textSources[0]) : "") || baseVideoSources[0]?.data.prompt || baseVideoSources[0]?.data.generationContext || "", 40_000),
+      baseVideoUrl: baseVideos[0],
+      baseVideoCount: baseVideos.length,
+      firstFrameUrl,
+      lastFrameUrl,
+      referenceImageUrls,
+      referenceVideoUrls,
+      referenceAudioUrls,
+      aigcWatermark: d.aigcWatermark === true,
     };
   }
 

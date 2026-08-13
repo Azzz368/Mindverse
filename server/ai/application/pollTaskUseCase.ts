@@ -5,20 +5,26 @@ import { pollKlingOmniVideo, pollKlingVideo, pollSeedanceVideo } from "@/server/
 import { pollSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
 import { pollHKGAIMinimaxVideo } from "@/server/ai/hkgaiVideoProvider";
 import { pollVolcengineOmniHuman } from "@/server/ai/volcengineOmniHumanProvider";
+import { queryMiniMaxH3VideoRegeneration } from "@/server/ai/minimaxH3VideoRegeneration";
 import { archiveResultMedia } from "@/server/storage/mediaArchive";
 import { verifyCompletedVideoAspectRatio } from "@/server/ai/videoAspectRatio";
 import type { RunNodeResult } from "./runNodeUseCase";
 import { pollMotionJob } from "@/server/motion/motionJobRunner";
 
-export type PollableTaskType = "video" | "audio" | "image" | "motion";
+export type PollableTaskType = "video" | "videoRegeneration" | "audio" | "image" | "motion";
 
 export const isPollableTaskType = (value: unknown): value is PollableTaskType =>
-  ["video", "audio", "image", "motion"].includes(String(value));
+  ["video", "videoRegeneration", "audio", "image", "motion"].includes(String(value));
 
 export type PollTaskParams = { type: PollableTaskType; taskId: string; provider?: string; pollUrl?: string; pollAction?: string; expectedAspectRatio?: string };
 
 export async function pollTaskUseCase(params: PollTaskParams): Promise<RunNodeResult> {
   const { type, taskId, provider: videoProvider, pollUrl, pollAction, expectedAspectRatio } = params;
+
+  if (type === "videoRegeneration") {
+    const output = await queryMiniMaxH3VideoRegeneration(taskId);
+    return { ok: true, provider: "minimax", output: await archiveResultMedia(output, { sourceProvider: "minimax", sourceTaskId: taskId, mediaTypeHint: "video" }), polling: { intervalMs: output.status === "completed" || output.status === "failed" ? 0 : Number(process.env.MINIMAX_REGENERATION_POLL_INTERVAL_MS || 5000) } };
+  }
 
   if (type === "motion") {
     const job = await pollMotionJob(taskId);

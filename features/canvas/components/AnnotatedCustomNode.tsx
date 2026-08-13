@@ -9,6 +9,7 @@ import { VoiceCloneNodeLayout, VoiceTTSNodeLayout } from "./VoiceNodes";
 import { HKGAITTSNodeLayout, MusicGenerationNodeLayout } from "./HKGAIAudioNodes";
 import { VideoEditComposer, type VideoEditSource } from "./VideoEditComposer";
 import { VideoFrameNode } from "./VideoFrameNode";
+import { VideoRegenerationNode } from "./VideoRegenerationNode";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
 import { DIGITAL_HUMAN_VIDEO_PROMPT, videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, videoPromptMaxLengthForPreset, videoReferenceLimitForPreset, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
@@ -19,6 +20,7 @@ import type { Strings } from "@/shared/i18n/strings";
 
 const GLOW_COLORS: Record<string, string> = {
   video: "#7322e3",
+  videoRegeneration: "#7322e3",
   videoEdit: "#7322e3",
   motion: "#2563eb",
   image: "#3bf657",
@@ -35,7 +37,7 @@ const GLOW_COLORS: Record<string, string> = {
   reference: "#64748b",
   output: "#64748b",
 };
-const RUNNABLE_TYPES = new Set(["prompt", "text", "script", "image", "video", "videoEdit", "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "storyboard", "output"]);
+const RUNNABLE_TYPES = new Set(["prompt", "text", "script", "image", "video", "videoRegeneration", "videoEdit", "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "storyboard", "output"]);
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value : "";
 const videoPortStyles: Record<VideoInputPortKind, { border: string; connected: string }> = {
@@ -60,7 +62,7 @@ type ContextIRApiResponse = {
 
 const videoMaterialKind = (node: CanvasNode): VideoMaterialKind | undefined => {
   if (node.data.nodeType === "image" || node.data.nodeType === "reference" || node.data.nodeType === "videoFrame") return "image";
-  if (node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") return "video";
+  if (node.data.nodeType === "video" || node.data.nodeType === "videoRegeneration" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") return "video";
   if (node.data.nodeType === "audio" || node.data.nodeType === "musicGeneration" || node.data.nodeType === "hkgaiTTS" || node.data.nodeType === "voiceTTS") return "audio";
   return undefined;
 };
@@ -1303,6 +1305,9 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
 
   if (data.nodeType === "video" || data.nodeType === "videoEdit") {
     return <VideoNodeLayout id={id} data={data} selected={detailSelected} node={node} isGenerating={isGenerating} runNode={runNode} />;
+  }
+  if (data.nodeType === "videoRegeneration") {
+    return <VideoRegenerationNode id={id} data={data} selected={detailSelected} />;
   }
   if (data.nodeType === "videoFrame") {
     return <VideoFrameNode id={id} data={data} selected={detailSelected} />;

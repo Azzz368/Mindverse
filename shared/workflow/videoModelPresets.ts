@@ -204,7 +204,7 @@ export const videoPromptMaxLengthForPreset = (id: VideoModelPresetId) => videoMo
 
 export const videoInputKindForNodeType = (nodeType: string): VideoInputPortKind | undefined => {
   if (nodeType === "image" || nodeType === "reference" || nodeType === "videoFrame") return "image";
-  if (nodeType === "video" || nodeType === "videoEdit") return "video";
+  if (nodeType === "video" || nodeType === "videoRegeneration" || nodeType === "videoEdit") return "video";
   if (nodeType === "audio" || nodeType === "musicGeneration" || nodeType === "hkgaiTTS" || nodeType === "voiceTTS") return "audio";
   if (nodeType === "text" || nodeType === "prompt" || nodeType === "script" || nodeType === "storyboard") return "text";
   return undefined;

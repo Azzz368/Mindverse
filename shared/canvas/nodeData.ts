@@ -25,6 +25,7 @@ export type CanvasNodeData = {
   scriptTone?: string; targetShotCount?: number; storyboardImagePrompts?: StoryboardImagePrompt[]; batchId?: string; shotNumber?: number; sourceStoryboardNodeId?: string; storyboardGenerated?: boolean; storyboardBranchSignature?: string;
   imageUrl?: string; notes?: string; format?: string; generationContext?: string;
   frameSourceVideoNodeId?: string; frameMode?: "last" | "timestamp"; frameTimestampSeconds?: number;
+  regenerationMode?: "base-video" | "source-task"; sourceTaskId?: string; aigcWatermark?: boolean;
   annotations?: ImageAnnotation[]; revisionOf?: string; sourceImageUrl?: string; revisionInstruction?: string;
   workflowId?: string; workflowOrder?: number; workflowTitle?: string; workflowLabel?: string;
   groupId?: string; groupColor?: string; locked?: boolean;

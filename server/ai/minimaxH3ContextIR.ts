@@ -1,6 +1,7 @@
 import "server-only";
 
-import { AIProviderConfigError, AIProviderError } from "./errors";
+import { AIProviderError } from "./errors";
+import { requestMiniMax } from "./minimaxClient";
 
 const MINIMAX_H3_MODEL = "MiniMax-H3";
 const MAX_PROMPT_LENGTH = 7000;
@@ -23,50 +24,6 @@ export type H3ContextIRResult = {
 
 const record = (value: unknown): RecordValue => value && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : {};
 const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : undefined;
-const trimSlash = (value: string) => value.replace(/\/+$/, "");
-
-const responseMessage = (body: unknown) => {
-  const root = record(body);
-  const error = record(root.error);
-  return text(error.message) || text(root.message) || "Unknown response";
-};
-
-async function requestMiniMax<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const apiKey = process.env.MINIMAX_API_KEY?.trim();
-  if (!apiKey) throw new AIProviderConfigError("MINIMAX_API_KEY is required to use MiniMax H3 Context IR.");
-  const baseUrl = trimSlash(process.env.MINIMAX_API_BASE_URL || "https://api.minimax.io");
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Number(process.env.MINIMAX_API_TIMEOUT_MS || 120_000));
-  try {
-    const response = await fetch(`${baseUrl}${path.startsWith("/") ? path : `/${path}`}`, {
-      ...options,
-      cache: "no-store",
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-    });
-    const raw = await response.text();
-    let body: unknown = raw;
-    try { body = raw ? JSON.parse(raw) : {}; } catch { /* retain response text */ }
-    if (!response.ok) {
-      throw new AIProviderError(`MiniMax Context IR request failed (${response.status}): ${responseMessage(body)}`, "MINIMAX_CONTEXT_IR_HTTP_ERROR", response.status);
-    }
-    return body as T;
-  } catch (error) {
-    if (error instanceof AIProviderError) throw error;
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new AIProviderError("MiniMax Context IR request timed out. Please try again.", "MINIMAX_CONTEXT_IR_TIMEOUT", 504);
-    }
-    throw new AIProviderError(error instanceof Error ? `MiniMax Context IR request failed: ${error.message}` : "MiniMax Context IR request failed.", "MINIMAX_CONTEXT_IR_ERROR", 502);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 const durationFor = (value: number | undefined) => {
   const duration = value ?? MIN_DURATION_SECONDS;
   if (!Number.isInteger(duration) || duration < MIN_DURATION_SECONDS || duration > MAX_DURATION_SECONDS) {
@@ -117,7 +74,7 @@ export async function createH3ContextIR(input: { prompt: string; duration?: numb
   const raw = await requestMiniMax<RecordValue>("/v2/h3_context_ir", {
     method: "POST",
     body: JSON.stringify({ model: MINIMAX_H3_MODEL, content, duration, ratio }),
-  });
+  }, "H3 Context IR");
   const taskId = text(raw.task_id);
   if (!taskId) throw new AIProviderError("MiniMax accepted the Context IR request but did not return a task_id.", "MINIMAX_CONTEXT_IR_TASK_ID_MISSING", 502);
   return { taskId, status: "queued" };
@@ -126,7 +83,7 @@ export async function createH3ContextIR(input: { prompt: string; duration?: numb
 export async function queryH3ContextIR(taskId: string): Promise<H3ContextIRResult> {
   const id = taskId.trim();
   if (!id) throw new AIProviderError("A MiniMax Context IR task_id is required.", "MINIMAX_CONTEXT_IR_TASK_ID_REQUIRED", 400);
-  const raw = await requestMiniMax<RecordValue>(`/v2/query/video_generation/${encodeURIComponent(id)}`, { method: "GET" });
+  const raw = await requestMiniMax<RecordValue>(`/v2/query/video_generation/${encodeURIComponent(id)}`, { method: "GET" }, "H3 Context IR");
   const task = record(raw.task);
   const statusText = (text(task.status) || "queued").toLowerCase();
   const status: ContextIRStatus = statusText === "succeeded" || statusText === "failed" || statusText === "cancelled" || statusText === "running" ? statusText : "queued";
