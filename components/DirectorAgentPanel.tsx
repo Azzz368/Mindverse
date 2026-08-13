@@ -161,10 +161,21 @@ export function DirectorAgentPanel() {
   }, []);
 
   return (
+    // Outer wrapper: this is the actual GSAP pin target. It must stay in normal document
+    // flow (position: relative, never absolute/fixed) so that the pin-spacer GSAP inserts
+    // around it genuinely contributes flow height to its ancestors, letting the page's
+    // scrollHeight grow to cover the pinned scroll distance. The left/top offsets below
+    // still resolve against this same "1440px" containing block exactly as before —
+    // relative positioning honors top/left offsets for painting without removing the box
+    // from flow the way absolute positioning did.
     <div
       ref={panelRef}
-      className="pointer-events-auto absolute left-[calc(50%-527px)] top-[921px] h-[558px] w-[1054px] overflow-hidden rounded-[10px] bg-[#0E0404]"
+      className="pointer-events-auto relative left-[calc(50%-527px)] top-[921px] h-[558px] w-[1054px] overflow-hidden rounded-[10px] bg-[#0E0404]"
     >
+      {/* Inner wrapper: purely a positioning boundary (inset-0 matches the outer box exactly),
+          so every decorative child below keeps its original absolute + top/left pixel values
+          completely unchanged. */}
+      <div className="pointer-events-none absolute inset-0">
       {/* Ellipse 9 */}
       <div
         ref={ellipse9Ref}
@@ -355,6 +366,7 @@ export function DirectorAgentPanel() {
           className={`${DASHED_V_CLASS} opacity-0`}
           style={{ left: 257.98, top: 265, width: 178.09, height: 139 }}
         />
+      </div>
       </div>
     </div>
   );

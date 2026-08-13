@@ -443,14 +443,14 @@ export default function Home() {
 
       {/* ======================= Desktop - 3 ======================= */}
       <section 
-        className="relative w-full overflow-clip h-[1606px] flex justify-center" 
+        className="relative w-full overflow-x-clip min-h-[1606px] flex justify-center" 
         style={{ background: "linear-gradient(180deg, #FFFFFF 0%, #F7F4D8 18.75%, #F2E2AB 37.5%, rgba(162, 116, 59, 0.8) 58.65%, rgba(77, 47, 24, 0.95) 78.99%, #160D0A 89.29%, #000000 96.4%)" }}
       >
         {/* Frame 1 overlay */}
-        <div className="absolute top-0 left-0 w-full h-[1606px] bg-black/[0.004] pointer-events-none" />
+        <div className="absolute inset-0 h-full w-full bg-black/[0.004] pointer-events-none" />
 
         {/* 内部约束容器保留元素定位尺寸 (1440px 居中) */}
-        <div className="relative w-full max-w-[1440px] h-[1606px] pointer-events-none">
+        <div className="relative w-full max-w-[1440px] min-h-[1606px] pointer-events-none">
           {/* Ellipses / Glow Effects (Group 3 坐标已换算为相对本容器的绝对定位) */}
           <div className="absolute top-[826.2px] left-[114px] w-[653.86px] h-[252.43px] bg-[#0D0702] blur-[100px] pointer-events-none" style={{ transform: "matrix(0.92, -0.39, 0.25, 0.97, 0, 0)" }} />
           <div className="absolute top-[937px] left-[-356px] w-[493.11px] h-[213.21px] bg-[#0D0702] blur-[100px] pointer-events-none" style={{ transform: "matrix(0.37, 0.93, -0.84, 0.55, 0, 0)" }} />
