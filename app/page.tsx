@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
+import { ThinkingOrb } from "thinking-orbs";
+import { DirectorAgentPanel } from "@/components/DirectorAgentPanel";
 import { LensRefraction } from "@/components/LensRefraction";
 
 export default function Home() {
@@ -497,15 +499,29 @@ export default function Home() {
           </div>
 
           {/* Title: All IN ONE... */}
-          <div className="absolute top-[669px] left-[357px] w-[726px] h-[69px]">
-            <h2 className="font-baskervville text-center font-semibold text-[56px] leading-[72px] text-white drop-shadow-md">
+          <div className="absolute top-[632px] left-[357px] w-[726px] h-[69px]">
+            <h2 className="font-baskervville text-center font-semibold italic text-[56px] leading-[72px] text-white drop-shadow-md">
               All IN ONE, All IN ONCE.
             </h2>
           </div>
 
-          {/* Large UI Mockup Cards */}
-          <div className="absolute top-[885px] left-[177px] w-[403px] h-[279px] bg-[#D9D9D9]/80 backdrop-blur-sm border-2 border-white/50 rounded-[30px] box-border shadow-[0_8px_30px_rgb(0,0,0,0.12)] transform transition-transform hover:-translate-y-2 cursor-pointer pointer-events-auto" />
-          <div className="absolute top-[885px] left-[619px] w-[708px] h-[471px] bg-[#D9D9D9]/80 backdrop-blur-md border-2 border-white/50 rounded-[30px] box-border shadow-[0_20px_50px_rgb(0,0,0,0.2)] transform transition-transform hover:-translate-y-2 cursor-pointer pointer-events-auto" />
+          {/* Rectangle 20: 单个深色展示面板，GSAP + ScrollTrigger 驱动的 frame1-frame4 滚轮动画 */}
+          <DirectorAgentPanel />
+
+          {/* Your Custom Director Agent */}
+          <div className="absolute top-[963px] left-[calc(50%-219px)] w-[476px] h-[36px]">
+            <h3
+              className="font-baskervville-bold text-center font-normal text-[30px] leading-[36px] text-white"
+              style={{ fontFamily: "var(--font-baskervville-bold)" }}
+            >
+              Your Custom Director Agent
+            </h3>
+          </div>
+
+          {/* image 6：Figma 中为占位图 (url(image.png))，改用 thinking-orbs 的 ThinkingOrb 图标 */}
+          <div className="absolute top-[946px] left-[435px] flex h-[70px] w-[89px] items-center justify-center pointer-events-none">
+            <ThinkingOrb state="composing" size={64} speed={0.95} />
+          </div>
         </div>
       </section>
 
