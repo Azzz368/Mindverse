@@ -21,6 +21,10 @@ import { mergeAgentProjectMemory, type AgentProjectMemory } from "@/shared/agent
 import { buildFixedSceneVideoSkill, type AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 
 const DEFAULT_AGENT_IMAGE_MODEL = "gpt-image-2(tokenstar)";
+export const BATCH_RUNNABLE_NODE_TYPES = new Set<NodeType>([
+  "prompt", "text", "script", "storyboard", "image", "video", "videoEdit",
+  "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "output",
+]);
 const imageUrlFromOutput = (output: NodeOutput) => {
   const value = asRecord(output.value);
   return asText(value.imageUrl) || asText(value.revisedImageUrl) || asText(value.resultUrl);
@@ -65,10 +69,10 @@ type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEd
   clearSelectedWorkflowMark(): void;
   arrangeWorkflows(): void;
   setGroupLockedByGroupId(groupId: string, locked: boolean): void;
-  setProjectName(name: string): void; setSelectionMode(enabled: boolean): void; setSelectedNode(id: string | null): void; toggleSelectedNode(id: string): void; onNodesChange(changes: NodeChange<CanvasNode>[]): void; onEdgesChange(changes: EdgeChange<WorkflowEdge>[]): void; onConnect(connection: Connection): void;
-  addNode(type: NodeType): void; updateNodeData(id: string, patch: Partial<CanvasNodeData>): void; removeNode(id: string): void; duplicateNode(id: string): void; createImageRevision(sourceId: string, annotations: ImageAnnotation[], instruction: string): Promise<void>; createKeyframeBatch(sourceId: string): void; setCanvas(nodes: CanvasNode[], edges: WorkflowEdge[], agentMemory?: AgentProjectMemory | null): void;
+  setProjectName(name: string): void; setSelectionMode(enabled: boolean): void; setSelectedNode(id: string | null): void; setSelectedNodes(ids: string[]): void; toggleSelectedNode(id: string): void; onNodesChange(changes: NodeChange<CanvasNode>[]): void; onEdgesChange(changes: EdgeChange<WorkflowEdge>[]): void; onConnect(connection: Connection): void;
+  addNode(type: NodeType): void; updateNodeData(id: string, patch: Partial<CanvasNodeData>): void; removeNode(id: string): void; removeNodes(ids: string[]): void; duplicateNode(id: string): void; createImageRevision(sourceId: string, annotations: ImageAnnotation[], instruction: string): Promise<void>; createKeyframeBatch(sourceId: string): void; setCanvas(nodes: CanvasNode[], edges: WorkflowEdge[], agentMemory?: AgentProjectMemory | null): void;
   extractVideoFrame(extractorId: string, mode: "last" | "timestamp", timestampSeconds?: number): Promise<string>;
-  runNode(id: string): Promise<void>; pollNode(id: string): Promise<void>; runWorkflow(): Promise<void>; generateAgentPlan(userPrompt: string): Promise<{ plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }>; applyAgentPatch(patch: CanvasPatch): void; generateAgentEdit(userInstruction: string): Promise<{ editPlan: AgentCanvasEditPlan; patch: CanvasEditPatch; summary: string }>; applyAgentEditPatch(patch: CanvasEditPatch): void; generateAgentOrganize(userInstruction: string): Promise<{ organizePlan: AgentCanvasOrganizePlan; patch: CanvasEditPatch; summary: string }>; runAgentWorkflow(brief: string): Promise<void>; runAgentSkill(skillId: AgentWorkflowSkillId, brief: string): Promise<void>; saveCanvas(): void; loadCanvas(): void; clearCanvas(): void; exportCanvasJson(): string; importCanvasJson(raw: string): void; applyTemplate(template: Template): void; };
+  runNode(id: string): Promise<void>; runNodes(ids: string[]): Promise<void>; pollNode(id: string): Promise<void>; runWorkflow(): Promise<void>; generateAgentPlan(userPrompt: string): Promise<{ plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }>; applyAgentPatch(patch: CanvasPatch): void; generateAgentEdit(userInstruction: string): Promise<{ editPlan: AgentCanvasEditPlan; patch: CanvasEditPatch; summary: string }>; applyAgentEditPatch(patch: CanvasEditPatch): void; generateAgentOrganize(userInstruction: string): Promise<{ organizePlan: AgentCanvasOrganizePlan; patch: CanvasEditPatch; summary: string }>; runAgentWorkflow(brief: string): Promise<void>; runAgentSkill(skillId: AgentWorkflowSkillId, brief: string): Promise<void>; saveCanvas(): void; loadCanvas(): void; clearCanvas(): void; exportCanvasJson(): string; importCanvasJson(raw: string): void; applyTemplate(template: Template): void; };
 const initialNodes: CanvasNode[] = [];
 const isSnapshot = (value: unknown): value is CanvasSnapshot => Boolean(value && typeof value === "object" && Array.isArray((value as CanvasSnapshot).nodes) && Array.isArray((value as CanvasSnapshot).edges));
 const pollTimers = new Map<string, number>();
@@ -439,24 +443,31 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     selectedNodeId,
     nodes: state.nodes.map((node) => ({ ...node, selected: selectedNodeId ? node.id === selectedNodeId : false })),
   })),
+  setSelectedNodes: (ids) => set((state) => {
+    const selectedIds = new Set(ids.filter((id) => state.nodes.some((node) => node.id === id)));
+    return {
+      nodes: state.nodes.map((node) => ({ ...node, selected: selectedIds.has(node.id) })),
+      selectedNodeId: selectedIds.size === 1 ? [...selectedIds][0] : null,
+    };
+  }),
   toggleSelectedNode: (id) => set((state) => {
     const isSelected = state.nodes.find((node) => node.id === id)?.selected || state.selectedNodeId === id;
     const nodes = state.nodes.map((node) => node.id === id ? { ...node, selected: !isSelected } : node);
     const selectedIds = nodes.filter((node) => node.selected).map((node) => node.id);
     return {
       nodes,
-      selectedNodeId: isSelected
-        ? state.selectedNodeId === id ? selectedIds[0] || null : state.selectedNodeId
-        : id,
+      selectedNodeId: selectedIds.length === 1 ? selectedIds[0] : null,
     };
   }),
   onNodesChange: (changes) => set((state) => {
-    const nextChanges = changes.filter((change) => change.type !== "select");
-    if (!nextChanges.length) return {};
-    const isStructuralChange = nextChanges.some((change) => change.type === "add" || change.type === "remove" || change.type === "replace");
+    if (!changes.length) return {};
+    const isStructuralChange = changes.some((change) => change.type === "add" || change.type === "remove" || change.type === "replace");
     const undoStack = isStructuralChange ? appendUndoEntry(state.undoStack, state) : state.undoStack;
+    const nodes = applyNodeChanges(changes, state.nodes) as CanvasNode[];
+    const selectedIds = nodes.filter((node) => node.selected).map((node) => node.id);
     return {
-      nodes: applyNodeChanges(nextChanges, state.nodes) as CanvasNode[],
+      nodes,
+      selectedNodeId: selectedIds.length === 1 ? selectedIds[0] : null,
       ...(isStructuralChange ? { undoStack, canUndo: true } : {}),
     };
   }), onEdgesChange: (changes) => set((state) => ({ edges: applyEdgeChanges(changes, state.edges) })),
@@ -517,6 +528,20 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return { nodes, edges: withVideoTargetHandles(nodes, state.edges) };
   }),
   removeNode: (id) => set((state) => { const undoStack = appendUndoEntry(state.undoStack, state); return { nodes: state.nodes.filter((node) => node.id !== id), edges: state.edges.filter((edge) => edge.source !== id && edge.target !== id), selectedNodeId: state.selectedNodeId === id ? null : state.selectedNodeId, undoStack, canUndo: true }; }),
+  removeNodes: (ids) => set((state) => {
+    const removedIds = new Set(ids.filter((id) => state.nodes.some((node) => node.id === id)));
+    if (!removedIds.size) return {};
+    const undoStack = appendUndoEntry(state.undoStack, state);
+    return {
+      nodes: state.nodes.filter((node) => !removedIds.has(node.id)),
+      edges: state.edges.filter((edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target)),
+      selectedNodeId: null,
+      undoStack,
+      canUndo: true,
+      lastError: null,
+      agentMessage: `已删除 ${removedIds.size} 个节点。`,
+    };
+  }),
   duplicateNode: (id) => { const original = get().nodes.find((node) => node.id === id); if (!original) return; const clone: CanvasNode = { ...original, id: `${original.data.nodeType}-${crypto.randomUUID()}`, position: { x: original.position.x + 36, y: original.position.y + 36 }, selected: true, data: { ...original.data, title: `${original.data.title} copy`, status: "idle", output: undefined, error: undefined, ...(original.data.nodeType === "videoFrame" ? { imageUrl: undefined, frameSourceVideoNodeId: undefined, frameTimestampSeconds: 0 } : {}) } }; set((state) => { const undoStack = appendUndoEntry(state.undoStack, state); return { nodes: [...state.nodes.map((node) => ({ ...node, selected: false })), clone], selectedNodeId: clone.id, undoStack, canUndo: true }; }); },
   extractVideoFrame: async (extractorId, mode, timestampSeconds) => {
     const current = get();
@@ -759,6 +784,29 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     } catch (error) {
       const message = error instanceof Error ? error.message : "Node execution failed";
       set((current) => ({ lastError: message, nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "error", error: message } } : item) }));
+    }
+  },
+  runNodes: async (ids) => {
+    const state = get();
+    const requestedIds = new Set(ids);
+    const selected = state.nodes.filter((node) => requestedIds.has(node.id)
+      && BATCH_RUNNABLE_NODE_TYPES.has(node.data.nodeType)
+      && node.data.status !== "running"
+      && node.data.status !== "waiting");
+    if (!selected.length) {
+      set({ lastError: "选中的节点中没有可运行节点。" });
+      return;
+    }
+    const selectedIds = new Set(selected.map((node) => node.id));
+    const selectedEdges = state.edges.filter((edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target));
+    try {
+      const ordered = topologicalSort(selected, selectedEdges);
+      set({ lastError: null, agentMessage: `正在依次运行 ${ordered.length} 个选中节点…` });
+      for (const node of ordered) await get().runNode(node.id);
+      set({ agentMessage: `已运行 ${ordered.length} 个选中节点。` });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "批量运行失败。";
+      set({ lastError: message, agentMessage: null });
     }
   },
   pollNode: async (id) => {

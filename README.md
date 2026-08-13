@@ -1,15 +1,27 @@
-# Lumen Flow
+# Mindverse
 
-An original, local-first creative workflow canvas for text, image, video, audio, and storyboards. It runs with a built-in mock provider by default, so no API key is needed to explore the app.
+Mindverse is a node-based creative workspace for text, image, video, audio, agents, and storyboards. It supports private user workspaces, durable cloud saves, and multiple media-generation providers. A built-in mock provider is available for interface development without consuming external API credits.
+
+## Current status
+
+- Private registration, login, logout, sessions, and workspace isolation are implemented with Postgres-backed metadata.
+- Workflow snapshots and media can be stored in Bunny Storage under workspace-scoped paths.
+- Hold `Shift` and drag on empty canvas space to select multiple nodes. The persistent selection frame supports moving, running, or deleting the selected nodes as one group.
+- A Video Frame Extractor node can receive a VideoNode and create a connected Reference node from either the current frame or the final frame.
+- Video integrations include Kling, TokenStar Seedance, HKGAI MiniMax H3, and Volcengine Seedance OmniHuman 1.5. HKGAI Context IR can enhance MiniMax H3 prompts.
+- Audio integrations include HKGAI Music and TTS nodes, including reference-voice creation for supported TTS models.
+
+For validation results, open issues, deployment notes, and the next development priorities, see [`WORKSPACE_HANDOFF.md`](WORKSPACE_HANDOFF.md).
 
 ## Local development
 
 ```powershell
 npm install
+npm run db:migrate
 npm run dev
 ```
 
-Open [http://localhost:3000/workspace](http://localhost:3000/workspace).
+Open [http://localhost:3000/register](http://localhost:3000/register) to create an account, then enter the private workspace. Registration behavior is controlled by `MINDVERSE_REGISTRATION_MODE`; the production default should remain invite-only.
 
 ## 302.AI configuration
 
@@ -94,6 +106,14 @@ TOKENSTAR_ASSET_MAX_POLL_ATTEMPTS=20
 
 Text-to-video creates a task at `/v1/video/generations`; polling reads `/v1/video/generations/{taskId}` and displays the returned video URL (`content.video_url` in current TokenStar responses, with `result_url` fallbacks). For asset video, connect completed ImageNodes (PNG, JPEG, or WebP), VideoNodes (MP4), and/or AudioNodes (MP3) to the VideoNode. The server uploads them to one TokenStar asset group, polls `ListAssets` until each asset is available, and then sends the resulting `asset://` URLs in text → image → video → audio order with only the documented asset-video fields (`model`, `content`, `duration`, `resolution`). Existing TokenStar `asset://` URLs can also be supplied in the VideoNode inspector. Mock ImageNodes produce SVG previews and are intentionally rejected. The browser only calls project API routes; the TokenStar key remains server-only.
 
+TokenStar validates the real media container, not only the file name. A `.mp3` file whose content is actually M4A/AAC can be accepted by the HTTP download but later become a `Failed` asset. Audio normalization to a real MP3 container before upload is the current recommended next fix.
+
+## Canvas grouping and video frame extraction
+
+To select a group, hold `Shift`, press the left mouse button on empty canvas space, drag around the desired nodes, and release. The orange dashed frame remains after release. Drag the frame to move the selected nodes together, or use its actions to run in dependency order, delete, or clear the selection.
+
+Frame extraction is implemented as a separate node under the Video category instead of adding controls to the VideoNode preview. Connect a completed VideoNode to the extractor, choose **Current frame** or **Final frame**, and run it. The extractor creates a Reference node and a visible video-to-image connection. **Current frame** uses the playback position remembered by the VideoNode rather than resetting to zero when its expanded preview closes.
+
 ## Image annotation and revision
 
 After an ImageNode has a result, select **Annotate & Refine** below its preview. The editor supports arrows, boxes, circles, and text notes; all coordinates are stored relative to the image, so annotations remain aligned when the canvas is resized.
@@ -104,7 +124,7 @@ The mock provider creates a local revision preview. Real 302.AI image revision d
 
 ## Durable workflow storage
 
-Canvas projects auto-save after edits, keep a small browser draft as a recovery copy, and flush the latest change when the page is hidden or left. For Render, set `WORKFLOW_STORAGE_PROVIDER=bunny` and configure `BUNNY_STORAGE_ZONE`, `BUNNY_ACCESS_KEY`, `BUNNY_STORAGE_REGION`, and `BUNNY_PULL_ZONE_URL`. Do not use `WORKFLOW_STORAGE_PROVIDER=local` in production: Render's local filesystem is ephemeral, so projects can disappear after an instance restart or deploy.
+Canvas projects auto-save after edits, keep a small browser draft as a recovery copy, and flush the latest change when the page is hidden or left. Save requests attach the newest known revision when they are sent, and Bunny snapshots use unique paths so queued or concurrent writes do not overwrite each other. For Render, set `WORKFLOW_STORAGE_PROVIDER=bunny` and configure `BUNNY_STORAGE_ZONE`, `BUNNY_ACCESS_KEY`, `BUNNY_STORAGE_REGION`, and `BUNNY_PULL_ZONE_URL`. Do not use `WORKFLOW_STORAGE_PROVIDER=local` in production: Render's local filesystem is ephemeral, so projects can disappear after an instance restart or deploy.
 
 ## Accounts and private workspaces
 

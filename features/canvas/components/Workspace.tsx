@@ -13,9 +13,11 @@ import type { StoredSkill } from "@/shared/skills/skillTypes";
 import { cloneSkillCanvasTemplate } from "@/shared/skills/skillTemplate";
 import { PENDING_SKILL_KEY } from "@/features/skills/services/skillClient";
 import { hasInlineMedia, snapshotForWorkflowPersistence, snapshotJsonSize } from "@/shared/canvas/snapshotTransport";
+import { ApiRequestError } from "@/shared/api/client";
 
 const MAX_REMOTE_WORKFLOW_BYTES = 3 * 1024 * 1024;
 const MAX_LOCAL_DRAFT_BYTES = 3 * 1024 * 1024;
+const REMOTE_SAVE_ERROR_PREFIX = "远程工作流保存";
 const workflowDraftKey = (workspaceId: string, workflowId: string) => `mindverse-workflow-draft:${workspaceId}:${workflowId}`;
 
 type WorkflowDraft = { savedAt: number; snapshot: CanvasSnapshot };
@@ -47,6 +49,20 @@ const saveWorkflowDraft = (workspaceId: string, workflowId: string, snapshot: Ca
     console.warn("Local workflow draft save failed", error);
     return false;
   }
+};
+
+const remoteSaveErrorMessage = (error: unknown) => {
+  if (error instanceof ApiRequestError) {
+    if (error.status === 401) return `${REMOTE_SAVE_ERROR_PREFIX}失败：登录状态已失效。当前修改仍在此浏览器草稿中，请重新登录后再打开项目。`;
+    if (error.status === 404) return `${REMOTE_SAVE_ERROR_PREFIX}失败：该项目不存在或当前账户无权访问。当前修改仍在此浏览器草稿中。`;
+    if (error.status === 409) return `${REMOTE_SAVE_ERROR_PREFIX}发生版本冲突：项目已在另一个页面更新。当前修改仍在此浏览器草稿中，请刷新页面后确认最新版本。`;
+    if (error.status === 413) return `${REMOTE_SAVE_ERROR_PREFIX}失败：画布数据超过服务器允许的大小。请拆分工作流或移除过大的节点内容。`;
+    return `${REMOTE_SAVE_ERROR_PREFIX}失败（${error.status}）：${error.message} 当前修改仍在此浏览器草稿中。`;
+  }
+  const offline = typeof navigator !== "undefined" && !navigator.onLine;
+  return offline
+    ? `${REMOTE_SAVE_ERROR_PREFIX}失败：当前设备处于离线状态。修改已保存在此浏览器草稿中，联网后继续编辑即可重试。`
+    : `${REMOTE_SAVE_ERROR_PREFIX}失败：无法连接服务器。当前修改已保存在此浏览器草稿中，请稍后继续编辑以重试。`;
 };
 
 function PendingTaskRecovery() {
@@ -230,11 +246,14 @@ export function Workspace({ workflowId, workspaceId = "local" }: { workflowId?: 
     if (!workflowId || !loadedRemoteWorkflow.current || typeof window === "undefined") return;
     const flushSave = async () => {
       if (!workflowId || savingRef.current) return;
-      const next = pendingSaveRef.current;
-      if (!next) return;
+      const queued = pendingSaveRef.current;
+      if (!queued) return;
       pendingSaveRef.current = null;
       savingRef.current = true;
       let savedSuccessfully = false;
+      // A payload can wait while an earlier save advances the remote revision.
+      // Always attach the latest acknowledged revision at send time.
+      const next = { ...queued, expectedRevision: revisionRef.current };
       try {
         const saved = await saveWorkflowSnapshot(workflowId, next);
         if (saved.output?.revision) revisionRef.current = saved.output.revision;
@@ -242,10 +261,11 @@ export function Workspace({ workflowId, workspaceId = "local" }: { workflowId?: 
         lastSavedJsonRef.current = JSON.stringify(completed);
         latestSaveRef.current = latestSaveRef.current ? { ...latestSaveRef.current, expectedRevision: revisionRef.current } : completed;
         savedSuccessfully = true;
+        useCanvasStore.setState((state) => state.lastError?.startsWith(REMOTE_SAVE_ERROR_PREFIX) ? { lastError: null } : {});
       } catch (error) {
         pendingSaveRef.current = pendingSaveRef.current || next;
         console.error("Remote workflow save failed", error);
-        useCanvasStore.setState({ lastError: "远程工作流保存失败；当前修改已保存在此浏览器草稿中，请检查网络和 Bunny Storage 配置。" });
+        useCanvasStore.setState({ lastError: remoteSaveErrorMessage(error) });
       } finally {
         savingRef.current = false;
         // Do not retry a failed request in a tight loop. The next edit, page

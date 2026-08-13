@@ -93,9 +93,21 @@ button { cursor: pointer; }
 .react-flow__selection,
 .react-flow__nodesselection-rect {
   border-radius: 18px !important;
-  border-color: rgba(64, 64, 64, 0.35) !important;
-  background: rgba(224, 239, 255, 0.26) !important;
-  box-shadow: 0 0 0 10px rgba(224, 239, 255, 0.18);
+  border: 1.5px dashed rgba(234, 105, 28, 0.78) !important;
+  background: rgba(255, 178, 92, 0.14) !important;
+  box-shadow: 0 0 0 8px rgba(255, 178, 92, 0.08);
+}
+
+.batch-selection-active .react-flow__node.selected {
+  border-radius: 24px;
+  outline: 2px solid #f08a35;
+  outline-offset: 3px;
+  filter: drop-shadow(0 10px 18px rgba(130, 64, 13, 0.14));
+}
+
+/* CreativeCanvas renders a persistent, draggable frame after selection ends. */
+.batch-selection-active .react-flow__nodesselection {
+  display: none;
 }
 
 .react-flow__controls button {

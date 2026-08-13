@@ -1291,6 +1291,7 @@ function AudioNodeLayout({ id, data, selected, runNode }: { id: string; data: Ca
 
 export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode), duplicateNode = useCanvasStore((s) => s.duplicateNode), createImageRevision = useCanvasStore((s) => s.createImageRevision), runNode = useCanvasStore((s) => s.runNode);
+  const selectedNodeCount = useCanvasStore((s) => s.nodes.filter((item) => item.selected).length);
   const { t } = useLang();
   const [viewUrl, setViewUrl] = useState(""), [viewVideoUrl, setViewVideoUrl] = useState(""), [annotatingUrl, setAnnotatingUrl] = useState(""), [settingsOpen, setSettingsOpen] = useState(false);
   const [cardSize, setCardSize] = useState({ w: 280, h: 0 });
@@ -1298,46 +1299,47 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
   const isGenerating = data.status === "running" || data.status === "waiting";
   const isWaiting = record(data.output?.value).status === "pending";
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
+  const detailSelected = Boolean(selected && selectedNodeCount === 1);
 
   if (data.nodeType === "video" || data.nodeType === "videoEdit") {
-    return <VideoNodeLayout id={id} data={data} selected={selected!} node={node} isGenerating={isGenerating} runNode={runNode} />;
+    return <VideoNodeLayout id={id} data={data} selected={detailSelected} node={node} isGenerating={isGenerating} runNode={runNode} />;
   }
   if (data.nodeType === "videoFrame") {
-    return <VideoFrameNode id={id} data={data} selected={selected!} />;
+    return <VideoFrameNode id={id} data={data} selected={detailSelected} />;
   }
   if (data.nodeType === "image") {
-    return <ImageNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} createImageRevision={createImageRevision} />;
+    return <ImageNodeLayout id={id} data={data} selected={detailSelected} isGenerating={isGenerating} runNode={runNode} createImageRevision={createImageRevision} />;
   }
   if (data.nodeType === "reference") {
-    return <ReferenceNodeLayout id={id} data={data} selected={selected!} />;
+    return <ReferenceNodeLayout id={id} data={data} selected={detailSelected} />;
   }
   if (data.nodeType === "audio") {
-    return <AudioNodeLayout id={id} data={data} selected={selected!} runNode={runNode} />;
+    return <AudioNodeLayout id={id} data={data} selected={detailSelected} runNode={runNode} />;
   }
   if (data.nodeType === "musicGeneration") {
-    return <MusicGenerationNodeLayout id={id} data={data} selected={selected!} runNode={runNode} />;
+    return <MusicGenerationNodeLayout id={id} data={data} selected={detailSelected} runNode={runNode} />;
   }
   if (data.nodeType === "hkgaiTTS") {
-    return <HKGAITTSNodeLayout id={id} data={data} selected={selected!} runNode={runNode} />;
+    return <HKGAITTSNodeLayout id={id} data={data} selected={detailSelected} runNode={runNode} />;
   }
   if (data.nodeType === "text" || data.nodeType === "script") {
-    return <TextNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} />;
+    return <TextNodeLayout id={id} data={data} selected={detailSelected} isGenerating={isGenerating} runNode={runNode} />;
   }
   if (data.nodeType === "storyboard") {
-    return <StoryboardNodeLayout id={id} data={data} selected={selected!} isGenerating={isGenerating} runNode={runNode} />;
+    return <StoryboardNodeLayout id={id} data={data} selected={detailSelected} isGenerating={isGenerating} runNode={runNode} />;
   }
   if (data.nodeType === "voiceClone") {
-    return <VoiceCloneNodeLayout id={id} data={data} selected={selected!} />;
+    return <VoiceCloneNodeLayout id={id} data={data} selected={detailSelected} />;
   }
   if (data.nodeType === "voiceTTS") {
-    return <VoiceTTSNodeLayout id={id} data={data} selected={selected!} runNode={runNode} />;
+    return <VoiceTTSNodeLayout id={id} data={data} selected={detailSelected} runNode={runNode} />;
   }
 
   return (
     <>
       <div
         style={{ width: cardSize.w, ...(cardSize.h > 0 ? { height: cardSize.h } : {}), ...(visualGroupColor ? { borderColor: visualGroupColor, borderWidth: 2 } : {}) }}
-        className={`relative rounded-xl border bg-white shadow-md shadow-black/5 dark:bg-[#101c29] dark:shadow-xl dark:shadow-black/20 ${cardSize.h > 0 ? "flex flex-col" : ""} ${selected ? "border-[#030303] dark:border-cyan-400" : visualGroupColor ? "border-transparent" : "border-[#e7eaf0] dark:border-slate-700"}`}>
+        className={`relative rounded-xl border bg-white shadow-md shadow-black/5 dark:bg-[#101c29] dark:shadow-xl dark:shadow-black/20 ${cardSize.h > 0 ? "flex flex-col" : ""} ${detailSelected ? "border-[#030303] dark:border-cyan-400" : visualGroupColor ? "border-transparent" : "border-[#e7eaf0] dark:border-slate-700"}`}>
         {isGenerating && (
           <div className="running-glow-wrapper" style={{ "--glow-color": GLOW_COLORS[data.nodeType] || "#22d3ee" } as React.CSSProperties} />
         )}

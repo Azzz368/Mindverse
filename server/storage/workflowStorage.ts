@@ -31,8 +31,8 @@ type WorkflowRow = {
 };
 
 const emptySnapshot = (projectName: string): CanvasSnapshot => ({ version: 1, projectName, nodes: [], edges: [] });
-const snapshotPath = (workspaceId: string, workflowId: string, revision: number) =>
-  `workspaces/${workspaceId}/workflows/${workflowId}/snapshots/revision-${revision}.json`;
+const snapshotPath = (workspaceId: string, workflowId: string, revision: number, writeId?: string) =>
+  `workspaces/${workspaceId}/workflows/${workflowId}/snapshots/revision-${revision}${writeId ? `-${writeId}` : ""}.json`;
 const localRoot = () => process.env.MINDVERSE_LOCAL_STORAGE_ROOT || path.join(process.cwd(), ".mindverse-local");
 const localPath = (remotePath: string) => path.join(localRoot(), ...remotePath.split("/"));
 const useLocal = () => process.env.WORKFLOW_STORAGE_PROVIDER === "local";
@@ -146,7 +146,9 @@ export async function saveWorkflow(owner: WorkflowOwner, workflowId: string, sna
   const revision = existing.revision + 1;
   const now = new Date();
   const name = typeof nameValue === "string" && nameValue.trim() ? nameValue.trim().slice(0, 160) : snapshot.projectName || existing.name;
-  const storageKey = snapshotPath(owner.workspaceId, workflowId, revision);
+  // A unique object key prevents two concurrent writers for the same revision
+  // from overwriting each other's Bunny snapshot before the Postgres CAS wins.
+  const storageKey = snapshotPath(owner.workspaceId, workflowId, revision, crypto.randomUUID());
   const workflow: StoredWorkflow = {
     ...snapshot,
     id: workflowId,

@@ -5,14 +5,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnnotatedCustomNode } from "./AnnotatedCustomNode";
 import { AddNodeMenu } from "./AddNodeMenu";
 import { archiveAudioFile, archiveImageFile, archiveRemoteImageUrl, archiveVideoFile } from "@/features/canvas/services/mediaArchiveClient";
-import { type PastedCanvasMedia, useCanvasStore } from "@/features/canvas/state/canvasStore";
+import { BATCH_RUNNABLE_NODE_TYPES, type PastedCanvasMedia, useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import { useLang } from "@/components/providers/LangProvider";
 import type { NodeType, WorkflowEdge } from "@/shared/canvas";
 
 type AlignGuide = { type: "v" | "h"; pos: number };
+type BatchSelectionDrag = {
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  initialPositions: Map<string, { x: number; y: number }>;
+  historyRecorded: boolean;
+};
 const SNAP_THRESHOLD = 10;
 const GROUP_PADDING = 40;
+const BATCH_SELECTION_PADDING = 22;
 const MAX_ALIGNMENT_GUIDE_NODES = 60;
 
 const mediaTypeFromClipboardFile = (file: File): PastedCanvasMedia["mediaType"] | null => {
@@ -208,15 +216,19 @@ const fallbackSizeFor = (type: string) => ({
 }[type] || { w: 280, h: 250 });
 
 export function CreativeCanvas() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, toggleSelectedNode, selectionMode, ghostType, setGhostType, placeGhostNode, addMediaNode, addPastedMediaNodes, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia, pendingAgentPatch, setPendingAgentPatch, placeAgentPatch, recordCanvasMutation } = useCanvasStore();
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, setSelectedNodes, removeNodes, runNodes, selectionMode, ghostType, setGhostType, placeGhostNode, addMediaNode, addPastedMediaNodes, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia, pendingAgentPatch, setPendingAgentPatch, placeAgentPatch, recordCanvasMutation } = useCanvasStore();
   const { theme } = useTheme();
+  const { lang } = useLang();
   const { getNodes, screenToFlowPosition } = useReactFlow();
   const { x: viewX, y: viewY, zoom } = useViewport();
   const nodeTypes = useMemo<NodeTypes>(() => ({ creative: AnnotatedCustomNode }), []);
   const edgeTypes = useMemo<EdgeTypes>(() => ({ default: DeletableEdge }), []);
   const edgeReconnecting = useRef(false);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const batchSelectionDragRef = useRef<BatchSelectionDrag | null>(null);
   const [alignGuides, setAlignGuides] = useState<AlignGuide[]>([]);
+  const [batchSelectionDragging, setBatchSelectionDragging] = useState(false);
+  const [boxSelecting, setBoxSelecting] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
   const [addMenu, setAddMenu] = useState<{ x: number; y: number } | null>(null);
@@ -228,6 +240,30 @@ export function CreativeCanvas() {
   const nodeColor = isDark ? "#0e7490" : "#404040";
   const maskColor = isDark ? "rgba(3,10,18,.72)" : "rgba(245,245,245,.65)";
   const isGhosting = !!(ghostType || ghostMediaUrl || pendingAgentPatch);
+  const selectedNodes = useMemo(() => nodes.filter((node) => node.selected), [nodes]);
+  const selectedNodeIds = useMemo(() => selectedNodes.map((node) => node.id), [selectedNodes]);
+  const runnableSelectionCount = useMemo(() => selectedNodes.filter((node) => BATCH_RUNNABLE_NODE_TYPES.has(node.data.nodeType) && node.data.status !== "running" && node.data.status !== "waiting").length, [selectedNodes]);
+  const batchSelectionBounds = useMemo(() => {
+    if (selectedNodes.length < 2) return null;
+    const bounds = selectedNodes.reduce((result, node) => {
+      const measuredNode = node as typeof node & { measured?: { width?: number; height?: number }; width?: number; height?: number };
+      const fallback = fallbackSizeFor(node.data.nodeType);
+      const width = measuredNode.measured?.width || measuredNode.width || fallback.w;
+      const height = measuredNode.measured?.height || measuredNode.height || fallback.h;
+      return {
+        minX: Math.min(result.minX, node.position.x),
+        minY: Math.min(result.minY, node.position.y),
+        maxX: Math.max(result.maxX, node.position.x + width),
+        maxY: Math.max(result.maxY, node.position.y + height),
+      };
+    }, { minX: Number.POSITIVE_INFINITY, minY: Number.POSITIVE_INFINITY, maxX: Number.NEGATIVE_INFINITY, maxY: Number.NEGATIVE_INFINITY });
+    return {
+      left: (bounds.minX - BATCH_SELECTION_PADDING) * zoom + viewX,
+      top: (bounds.minY - BATCH_SELECTION_PADDING) * zoom + viewY,
+      width: (bounds.maxX - bounds.minX + BATCH_SELECTION_PADDING * 2) * zoom,
+      height: (bounds.maxY - bounds.minY + BATCH_SELECTION_PADDING * 2) * zoom,
+    };
+  }, [selectedNodes, viewX, viewY, zoom]);
   const groupBackdrops = useMemo(() => {
     const groups = new Map<string, { color: string; minX: number; minY: number; maxX: number; maxY: number }>();
     nodes.forEach((node) => {
@@ -372,6 +408,7 @@ export function CreativeCanvas() {
   const handleNodeDragStop = useCallback((_: MouseEvent | TouchEvent, draggedNode: { id: string; position: { x: number; y: number } }) => {
     setAlignGuides([]);
     const allNodes = getNodes();
+    if (allNodes.filter((node) => node.selected).length > 1) return;
     let newX = draggedNode.position.x, newY = draggedNode.position.y;
     for (const other of allNodes) {
       if (other.id === draggedNode.id) continue;
@@ -381,6 +418,73 @@ export function CreativeCanvas() {
     if (newX !== draggedNode.position.x || newY !== draggedNode.position.y)
       onNodesChange([{ type: "position", id: draggedNode.id, position: { x: newX, y: newY }, dragging: false }]);
   }, [getNodes, onNodesChange]);
+
+  const handleBatchDelete = useCallback(() => {
+    if (!selectedNodeIds.length) return;
+    const message = lang === "zh"
+      ? `删除选中的 ${selectedNodeIds.length} 个节点？此操作可以撤回。`
+      : `Delete ${selectedNodeIds.length} selected nodes? You can undo this action.`;
+    if (window.confirm(message)) removeNodes(selectedNodeIds);
+  }, [lang, removeNodes, selectedNodeIds]);
+
+  const handleSelectionEnd = useCallback(() => {
+    const ids = getNodes().filter((node) => node.selected).map((node) => node.id);
+    // React Flow's drag rectangle is transient. Commit its result to the
+    // controlled canvas after pointer-up so our persistent group frame remains.
+    queueMicrotask(() => setSelectedNodes(ids));
+    setBoxSelecting(false);
+  }, [getNodes, setSelectedNodes]);
+
+  const handleBatchSelectionPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !batchSelectionBounds) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    batchSelectionDragRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      initialPositions: new Map(selectedNodes.map((node) => [node.id, { ...node.position }])),
+      historyRecorded: false,
+    };
+    setBatchSelectionDragging(true);
+  }, [batchSelectionBounds, recordCanvasMutation, selectedNodes]);
+
+  const handleBatchSelectionPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = batchSelectionDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const dx = (event.clientX - drag.startClientX) / zoom;
+    const dy = (event.clientY - drag.startClientY) / zoom;
+    if (!drag.historyRecorded && Math.hypot(dx, dy) > 1) {
+      recordCanvasMutation();
+      drag.historyRecorded = true;
+    }
+    onNodesChange([...drag.initialPositions.entries()].map(([id, position]) => ({
+      type: "position" as const,
+      id,
+      position: { x: position.x + dx, y: position.y + dy },
+      dragging: true,
+    })));
+  }, [onNodesChange, recordCanvasMutation, zoom]);
+
+  const finishBatchSelectionDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = batchSelectionDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    const dx = (event.clientX - drag.startClientX) / zoom;
+    const dy = (event.clientY - drag.startClientY) / zoom;
+    onNodesChange([...drag.initialPositions.entries()].map(([id, position]) => ({
+      type: "position" as const,
+      id,
+      position: { x: position.x + dx, y: position.y + dy },
+      dragging: false,
+    })));
+    batchSelectionDragRef.current = null;
+    setBatchSelectionDragging(false);
+  }, [onNodesChange, zoom]);
 
   /* Left-click on pane = place ghost or deselect */
   const handlePaneClick = useCallback((e: React.MouseEvent) => {
@@ -435,7 +539,7 @@ export function CreativeCanvas() {
   }, [screenToFlowPosition, addMediaNode, recordCanvasMutation]);
 
   return (
-    <div ref={canvasRef} className={`relative h-full flex-1 ${isGhosting ? "cursor-crosshair" : selectionMode ? "cursor-cell" : ""}`}
+    <div ref={canvasRef} className={`relative h-full flex-1 ${selectedNodes.length > 1 ? "batch-selection-active" : ""} ${isGhosting ? "cursor-crosshair" : selectionMode ? "cursor-cell" : ""}`}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       onClick={() => ctxMenu && setCtxMenu(null)}
@@ -450,18 +554,24 @@ export function CreativeCanvas() {
         onConnect={onConnect}
         onNodeClick={(event, node) => {
           if (isGhosting) return;
-          if (selectionMode || event.ctrlKey || event.metaKey || event.shiftKey) toggleSelectedNode(node.id);
-          else setSelectedNode(node.id);
+          if (selectionMode && !event.shiftKey) {
+            const nextIds = node.selected
+              ? selectedNodeIds.filter((id) => id !== node.id)
+              : [...selectedNodeIds, node.id];
+            queueMicrotask(() => setSelectedNodes(nextIds));
+          }
         }}
         onPaneClick={handlePaneClick}
         onPaneContextMenu={handlePaneContextMenu}
         onSelectionContextMenu={handleSelectionContextMenu}
+        onSelectionStart={() => setBoxSelecting(true)}
+        onSelectionEnd={handleSelectionEnd}
         fitView
         minZoom={0.15}
         maxZoom={2}
         deleteKeyCode={["Backspace", "Delete"]}
-        selectionKeyCode="Control"
-        multiSelectionKeyCode="Control"
+        selectionKeyCode="Shift"
+        multiSelectionKeyCode="Shift"
         defaultEdgeOptions={{ animated: false, style: { stroke: edgeColor, strokeDasharray: "7 7", strokeWidth: 1.5 } }}
         reconnectRadius={20}
         onReconnectStart={handleReconnectStart}
@@ -482,9 +592,74 @@ export function CreativeCanvas() {
         <MiniMap nodeColor={nodeColor} maskColor={maskColor} />
       </ReactFlow>
 
+      {batchSelectionBounds && !boxSelecting && !isGhosting && (
+        <div
+          className={`absolute z-[40] select-none rounded-[26px] border-2 border-dashed border-[#ed7c28] bg-amber-100/10 shadow-[0_0_0_7px_rgba(245,137,56,0.08)] touch-none dark:border-amber-300 dark:bg-amber-300/[0.025] ${batchSelectionDragging ? "cursor-grabbing" : "cursor-grab"}`}
+          style={batchSelectionBounds}
+          onPointerDown={handleBatchSelectionPointerDown}
+          onPointerMove={handleBatchSelectionPointerMove}
+          onPointerUp={finishBatchSelectionDrag}
+          onPointerCancel={finishBatchSelectionDrag}
+          role="group"
+          aria-label={lang === "zh" ? `已选择 ${selectedNodes.length} 个节点；拖动可整体移动` : `${selectedNodes.length} nodes selected; drag to move them together`}
+          title={lang === "zh" ? "拖动选框可整体移动节点" : "Drag the frame to move selected nodes"}
+        >
+          <span className="pointer-events-none absolute -top-3 left-5 rounded-full bg-[#ed7c28] px-2 py-0.5 text-[9px] font-black tracking-wide text-white shadow-sm dark:bg-amber-300 dark:text-[#21170d]">
+            {lang === "zh" ? `${selectedNodes.length} 个节点` : `${selectedNodes.length} nodes`}
+          </span>
+        </div>
+      )}
+
+      {selectedNodes.length > 1 && !boxSelecting && !isGhosting && (
+        <div
+          className="nodrag nopan absolute left-1/2 top-4 z-[9998] flex -translate-x-1/2 items-center gap-1 rounded-full border border-[#f0a55a] bg-[#fffaf4]/95 p-1.5 pl-3 shadow-[0_12px_32px_rgba(101,54,10,0.16)] backdrop-blur-md dark:border-amber-400/50 dark:bg-[#17130d]/95"
+          role="toolbar"
+          aria-label={lang === "zh" ? "多选节点操作" : "Selected node actions"}
+        >
+          <span className="mr-2 whitespace-nowrap text-[11px] font-bold tracking-wide text-[#8a4b12] dark:text-amber-200">
+            {lang === "zh" ? `已选 ${selectedNodes.length} 个` : `${selectedNodes.length} selected`}
+          </span>
+          <span className="hidden whitespace-nowrap text-[10px] text-[#9a7656] dark:text-amber-100/60 lg:inline">
+            {lang === "zh" ? "拖动选框可整体移动" : "Drag the frame to move all"}
+          </span>
+          <div className="mx-1 h-5 w-px bg-[#f1cfad] dark:bg-amber-300/20" />
+          <button
+            type="button"
+            disabled={!runnableSelectionCount}
+            onClick={() => void runNodes(selectedNodeIds)}
+            className="flex h-8 items-center gap-1.5 rounded-full bg-[#18130f] px-3 text-[11px] font-bold text-white transition hover:bg-[#3b2819] disabled:cursor-not-allowed disabled:opacity-35 dark:bg-amber-300 dark:text-[#21170d] dark:hover:bg-amber-200"
+          >
+            <svg width="9" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><path d="M2 1.5v7l6-3.5z" /></svg>
+            {lang === "zh" ? `运行 ${runnableSelectionCount}` : `Run ${runnableSelectionCount}`}
+          </button>
+          <button
+            type="button"
+            onClick={handleBatchDelete}
+            className="h-8 rounded-full px-3 text-[11px] font-bold text-rose-600 transition hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-400/10"
+          >
+            {lang === "zh" ? "删除" : "Delete"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedNodes([])}
+            className="grid h-8 w-8 place-items-center rounded-full text-[#997456] transition hover:bg-[#f5e5d5] hover:text-[#3b2819] dark:text-amber-100/70 dark:hover:bg-amber-300/10"
+            aria-label={lang === "zh" ? "取消选择" : "Clear selection"}
+            title={lang === "zh" ? "取消选择" : "Clear selection"}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M2 2l8 8M10 2L2 10" /></svg>
+          </button>
+        </div>
+      )}
+
       {selectionMode && !isGhosting && (
-        <div className="pointer-events-none fixed left-1/2 top-4 z-[9998] -translate-x-1/2 rounded-full border border-[#dce2ea] bg-white/95 px-4 py-2 text-xs font-semibold text-[#111827] shadow-lg backdrop-blur">
+        <div className={`pointer-events-none absolute left-1/2 z-[9997] -translate-x-1/2 rounded-full border border-[#dce2ea] bg-white/95 px-4 py-2 text-xs font-semibold text-[#111827] shadow-lg backdrop-blur ${selectedNodes.length > 1 ? "top-16" : "top-4"}`}>
           Selection mode: click nodes to add or remove them
+        </div>
+      )}
+
+      {!selectedNodes.length && !selectionMode && !isGhosting && (
+        <div className="pointer-events-none absolute bottom-5 left-1/2 z-20 -translate-x-1/2 rounded-full border border-black/5 bg-white/75 px-3 py-1.5 text-[10px] font-medium text-[#777] shadow-sm backdrop-blur dark:border-white/10 dark:bg-[#101c29]/75 dark:text-slate-400">
+          {lang === "zh" ? "按住 Shift 拖动画布，可框选多个节点" : "Hold Shift and drag to select multiple nodes"}
         </div>
       )}
 
