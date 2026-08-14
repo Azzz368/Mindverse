@@ -346,6 +346,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       referenceAudioUrls,
       useImageInput: activeVideoPatch.videoInputMode === "image-to-video",
       duration: d.duration,
+      audioFlowShift: d.audioFlowShift,
       resolution: d.resolution,
       aspectRatio: videoAspectRatioForPreset(activeVideoModel, d.aspectRatio),
       fps: d.fps,

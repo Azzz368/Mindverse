@@ -6,6 +6,7 @@ import { generateTokenStarImage, generateTokenStarImageRevision, isTokenStarImag
 import { createKlingImageVideo as tsKlingImage, createKlingTextVideo, createKlingOmniVideo, createSeedanceAssetVideo, createSeedanceVideo } from "@/server/ai/tokenstar/tokenstarVideoProvider";
 import { createSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
 import { createHKGAIMinimaxVideo } from "@/server/ai/hkgaiVideoProvider";
+import { createHKGAIMinimaxRef2vaVideo } from "@/server/ai/hkgaiMinimaxRef2vaProvider";
 import { createVolcengineOmniHuman } from "@/server/ai/volcengineOmniHumanProvider";
 import { createMiniMaxH3VideoRegeneration } from "@/server/ai/minimaxH3VideoRegeneration";
 import { generateHKGAIMusic, synthesizeHKGAISpeech } from "@/server/ai/hkgaiAudioProvider";
@@ -68,17 +69,27 @@ async function runSora2Video(input: Record<string, unknown>): Promise<RunNodeRes
 
 async function runHKGAIMinimaxVideo(input: Record<string, unknown>): Promise<RunNodeResult> {
   try {
-    const output = await createHKGAIMinimaxVideo({
-      prompt: text(input.prompt),
-      image: optionalText(input.image),
-      referenceImageUrls: urls(input.referenceImageUrls),
-      duration: optionalNumber(input.duration),
-      aspectRatio: optionalText(input.aspectRatio),
-    });
+    const output = optionalText(input.model) === "t2_minimax-h3_bf16_ref2va"
+      ? await createHKGAIMinimaxRef2vaVideo({
+          prompt: text(input.prompt),
+          image: optionalText(input.image),
+          referenceImageUrls: urls(input.referenceImageUrls),
+          referenceVideoUrls: urls(input.referenceVideoUrls),
+          referenceAudioUrls: urls(input.referenceAudioUrls),
+          duration: optionalNumber(input.duration),
+          audioFlowShift: optionalNumber(input.audioFlowShift),
+        })
+      : await createHKGAIMinimaxVideo({
+          prompt: text(input.prompt),
+          image: optionalText(input.image),
+          referenceImageUrls: urls(input.referenceImageUrls),
+          duration: optionalNumber(input.duration),
+          aspectRatio: optionalText(input.aspectRatio),
+        });
     return { ok: true, provider: "hkgai", output, polling: { intervalMs: Number(process.env.HKGAI_VIDEO_POLL_INTERVAL_MS || 5000) } };
   } catch (error) {
     if (error instanceof AIProviderError) return fail(error.message, error.status, error.code);
-    return fail(error instanceof Error ? error.message : "HKGAI minimax_h3 video request failed.", 500, "HKGAI_VIDEO_ERROR");
+    return fail(error instanceof Error ? error.message : "HKGAI MiniMax video request failed.", 500, "HKGAI_VIDEO_ERROR");
   }
 }
 

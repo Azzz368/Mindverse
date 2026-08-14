@@ -10,6 +10,7 @@ export type VideoModelPresetId =
   | "kling-v3-omni-tokenstar"
   | "kling-v3-text-tokenstar"
   | "minimax-h3-hkgai"
+  | "minimax-ref2va-hkgai"
   | "sora-2";
 
 export const DEFAULT_VIDEO_MODEL_PRESET_ID: VideoModelPresetId = "seedance-asset-fast";
@@ -46,6 +47,7 @@ export type VideoModelPreset = {
   aspectRatios: VideoAspectRatio[];
   aspectRatioControl: VideoAspectRatioControl;
   promptMaxLength?: number;
+  durationOptions?: number[];
   referenceLimits?: Partial<Record<Exclude<VideoInputPortKind, "text">, number>>;
 };
 
@@ -161,6 +163,17 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     promptMaxLength: 7000,
     referenceLimits: { image: 2, video: 0, audio: 0 },
   },
+  "minimax-ref2va-hkgai": {
+    id: "minimax-ref2va-hkgai",
+    label: "minimax_ref2va",
+    desc: "HKGAI MiniMax H3 multimodal reference video",
+    patch: { videoModelPreset: "minimax-ref2va-hkgai", videoProvider: "hkgai", model: "t2_minimax-h3_bf16_ref2va", videoInputMode: "image-to-video", duration: 4 },
+    inputPorts: [textPort, imagePort, videoPort, audioPort],
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    aspectRatioControl: "source",
+    durationOptions: Array.from({ length: 12 }, (_, index) => index + 4),
+    referenceLimits: { image: 1, video: 3, audio: 1 },
+  },
   "sora-2": {
     id: "sora-2",
     label: "Sora 2",
@@ -202,6 +215,8 @@ export const videoReferenceLimitForPreset = (
 
 export const videoPromptMaxLengthForPreset = (id: VideoModelPresetId) => videoModelPresets[id].promptMaxLength;
 
+export const videoDurationOptionsForPreset = (id: VideoModelPresetId) => videoModelPresets[id].durationOptions;
+
 export const videoInputKindForNodeType = (nodeType: string): VideoInputPortKind | undefined => {
   if (nodeType === "image" || nodeType === "reference" || nodeType === "videoFrame") return "image";
   if (nodeType === "video" || nodeType === "videoRegeneration" || nodeType === "videoEdit") return "video";
@@ -234,6 +249,7 @@ export const videoModelPresetIdFromData = (data: {
 }): VideoModelPresetId => {
   if (data.videoModelPreset && data.videoModelPreset in videoModelPresets) return data.videoModelPreset as VideoModelPresetId;
   if (data.videoProvider === "302-sora2") return "sora-2";
+  if (data.videoProvider === "hkgai" && data.model === "t2_minimax-h3_bf16_ref2va") return "minimax-ref2va-hkgai";
   if (data.videoProvider === "hkgai" && data.model === "t2_minimax-h3_bf16_7k2p") return "minimax-h3-hkgai";
   if (data.videoProvider === "volcengine" && data.model === "jimeng_realman_avatar_picture_omni_v15") return "omnihuman-1.5-volcengine";
   if (data.videoProvider === "302ai" && data.model === "gen-4.5") return "gen-4.5";

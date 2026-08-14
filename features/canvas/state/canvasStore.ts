@@ -819,7 +819,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     if (!node || !taskId || !["image", "video", "videoRegeneration", "audio", "motion"].includes(node.data.nodeType)) return;
     set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "running", error: undefined } } : item) }));
     try {
-      const payload = await pollTaskRemote({ type: node.data.nodeType, taskId, provider: pollProviderFor(node, value), pollUrl: asText(value.pollUrl) || undefined, pollAction: node.data.nodeType === "video" ? (asText(value.pollAction) || undefined) : undefined, expectedAspectRatio: node.data.nodeType === "video" ? asText(value.expectedAspectRatio) || node.data.aspectRatio : undefined });
+      const skipAspectRatioValidation = value.skipAspectRatioValidation === true || node.data.videoModelPreset === "minimax-ref2va-hkgai";
+      const payload = await pollTaskRemote({ type: node.data.nodeType, taskId, provider: pollProviderFor(node, value), pollUrl: asText(value.pollUrl) || undefined, pollAction: node.data.nodeType === "video" ? (asText(value.pollAction) || undefined) : undefined, expectedAspectRatio: node.data.nodeType === "video" && !skipAspectRatioValidation ? asText(value.expectedAspectRatio) || node.data.aspectRatio : undefined });
       const rawOutput = asRecord(payload.output);
       const providerFromPoll = typeof payload.provider === "string" ? payload.provider : pollProviderFor(node, value);
       const pollVideoProvider = videoProviderFrom(providerFromPoll);

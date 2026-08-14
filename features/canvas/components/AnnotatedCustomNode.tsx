@@ -12,7 +12,7 @@ import { VideoFrameNode } from "./VideoFrameNode";
 import { VideoRegenerationNode } from "./VideoRegenerationNode";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
-import { DIGITAL_HUMAN_VIDEO_PROMPT, videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, videoPromptMaxLengthForPreset, videoReferenceLimitForPreset, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
+import { DIGITAL_HUMAN_VIDEO_PROMPT, videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoDurationOptionsForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, videoPromptMaxLengthForPreset, videoReferenceLimitForPreset, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
 import { DEFAULT_STORYBOARD_SCENE_COUNT, clampStoryboardSceneCount } from "@/shared/workflow/storyPipeline";
 import { audioUrlFrom, imageUrlFrom, videoUrlFrom } from "@/features/canvas/domain/nodeInputCompiler";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/shared/canvas";
@@ -108,6 +108,8 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
   const videoAspectRatio = videoAspectRatioForPreset(activeVideoModel, data.aspectRatio);
   const sourceControlsVideoRatio = videoAspectRatioControlForPreset(activeVideoModel) === "source";
   const isHKGAIMinimax = activeVideoModel === "minimax-h3-hkgai";
+  const isHKGAIRef2va = activeVideoModel === "minimax-ref2va-hkgai";
+  const activeVideoDurationOptions = videoDurationOptionsForPreset(activeVideoModel) || videoDurationOptions;
   const videoPromptMaxLength = videoPromptMaxLengthForPreset(activeVideoModel);
   const textInput = (key: keyof CanvasNodeData, value: string | undefined) => (
     <ImeInput className={inp} value={value ?? ""} onValueChange={(next) => set({ [key]: next } as Partial<CanvasNodeData>)} />
@@ -129,16 +131,18 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
         {data.nodeType === "script" && <><label className={wrap}><span className={lbl}>创意概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>语调</span>{textInput("scriptTone", data.scriptTone)}</label><label className={wrap}><span className={lbl}>目标场景数</span><select className={sel} value={String(clampStoryboardSceneCount(data.numberOfScenes))} onChange={e => set({ numberOfScenes: clampStoryboardSceneCount(e.target.value) })}>{[1,2,3].map(n=><option key={n}>{n}</option>)}</select></label></>}
         {data.nodeType === "image" && <><label className={wrap}><span className={lbl}>图像提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>尺寸</span><select className={sel} value={data.size ?? "1024x1024"} onChange={e => set({ size: e.target.value })}>{["1024x1024","1536x1024","1024x1536","auto"].map(o=><option key={o}>{o}</option>)}</select></label></>}
         {data.nodeType === "video" && <>
-          <label className={wrap}><span className={lbl}>模型</span><select className={sel} value={activeVideoModel} onChange={e => set(videoModelSelectionPatch(e.target.value as VideoModelPresetId, data.aspectRatio))}>{videoModelOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+          <label className={wrap}><span className={lbl}>模型</span><select className={sel} value={activeVideoModel} onChange={e => { const presetId = e.target.value as VideoModelPresetId; set({ ...videoModelSelectionPatch(presetId, data.aspectRatio), ...(presetId === "minimax-ref2va-hkgai" ? { referenceImageUrl: undefined, videoReferenceNodeIds: [], videoReferenceSelectionActive: false } : {}) }); }}>{videoModelOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
           <label className={wrap}><span className={lbl}>动效提示词</span>{textArea("prompt", data.prompt, 3, videoPromptMaxLength)}</label>
-          {sourceControlsVideoRatio && <label className={wrap}><span className={lbl}>首帧 URL（可选）</span>{textInput("referenceImageUrl", data.referenceImageUrl)}</label>}
+          {sourceControlsVideoRatio && !isHKGAIRef2va && <label className={wrap}><span className={lbl}>首帧 URL（可选）</span>{textInput("referenceImageUrl", data.referenceImageUrl)}</label>}
           {provider === "tokenstar" && (activeVideoModel === "kling-v3-tokenstar" || activeVideoModel === "kling-v3-omni-tokenstar") && <label className={wrap}><span className={lbl}>主体元素 ID（逗号分隔）</span>{textInput("klingElementId", data.klingElementId)}</label>}
           {provider === "tokenstar" && activeVideoPatch.generateAudio !== undefined && <div className="mb-3 flex items-center justify-between"><span className={lbl} style={{marginBottom:0}}>生成音频</span><button onClick={() => set({ generateAudio: data.generateAudio === false })} className={`relative h-5 w-9 rounded-full transition-colors ${data.generateAudio !== false ? "bg-[#030303] dark:bg-cyan-500" : "bg-[#c9ccd1] dark:bg-slate-600"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${data.generateAudio !== false ? "translate-x-[18px]" : "translate-x-0.5"}`} /></button></div>}
-          {!isHKGAIMinimax && <label className={wrap}><span className={lbl}>分辨率</span><select className={sel} value={data.resolution ?? ""} onChange={e => set({ resolution: e.target.value || undefined })}><option value="">服务器默认</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>}
-          <label className={wrap}><span className={lbl}>时长</span><select className={sel} value={String(data.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}><option value="">服务器默认</option>{videoDurationOptions.map(n=><option key={n} value={n}>{n}s</option>)}</select></label>
-          <label className={wrap}><span className={lbl}>画面比例</span><select className={sel} value={videoAspectRatio} onChange={e => set({ aspectRatio: e.target.value })}>{videoAspectRatios.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}</select></label>
+          {!isHKGAIMinimax && !isHKGAIRef2va && <label className={wrap}><span className={lbl}>分辨率</span><select className={sel} value={data.resolution ?? ""} onChange={e => set({ resolution: e.target.value || undefined })}><option value="">服务器默认</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>}
+          <label className={wrap}><span className={lbl}>时长</span><select className={sel} value={String(data.duration ?? activeVideoPatch.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}>{activeVideoDurationOptions.map(n=><option key={n} value={n}>{n}s</option>)}</select></label>
+          {!isHKGAIRef2va && <label className={wrap}><span className={lbl}>画面比例</span><select className={sel} value={videoAspectRatio} onChange={e => set({ aspectRatio: e.target.value })}>{videoAspectRatios.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}</select></label>}
+          {isHKGAIRef2va && <label className={wrap}><span className={lbl}>Audio flow shift</span><input className={inp} type="number" step="0.1" value={data.audioFlowShift ?? 3} onChange={e => set({ audioFlowShift: Number(e.target.value) })} /></label>}
           {isHKGAIMinimax && <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">HKGAI OpenAI 视频接口：提示词最多 7,000 字符，最多连接 2 张参考图；支持 5–15 秒和 16:9、9:16、1:1，分辨率由所选比例自动映射。</p>}
-          {sourceControlsVideoRatio && <p className="mb-3 text-[10px] leading-4 text-amber-700 dark:text-amber-300">该模型由首帧素材决定输出比例。运行前会校验首帧必须与所选比例一致。</p>}
+          {isHKGAIRef2va && <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">图片模式必须连接 1 张图片 + 1 段音频；视频模式连接 1–3 段自带音轨的视频（总时长 ≤15 秒）。图片和视频不能混用，视频模式不能另接音频。</p>}
+          {sourceControlsVideoRatio && <p className="mb-3 text-[10px] leading-4 text-amber-700 dark:text-amber-300">{isHKGAIRef2va ? "输出比例由所选图片或参考视频决定。" : "该模型由首帧素材决定输出比例。运行前会校验首帧必须与所选比例一致。"}</p>}
         </>}
         {data.nodeType === "videoEdit" && <>
           <label className={wrap}><span className={lbl}>Agent 剪辑计划 JSON（高级）</span>{textArea("editPlan", data.editPlan, 5)}</label>
@@ -841,9 +845,11 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const videoAspectRatio = videoAspectRatioForPreset(activeVideoModel, data.aspectRatio);
   const sourceControlsVideoRatio = videoAspectRatioControlForPreset(activeVideoModel) === "source";
   const isHKGAIMinimax = activeVideoModel === "minimax-h3-hkgai";
+  const isHKGAIRef2va = activeVideoModel === "minimax-ref2va-hkgai";
   const isOmniHuman = activeVideoModel === "omnihuman-1.5-volcengine";
   const isDigitalHumanModel = activeVideoModel === "digital-human-video" || isOmniHuman;
   const videoPromptMaxLength = videoPromptMaxLengthForPreset(activeVideoModel);
+  const activeVideoDurationOptions = videoDurationOptionsForPreset(activeVideoModel) || videoDurationOptions;
   const inputPorts = isVideoEdit
     ? [
         { id: "video", label: "Video", kind: "video" as const },
@@ -885,11 +891,17 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
     const material = materialOptions.find((item) => item.node.id === nodeId);
     const kindLimit = material ? videoReferenceLimitForPreset(activeVideoModel, material.kind) : undefined;
     let withoutReplacedKind = current;
+    if (isHKGAIRef2va && material) {
+      withoutReplacedKind = current.filter((itemId: string) => {
+        const selectedKind = materialOptions.find((item) => item.node.id === itemId)?.kind;
+        return material.kind === "video" ? selectedKind === "video" : selectedKind !== "video";
+      });
+    }
     if (material && kindLimit !== undefined) {
-      const selectedOfKind = current.filter((itemId: string) => materialOptions.find((item) => item.node.id === itemId)?.kind === material.kind);
+      const selectedOfKind = withoutReplacedKind.filter((itemId: string) => materialOptions.find((item) => item.node.id === itemId)?.kind === material.kind);
       const removeCount = Math.max(0, selectedOfKind.length - kindLimit + 1);
       const removeIds = new Set(selectedOfKind.slice(0, removeCount));
-      withoutReplacedKind = current.filter((itemId: string) => !removeIds.has(itemId));
+      withoutReplacedKind = withoutReplacedKind.filter((itemId: string) => !removeIds.has(itemId));
     }
     const next = [...withoutReplacedKind, nodeId].slice(0, 7);
     updateNodeData(id, { videoReferenceNodeIds: next, videoReferenceSelectionActive: true });
@@ -1151,6 +1163,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
               <span className="tabular-nums">{Array.from(data.prompt || "").length} / 7000</span>
             </div>}
             {isHKGAIMinimax && promptEnhanceMessage && <p className={`mt-2 text-[11px] leading-4 ${promptEnhanceFailed ? "text-red-600 dark:text-red-300" : "text-violet-700 dark:text-violet-300"}`}>{promptEnhanceMessage}</p>}
+            {isHKGAIRef2va && <div className="mt-2 rounded-xl bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">选择 1 张图片 + 1 段音频，或选择 1–3 段自带音轨的视频。选择视频时会自动移除已选图片/音频，反之亦然。</div>}
             {isOmniHuman && <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#676f7b] dark:text-slate-400"><span>必须连接 1 张图片 + 1 段音频；音频需少于 60 秒，建议 15 秒以内。</span><span className="tabular-nums">{Array.from(data.prompt || "").length} / 300</span></div>}
             </>}
          </div>
@@ -1164,21 +1177,22 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                    updateNodeData(id, {
                      ...videoModelSelectionPatch(presetId, data.aspectRatio),
                      ...((presetId === "digital-human-video" || presetId === "omnihuman-1.5-volcengine") && (!data.prompt || data.prompt === "A gentle cinematic movement") ? { prompt: DIGITAL_HUMAN_VIDEO_PROMPT } : {}),
-                     ...(presetId === "digital-human-video" || presetId === "omnihuman-1.5-volcengine" ? { videoReferenceNodeIds: [], videoReferenceSelectionActive: false } : {}),
+                     ...(presetId === "digital-human-video" || presetId === "omnihuman-1.5-volcengine" || presetId === "minimax-ref2va-hkgai" ? { videoReferenceNodeIds: [], videoReferenceSelectionActive: false } : {}),
+                     ...(presetId === "minimax-ref2va-hkgai" ? { referenceImageUrl: undefined } : {}),
                    });
                  }}
               />}
-              {!isVideoEdit && !isOmniHuman && <PillDropdown
+              {!isVideoEdit && !isOmniHuman && !isHKGAIRef2va && <PillDropdown
                  value={videoAspectRatio}
                  options={videoAspectRatios.map((ratio) => ({ value: ratio, label: ratio }))}
                  onChange={v => updateNodeData(id, { aspectRatio: String(v) })}
               />}
               {!isVideoEdit && !isOmniHuman && <PillDropdown
-                 value={data.duration || (isHKGAIMinimax ? 5 : 15)}
-                 options={videoDurationOptions.map((value) => ({ value, label: `${value}s` }))}
+                 value={data.duration || (isHKGAIRef2va ? 4 : isHKGAIMinimax ? 5 : 15)}
+                 options={activeVideoDurationOptions.map((value) => ({ value, label: `${value}s` }))}
                  onChange={v => updateNodeData(id, { duration: Number(v) })}
               />}
-              {!isVideoEdit && !isHKGAIMinimax && !isOmniHuman && <PillDropdown
+              {!isVideoEdit && !isHKGAIMinimax && !isHKGAIRef2va && !isOmniHuman && <PillDropdown
                  value={data.resolution || "1080p"} 
                  options={[{value: "1080p", label: "1080p"}, {value: "720p", label: "720p"}, {value: "480p", label: "480p"}]}
                  onChange={v => updateNodeData(id, { resolution: String(v) })}
@@ -1198,7 +1212,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
               Run
             </button>
          </div>
-         {!isVideoEdit && sourceControlsVideoRatio && <p className="shrink-0 border-t border-[#e7eaf0] px-6 py-2 text-[11px] text-amber-700 dark:border-slate-800 dark:text-amber-300">{isOmniHuman ? "OmniHuman 输出比例由输入图片决定；720p 自动启用快速模式，1080p 使用标准模式。" : "该模型的比例由首帧决定。首帧与所选比例不一致时会在提交前停止。"}</p>}
+         {!isVideoEdit && sourceControlsVideoRatio && <p className="shrink-0 border-t border-[#e7eaf0] px-6 py-2 text-[11px] text-amber-700 dark:border-slate-800 dark:text-amber-300">{isOmniHuman ? "OmniHuman 输出比例由输入图片决定；720p 自动启用快速模式，1080p 使用标准模式。" : isHKGAIRef2va ? "minimax_ref2va 的画面比例由所选图片或参考视频决定。" : "该模型的比例由首帧决定。首帧与所选比例不一致时会在提交前停止。"}</p>}
       </div>
 
       {previewOpen && videoUrl && typeof document !== "undefined" && createPortal(

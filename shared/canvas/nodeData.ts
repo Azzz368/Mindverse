@@ -15,7 +15,7 @@ export type CanvasNodeData = {
   prompt?: string; negativePrompt?: string; style?: string; aspectRatio?: string;
   instruction?: string; inputText?: string; textContent?: string; wordCount?: number; textSourceMode?: "manual" | "storyboard-scene"; sourceSceneText?: string;
   model?: string; size?: string; referenceImageUrl?: string; imageReferenceNodeIds?: string[]; imageHistory?: string[]; activeImageUrl?: string; imagePromptPreset?: "character-turnaround" | "scene-nine-grid" | "scene-top-view"; temperature?: number;
-  duration?: number; voiceStyle?: string; voice?: string; emotion?: string; volume?: number; resolution?: string; fps?: string; videoInputMode?: "text-to-video" | "image-to-video";
+  duration?: number; audioFlowShift?: number; voiceStyle?: string; voice?: string; emotion?: string; volume?: number; resolution?: string; fps?: string; videoInputMode?: "text-to-video" | "image-to-video";
   musicName?: string; musicTags?: string; ttsInstructions?: string; xVectorOnly?: boolean;
   targetModel?: string; language?: QwenVoiceLanguageCode | string; languageType?: QwenTtsLanguageType; voiceProvider?: QwenVoiceProvider; preferredName?: string; transcript?: string; consentConfirmed?: boolean; referenceAudioName?: string; fallbackMode?: boolean; fallbackReason?: string; ttsText?: string; audioUrl?: string; audioId?: string; expiresAt?: number;
   editPlan?: string; preserveAudio?: boolean; originalVolume?: number; backgroundVolume?: number; fadeIn?: number; fadeOut?: number; transition?: "none" | "fade";
