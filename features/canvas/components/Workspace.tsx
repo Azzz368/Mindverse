@@ -14,6 +14,7 @@ import { cloneSkillCanvasTemplate } from "@/shared/skills/skillTemplate";
 import { PENDING_SKILL_KEY } from "@/features/skills/services/skillClient";
 import { hasInlineMedia, snapshotForWorkflowPersistence, snapshotJsonSize } from "@/shared/canvas/snapshotTransport";
 import { ApiRequestError } from "@/shared/api/client";
+import { storyboardScenesFromValue } from "@/shared/workflow/storyPipeline";
 
 const MAX_REMOTE_WORKFLOW_BYTES = 3 * 1024 * 1024;
 const MAX_LOCAL_DRAFT_BYTES = 3 * 1024 * 1024;
@@ -239,7 +240,7 @@ export function Workspace({ workflowId, workspaceId = "local" }: { workflowId?: 
   }, [edges, nodes, normalizeVideoConnections]);
 
   useEffect(() => {
-    nodes.filter((node) => node.data.nodeType === "storyboard" && Array.isArray(node.data.output?.value)).forEach((node) => materializeStoryboardBranch(node.id));
+    nodes.filter((node) => node.data.nodeType === "storyboard" && storyboardScenesFromValue(node.data.output?.value).length > 0).forEach((node) => materializeStoryboardBranch(node.id));
   }, [nodes, materializeStoryboardBranch]);
 
   useEffect(() => {

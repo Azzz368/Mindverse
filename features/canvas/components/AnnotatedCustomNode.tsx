@@ -13,7 +13,7 @@ import { VideoRegenerationNode } from "./VideoRegenerationNode";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
 import { DIGITAL_HUMAN_VIDEO_PROMPT, videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoDurationOptionsForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, videoPromptMaxLengthForPreset, videoReferenceLimitForPreset, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
-import { DEFAULT_STORYBOARD_SCENE_COUNT, clampStoryboardSceneCount } from "@/shared/workflow/storyPipeline";
+import { DEFAULT_STORYBOARD_SCENE_COUNT, clampStoryboardSceneCount, storyboardScenesFromValue } from "@/shared/workflow/storyPipeline";
 import { audioUrlFrom, imageUrlFrom, videoUrlFrom } from "@/features/canvas/domain/nodeInputCompiler";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
@@ -434,6 +434,10 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
   const isScript = data.nodeType === "script";
   const scriptOutput = record(data.output?.value);
   const scriptScenes = Array.isArray(scriptOutput.scenes) ? scriptOutput.scenes.map(record) : [];
+  const scriptCharacters = Array.isArray(scriptOutput.characters) ? scriptOutput.characters.map(record) : [];
+  const generationProvider = text(scriptOutput.provider);
+  const generationModel = text(scriptOutput.model);
+  const generationLabel = generationProvider || generationModel ? [generationProvider.toUpperCase(), generationModel].filter(Boolean).join(" · ") : "服务器默认模型";
   const generatedText = isScript
     ? [text(scriptOutput.title), text(scriptOutput.logline), ...scriptScenes.map((scene, index) => [`Scene ${scene.sceneNumber || index + 1}`, text(scene.action), ...(Array.isArray(scene.dialogue) ? scene.dialogue.map(text) : [])].filter(Boolean).join("\n"))].filter(Boolean).join("\n\n")
     : text(scriptOutput.generatedText);
@@ -442,9 +446,9 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
 
   useEffect(() => {
-    if (generatedText && generatedText !== previousGeneratedText.current) updateNodeData(id, { textContent: generatedText });
+    if (!isScript && generatedText && generatedText !== previousGeneratedText.current) updateNodeData(id, { textContent: generatedText });
     previousGeneratedText.current = generatedText;
-  }, [generatedText, id, updateNodeData]);
+  }, [generatedText, id, isScript, updateNodeData]);
 
   return (
     <>
@@ -466,10 +470,34 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
 
         <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
 
-        <div className="flex-1 p-6">
-          <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800 border-[6px] border-transparent">
+        <div className="min-h-0 flex-1 p-6">
+          <div className="relative flex h-full min-h-0 w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#f0f1f3] dark:bg-slate-800 border-[6px] border-transparent">
             {isGenerating ? (
               <div className="absolute inset-0 m-auto h-12 w-12 animate-pulse rounded-2xl bg-[#c9ccd1] dark:bg-slate-600" />
+            ) : isScript && scriptScenes.length ? (
+              <div className="nodrag nowheel h-full min-h-0 w-full overflow-y-auto overscroll-contain px-4 py-3">
+                <div className="mb-3 border-b border-[#d9dce1] pb-3 dark:border-slate-700">
+                  <p className="text-[14px] font-bold leading-5 text-[#030303] dark:text-slate-100">{text(scriptOutput.title) || "未命名剧本"}</p>
+                  {text(scriptOutput.logline) && <p className="mt-1.5 text-[11px] leading-4 text-[#535a64] dark:text-slate-300">{text(scriptOutput.logline)}</p>}
+                  {scriptCharacters.length > 0 && <p className="mt-2 truncate text-[10px] text-[#858b94] dark:text-slate-500">角色：{scriptCharacters.map((character) => text(character.name)).filter(Boolean).join("、")}</p>}
+                </div>
+                <div className="space-y-3">
+                  {scriptScenes.map((scene, index) => {
+                    const dialogue = Array.isArray(scene.dialogue) ? scene.dialogue.filter((line): line is string => typeof line === "string") : [];
+                    return (
+                      <section key={`${String(scene.sceneNumber || index + 1)}-${index}`} className="rounded-xl bg-white/80 p-3 shadow-sm dark:bg-slate-900/55">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[11px] font-bold text-[#030303] dark:text-cyan-200">Scene {String(scene.sceneNumber || index + 1)}</p>
+                          <p className="truncate text-[9px] font-medium text-[#858b94] dark:text-slate-500">{[text(scene.location), text(scene.timeOfDay)].filter(Boolean).join(" · ")}</p>
+                        </div>
+                        <p className="mt-1.5 text-[11px] leading-4 text-[#404040] dark:text-slate-300">{text(scene.action)}</p>
+                        {dialogue.length > 0 && <div className="mt-2 border-l-2 border-[#3eedb8] pl-2 text-[10px] leading-4 text-[#535a64] dark:text-slate-400">{dialogue.map((line, lineIndex) => <p key={`${lineIndex}-${line}`}>{line}</p>)}</div>}
+                        {text(scene.visualDirection) && <p className="mt-2 text-[9px] leading-3.5 text-[#858b94] dark:text-slate-500">镜头：{text(scene.visualDirection)}</p>}
+                      </section>
+                    );
+                  })}
+                </div>
+              </div>
             ) : (
               <ImeTextarea
                 value={textContent}
@@ -493,11 +521,7 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
         </div>
         <div className="flex items-center justify-between px-6 pb-6">
           <div className="flex gap-2">
-            <PillDropdown
-              value={data.model || "Claude sonnet 4.6"}
-              options={["Claude sonnet 4.6", "Gemini 3.1 Pro", "Deepseek v4", "Qwen3.7-plus", "GPT 5.5", "GLM 5.2"].map((o) => ({ value: o, label: o }))}
-              onChange={(v) => updateNodeData(id, { model: String(v) })}
-            />
+            <span title="实际提供商和模型由服务端环境变量决定" className="nodrag flex h-9 max-w-[220px] items-center truncate rounded-full bg-[#f0f1f3] px-3 text-[11px] font-semibold text-[#535a64] dark:bg-slate-800 dark:text-slate-300">{isScript ? "服务器模型" : generationLabel}</span>
             <PillDropdown
               value={isScript ? clampStoryboardSceneCount(data.numberOfScenes) : data.wordCount || 200}
               options={(isScript ? [1, 2, 3] : [100, 200, 500, 1000]).map((n) => ({ value: n, label: isScript ? `${n} scene` : `${n} words` }))}
@@ -537,7 +561,12 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
   const sceneCount = clampStoryboardSceneCount(data.targetShotCount ?? data.numberOfScenes ?? DEFAULT_STORYBOARD_SCENE_COUNT);
-  const scenes = Array.isArray(data.output?.value) ? data.output.value.map(record) : [];
+  const storyboardOutput = record(data.output?.value);
+  const scenes = storyboardScenesFromValue(data.output?.value);
+  const requestedSceneCount = Number(storyboardOutput.requestedSceneCount) || sceneCount;
+  const generationProvider = text(storyboardOutput.provider);
+  const generationModel = text(storyboardOutput.model);
+  const generationLabel = generationProvider || generationModel ? [generationProvider.toUpperCase(), generationModel].filter(Boolean).join(" · ") : "服务器默认模型";
 
   return (
     <>
@@ -556,8 +585,8 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
             ) : scenes.length ? (
               <div className="nodrag nowheel h-full min-h-0 w-full overflow-y-auto overscroll-contain px-4 py-3">
                 <div className="sticky top-0 z-10 mb-1 flex items-center justify-between bg-[#f0f1f3] pb-2 text-[11px] font-semibold text-[#404040] dark:bg-slate-800 dark:text-slate-200">
-                  <span>{scenes.length} scenes</span>
-                  <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-[#676f7b] shadow-sm dark:bg-slate-700 dark:text-slate-300">Synced</span>
+                  <span>{scenes.length}/{requestedSceneCount} scenes</span>
+                  <span title={generationLabel} className={`max-w-[180px] truncate rounded-full bg-white px-2 py-0.5 text-[10px] shadow-sm dark:bg-slate-700 ${scenes.length < requestedSceneCount ? "text-amber-600 dark:text-amber-300" : "text-[#676f7b] dark:text-slate-300"}`}>{scenes.length < requestedSceneCount ? "输出不完整" : generationLabel}</span>
                 </div>
                 <div className="divide-y divide-[#d9dce1] dark:divide-slate-700">
                   {scenes.map((scene: Record<string, unknown>, index: number) => (
@@ -569,7 +598,8 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
                         {Number(scene.duration) > 0 && <span className="shrink-0 text-[10px] font-medium text-[#858b94] dark:text-slate-500">{Number(scene.duration)}s</span>}
                       </div>
                       <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-[#404040] dark:text-slate-300">{text(scene.description) || text(scene.action) || text(scene.visualPrompt)}</p>
-                      {text(scene.camera) && <p className="mt-1 truncate text-[10px] text-[#858b94] dark:text-slate-500">{text(scene.camera)}</p>}
+                      {text(scene.visualPrompt) && text(scene.visualPrompt) !== text(scene.description) && <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[#6e7580] dark:text-slate-400">画面：{text(scene.visualPrompt)}</p>}
+                      {text(scene.camera) && <p className="mt-1 truncate text-[10px] text-[#858b94] dark:text-slate-500">镜头：{text(scene.camera)}</p>}
                     </div>
                   ))}
                 </div>
@@ -590,11 +620,7 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
         </div>
         <div className="flex items-center justify-between px-6 pb-6">
           <div className="flex gap-2">
-            <PillDropdown
-              value={data.model || "GPT 4o mini"}
-              options={["GPT 4o mini", "Claude sonnet 4.6", "Gemini 3.1 Pro"].map((value) => ({ value, label: value }))}
-              onChange={(value) => updateNodeData(id, { model: String(value) })}
-            />
+            <span title="实际提供商和模型由服务端 AI_TEXT_PROVIDER、HKGAI_* 或 AI_302_* 环境变量决定" className="nodrag flex h-9 max-w-[260px] items-center truncate rounded-full bg-[#f0f1f3] px-3 text-[11px] font-semibold text-[#535a64] dark:bg-slate-800 dark:text-slate-300">{generationLabel}</span>
             <PillDropdown
               value={sceneCount}
               options={[1, 2, 3].map((value) => ({ value, label: `${value} scene` }))}

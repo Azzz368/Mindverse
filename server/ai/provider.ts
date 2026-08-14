@@ -13,6 +13,7 @@ export function getAIProvider(): AIProvider {
 }
 
 export function getTextAIProvider(): AIProvider {
+  if (process.env.AI_TEXT_PROVIDER?.toLowerCase() === "mock") return mockAIProvider;
   return ai302Provider;
 }
 

@@ -31,7 +31,7 @@ export const outputFromProvider = (nodeType: CanvasNode["data"]["nodeType"], val
   const data = asRecord(value);
   if (nodeType === "text") {
     const text = asText(data.text);
-    return makeOutput("text", text.slice(0, 90), { generatedText: text });
+    return makeOutput("text", text.slice(0, 90), { generatedText: text, provider: asText(data.provider), model: asText(data.model) });
   }
   if (nodeType === "script") {
     const scenes = Array.isArray(data.scenes) ? data.scenes : [];
@@ -40,7 +40,8 @@ export const outputFromProvider = (nodeType: CanvasNode["data"]["nodeType"], val
   }
   if (nodeType === "storyboard") {
     const scenes = Array.isArray(data.scenes) ? data.scenes : [];
-    return makeOutput("storyboard", `${scenes.length} shots created`, scenes);
+    const requested = Number(data.requestedSceneCount) || scenes.length;
+    return makeOutput("storyboard", `${scenes.length}/${requested} shots created`, value);
   }
   if (nodeType === "motion") {
     const composition = asRecord(data.composition || data.motionComposition);

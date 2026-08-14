@@ -172,11 +172,16 @@ async function runTokenstarVideo(rawInput: Record<string, unknown>): Promise<Run
 async function runScript(input: Record<string, unknown>) {
   const textProvider = getTextAIProvider();
   const brief = text(input.storyBrief) || text(input.prompt);
+  if (!brief.trim()) throw new AIProviderError("请先填写剧本创作简介，或连接一个包含文本内容的上游节点。", "SCRIPT_BRIEF_REQUIRED", 400);
   const defaultTone = /[\u3400-\u9fff]/.test(brief) ? "电影感、虚构、完整可拍摄剧本" : "Cinematic, fictional";
   const tone = text(input.scriptTone) || defaultTone;
   const count = clampStoryboardSceneCount(input.numberOfScenes);
   const result = await textProvider.generateText({ model: optionalText(input.model), temperature: 0.5, prompt: scriptInstruction(brief, tone, count) });
-  return parseScript(result.text, brief, count);
+  try {
+    return { ...parseScript(result.text, brief, count), requestedSceneCount: count, provider: result.provider, model: result.model, rawText: result.text };
+  } catch (error) {
+    throw new AIProviderError(error instanceof Error ? error.message : "剧本模型返回的内容无法解析。", "SCRIPT_RESPONSE_INVALID", 502);
+  }
 }
 
 export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Record<string, unknown>, context: { workspaceId?: string } = {}): Promise<RunNodeResult> {
@@ -346,6 +351,7 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
   if (nodeType === "video" && (rawInput.videoProvider === "hkgai" || (!rawInput.videoProvider && process.env.AI_VIDEO_PROVIDER === "hkgai"))) return runHKGAIMinimaxVideo(rawInput);
   if (nodeType === "video" && (rawInput.videoProvider === "kling" || rawInput.videoProvider === "" || (!rawInput.videoProvider && process.env.AI_VIDEO_PROVIDER !== "302ai" && process.env.AI_VIDEO_PROVIDER !== "tokenstar" && process.env.AI_VIDEO_PROVIDER !== "hkgai"))) return runKlingVideo(rawInput);
   if (nodeType === "video" && (rawInput.videoProvider === "tokenstar" || (!rawInput.videoProvider && process.env.AI_VIDEO_PROVIDER === "tokenstar"))) return runTokenstarVideo(rawInput);
+  if (nodeType === "storyboard" && !text(rawInput.storyBrief).trim()) return fail("请先填写分镜故事简介，或连接已经生成的 Script/Text 节点。", 400, "STORYBOARD_BRIEF_REQUIRED");
 
   const provider = getAIProvider();
   const imageProvider = getImageAIProvider();
@@ -366,10 +372,13 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
       numberOfScenes: clampStoryboardSceneCount(rawInput.numberOfScenes),
     });
   const verifiedOutput = nodeType === "video" ? await verifyCompletedVideoAspectRatio(output, rawInput.aspectRatio) : output;
+  const outputProvider = verifiedOutput && typeof verifiedOutput === "object" && typeof (verifiedOutput as Record<string, unknown>).provider === "string"
+    ? (verifiedOutput as Record<string, unknown>).provider as string
+    : sourceProvider;
   return {
     ok: true,
-    provider: sourceProvider,
-    output: await archiveResultMedia(verifiedOutput, { sourceProvider, mediaTypeHint: nodeType === "audio" ? "audio" : nodeType === "image" || nodeType === "image-revision" ? "image" : nodeType === "video" ? "video" : undefined }),
+    provider: outputProvider,
+    output: await archiveResultMedia(verifiedOutput, { sourceProvider: outputProvider, mediaTypeHint: nodeType === "audio" ? "audio" : nodeType === "image" || nodeType === "image-revision" ? "image" : nodeType === "video" ? "video" : undefined }),
     polling: { intervalMs: Number(process.env.AI_302_POLL_INTERVAL_MS || 3000), maxAttempts: Number(process.env.AI_302_MAX_POLL_ATTEMPTS || 40) },
   };
 }

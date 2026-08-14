@@ -1,6 +1,6 @@
 export type AIProviderName = "mock" | "302ai";
 export type GenerateTextInput = { prompt: string; systemPrompt?: string; model?: string; temperature?: number; upstreamContext?: unknown };
-export type GenerateTextOutput = { text: string; raw?: unknown };
+export type GenerateTextOutput = { text: string; provider?: "302ai" | "hkgai" | "mock"; model?: string; raw?: unknown };
 export type GenerateImageInput = { prompt: string; negativePrompt?: string; model?: string; size?: string; aspectRatio?: string; resolution?: string; referenceImageUrl?: string; referenceImageUrls?: string[] };
 export type GenerateImageOutput = { imageUrl?: string; taskId?: string; status: "completed" | "pending" | "failed"; raw?: unknown };
 export type GenerateImageRevisionInput = { sourceImageUrl: string; annotations: unknown[]; instruction?: string; prompt?: string; model?: string; size?: string };
@@ -16,7 +16,7 @@ export type StoryboardScene = {
   cinematicLanguage?: string; blocking?: string; visualContinuity?: string; characterContinuity?: string; sceneContinuity?: string; composition?: string; lens?: string; cameraMovement?: string; lighting?: string; colorPalette?: string; mood?: string; actionRhythm?: string; soundCue?: string; transition?: string; negativePrompt?: string;
 };
 export type GenerateStoryboardInput = { storyBrief: string; numberOfScenes: number; model?: string };
-export type GenerateStoryboardOutput = { scenes: StoryboardScene[]; rawText?: string; raw?: unknown };
+export type GenerateStoryboardOutput = { scenes: StoryboardScene[]; requestedSceneCount?: number; provider?: "302ai" | "hkgai" | "mock"; model?: string; rawText?: string; raw?: unknown };
 export interface AIProvider {
   name: AIProviderName;
   generateText(input: GenerateTextInput): Promise<GenerateTextOutput>;

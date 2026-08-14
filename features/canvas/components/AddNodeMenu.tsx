@@ -45,7 +45,7 @@ const getTools = (t: Strings) => [
   { id: "hkgai-tts", type: "hkgaiTTS", cat: "Audio", title: "HKGAI TTS", desc: "Generate speech with a built-in voice or an uploaded reference voice", iconSrc: "/icons/3.png", data: { title: "Audio* HKGAI TTS", voice: "Mandarin_治愈女声", language: "auto", ttsInstructions: "温柔、自然、像在聊天", xVectorOnly: true, consentConfirmed: false } },
   { id: "voice-clone", type: "voiceClone", cat: "Audio", title: t.nodeNames["voiceClone"] || "Voice Clone", desc: "Clone an authorized reference voice with QwenCloud", iconSrc: "/icons/3.png" },
   { id: "voice-tts", type: "voiceTTS", cat: "Audio", title: t.nodeNames["voiceTTS"] || "Cloned Voice TTS", desc: "Generate audio from text using a cloned voice", iconSrc: "/icons/3.png" },
-  { id: "claude", type: "text", cat: "Text", title: "Claude", desc: t.toolDescText, iconSrc: "/icons/4.png" },
+  { id: "text", type: "text", cat: "Text", title: t.nodeNames["text"] || "Text", desc: t.toolDescText, iconSrc: "/icons/4.png" },
   { id: "prompt", type: "prompt", cat: "Text", title: t.nodeNames["prompt"], desc: t.toolDescPrompt, iconSrc: "/icons/4.png" },
   { id: "script", type: "script", cat: "Storyboard", title: t.nodeNames["script"], desc: t.toolDescScript, iconSrc: "/icons/5.png" },
   { id: "storyboard", type: "storyboard", cat: "Storyboard", title: t.nodeNames["storyboard"], desc: t.toolDescStoryboard, iconSrc: "/icons/5.png" },

@@ -2,10 +2,11 @@ import { asRecord, asText } from "./values";
 import { DEFAULT_QWEN_VOICE_MODEL, qwenTtsLanguageTypes } from "@/shared/api/qwenContracts";
 import { imagePromptWithPreset } from "@/shared/workflow/imagePromptPresets";
 import { videoAspectRatioForPreset, videoInputPortsForPreset, videoModelPatch, videoModelPresetIdFromData, videoPromptMaxLengthForPreset, videoReferenceLimitForPreset, type VideoInputPortKind } from "@/shared/workflow/videoModelPresets";
-import { clampStoryboardSceneCount, storyboardSceneFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
+import { clampStoryboardSceneCount, storyboardSceneFromValue, storyboardScenesFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation, WorkflowEdge } from "@/shared/canvas";
 
 const MAX_PROVIDER_PROMPT_LENGTH = 2400;
+const MAX_STORY_PROMPT_LENGTH = 12_000;
 
 export const limitProviderPrompt = (value: string, maxLength = MAX_PROVIDER_PROMPT_LENGTH) => {
   const trimmed = value.trim();
@@ -20,8 +21,8 @@ export const limitProviderPrompt = (value: string, maxLength = MAX_PROVIDER_PROM
 };
 
 export const scenesFrom = (value: unknown) =>
-  Array.isArray(value)
-    ? value
+  storyboardScenesFromValue(value).length
+    ? storyboardScenesFromValue(value)
         .map((scene) => {
           const item = asRecord(scene);
           return `Scene ${asText(item.sceneNumber)}: ${asText(item.description)}. Visual: ${asText(item.visualPrompt)}. Camera: ${asText(item.camera)}.`;
@@ -265,11 +266,13 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
   const explicitReferenceImageUrls = referencedImageUrlsFrom(node, upstream);
 
   if (d.nodeType === "script") {
+    // Script output is rendered separately from the editable brief. Never feed a
+    // previous generated screenplay back into the next run as hidden input.
+    const scriptBrief = [d.storyBrief, contextFrom(upstream)].filter(Boolean).join("\n\n");
     return {
-      storyBrief: limitProviderPrompt(prompt),
+      storyBrief: limitProviderPrompt(scriptBrief, MAX_STORY_PROMPT_LENGTH),
       scriptTone: d.scriptTone,
       numberOfScenes: clampStoryboardSceneCount(d.numberOfScenes),
-      model: d.model,
     };
   }
 
@@ -277,7 +280,6 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
     const storyboardSceneText = isStoryboardSceneTextNode(node, upstream);
     return {
       prompt: limitProviderPrompt(prompt),
-      model: d.model,
       temperature: d.temperature,
       upstreamContext: storyboardSceneText ? undefined : inputs,
     };
@@ -510,9 +512,8 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
   }
 
   return {
-    storyBrief: limitProviderPrompt(prompt),
+    storyBrief: limitProviderPrompt(prompt, MAX_STORY_PROMPT_LENGTH),
     numberOfScenes: clampStoryboardSceneCount(d.targetShotCount ?? d.numberOfScenes),
-    model: d.model,
   };
 };
 

@@ -8,11 +8,18 @@ Mindverse is a node-based creative workspace for text, image, video, audio, agen
 - Workflow snapshots and media can be stored in Bunny Storage under workspace-scoped paths.
 - Hold `Shift` and drag on empty canvas space to select multiple nodes. The persistent selection frame supports moving, running, or deleting the selected nodes as one group.
 - A Video Frame Extractor node can receive a VideoNode and create a connected Reference node from either the current frame or the final frame.
-- Video integrations include Kling, TokenStar Seedance, HKGAI MiniMax H3, and Volcengine Seedance OmniHuman 1.5. HKGAI Context IR can enhance MiniMax H3 prompts.
+- Video integrations include Kling, TokenStar Seedance, HKGAI MiniMax H3, HKGAI MiniMax ref2va, and Volcengine Seedance OmniHuman 1.5. HKGAI Context IR can enhance MiniMax H3 prompts.
 - Audio integrations include HKGAI Music and TTS nodes, including reference-voice creation for supported TTS models.
 - The MiniMax H3 2K Regeneration node supports either a connected eligible H3 768P source video or a whitelisted recent `source_task_id`, using the server-only `MINIMAX_API_KEY`.
 
 For validation results, open issues, deployment notes, and the next development priorities, see [`WORKSPACE_HANDOFF.md`](WORKSPACE_HANDOFF.md).
+
+## Documentation
+
+- Developer handoff and roadmap: [`WORKSPACE_HANDOFF.md`](WORKSPACE_HANDOFF.md)
+- End-user guide: [`docs/MINDVERSE_USER_GUIDE.md`](docs/MINDVERSE_USER_GUIDE.md)
+- Agent runtime: [`docs/AGENT_RUNTIME.md`](docs/AGENT_RUNTIME.md)
+- Capability RAG: [`docs/CAPABILITY_RAG.md`](docs/CAPABILITY_RAG.md)
 
 ## Local development
 
