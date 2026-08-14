@@ -6,6 +6,22 @@ import { ThinkingOrb } from "thinking-orbs";
 import { DirectorAgentPanel } from "@/components/DirectorAgentPanel";
 import { LensRefraction } from "@/components/LensRefraction";
 
+const TOPLIST_IMAGES = [
+  "/website/flowvideo/toplist/1.png",
+  "/website/flowvideo/toplist/2.png",
+  "/website/flowvideo/toplist/3.png",
+  "/website/flowvideo/toplist/4.png",
+  "/website/flowvideo/toplist/5.png",
+  "/website/flowvideo/toplist/6.png",
+  "/website/flowvideo/toplist/7.png",
+  "/website/flowvideo/toplist/8.png",
+];
+
+const DOWNLIST_IMAGES = Array.from(
+  { length: 8 },
+  (_, index) => `/website/flowvideo/downlist/${index + 1}.png`,
+);
+
 export default function Home() {
   const [heroStage, setHeroStage] = useState<"black" | "video">("black");
   const [activeHeroVideo, setActiveHeroVideo] = useState<"fullCowboy" | "partCowboy" | "daduhuidog" | "basketball">("fullCowboy");
@@ -16,8 +32,6 @@ export default function Home() {
   const partCowboyVideoRef = useRef<HTMLVideoElement>(null);
   const daduhuidogVideoRef = useRef<HTMLVideoElement>(null);
   const basketballVideoRef = useRef<HTMLVideoElement>(null);
-  const [hoveredTopCard, setHoveredTopCard] = useState<number | null>(null);
-  const [topCard3Frame, setTopCard3Frame] = useState(1);
 
   useEffect(() => {
     // Keep the first paint black, then immediately start the normal 0.2 s video fade.
@@ -44,19 +58,6 @@ export default function Home() {
       void video?.play();
     }
   }, [activeHeroVideo, heroStage]);
-
-  useEffect(() => {
-    if (hoveredTopCard !== 3) {
-      setTopCard3Frame(1);
-      return;
-    }
-
-    const frameTimer = window.setInterval(() => {
-      setTopCard3Frame((frame) => (frame % 6) + 1);
-    }, 120);
-
-    return () => window.clearInterval(frameTimer);
-  }, [hoveredTopCard]);
 
   useEffect(() => {
     const section = heroSectionRef.current;
@@ -176,33 +177,6 @@ export default function Home() {
     };
   }, []);
 
-  const renderTopImageCard = (cardNumber: 1 | 2 | 3) => {
-    const isHovered = hoveredTopCard === cardNumber;
-    const activeSource =
-      cardNumber === 3
-        ? `/website/flowvideo/toplist/3/${topCard3Frame}.png`
-        : `/website/flowvideo/toplist/${cardNumber}/1.png`;
-
-    return (
-      <div
-        className="relative h-[160px] w-[295px] shrink-0 overflow-hidden rounded-[13px] border border-white/20 shadow-sm"
-        onMouseEnter={() => setHoveredTopCard(cardNumber)}
-        onMouseLeave={() => setHoveredTopCard(null)}
-      >
-        <img
-          src={`/website/flowvideo/toplist/${cardNumber}/before.png`}
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-        <img
-          src={activeSource}
-          alt=""
-          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-[350ms] ease-out ${isHovered ? "opacity-100" : "opacity-0"}`}
-        />
-      </div>
-    );
-  };
-
   return (
     <div className="w-full bg-white relative overflow-clip font-epilogue">
       {/* Global SVG Filters for Liquid Glass Effect */}
@@ -241,12 +215,12 @@ export default function Home() {
         .animate-marquee-left {
           display: flex;
           width: max-content;
-          animation: marquee-left 25s linear infinite;
+          animation: marquee-left 32s linear infinite;
         }
         .animate-marquee-right {
           display: flex;
           width: max-content;
-          animation: marquee-right 25s linear infinite;
+          animation: marquee-right 32s linear infinite;
         }
         
         /* 额外给玻璃容器增加滤镜引用 */
@@ -443,37 +417,27 @@ export default function Home() {
 
       {/* ======================= Desktop - 3 ======================= */}
       <section 
-        className="relative w-full overflow-x-clip min-h-[1606px] flex justify-center" 
-        style={{ background: "linear-gradient(180deg, #FFFFFF 0%, #F7F4D8 18.75%, #F2E2AB 37.5%, rgba(162, 116, 59, 0.8) 58.65%, rgba(77, 47, 24, 0.95) 78.99%, #160D0A 89.29%, #000000 96.4%)" }}
+        className="relative flex min-h-[1606px] w-full justify-center overflow-x-clip bg-black"
       >
         {/* Frame 1 overlay */}
         <div className="absolute inset-0 h-full w-full bg-black/[0.004] pointer-events-none" />
 
-        {/* 内部约束容器保留元素定位尺寸 (1440px 居中) */}
+        {/* 内部约束容器保留元素定位尺寸 (1440px 居中，仅保留渐变背景) */}
         <div className="relative w-full max-w-[1440px] min-h-[1606px] pointer-events-none">
-          {/* Ellipses / Glow Effects (Group 3 坐标已换算为相对本容器的绝对定位) */}
-          <div className="absolute top-[826.2px] left-[114px] w-[653.86px] h-[252.43px] bg-[#0D0702] blur-[100px] pointer-events-none" style={{ transform: "matrix(0.92, -0.39, 0.25, 0.97, 0, 0)" }} />
-          <div className="absolute top-[937px] left-[-356px] w-[493.11px] h-[213.21px] bg-[#0D0702] blur-[100px] pointer-events-none" style={{ transform: "matrix(0.37, 0.93, -0.84, 0.55, 0, 0)" }} />
-          <div className="absolute top-[632px] left-[1019px] w-[461px] h-[1124px] bg-[#0D0702] blur-[100px] pointer-events-none" />
-          <div className="absolute top-[1131px] left-[-178px] w-[802px] h-[227px] bg-[#0D0502] blur-[90px] rotate-[16.25deg] pointer-events-none" />
-
           {/* Image Grid Row 1 (top: 175px) - Scrolls Left (跨越全屏，向外突围) */}
-          <div
-            className="absolute top-[175px] left-[50%] -translate-x-1/2 w-[100vw] overflow-hidden pointer-events-auto"
-            onMouseLeave={() => setHoveredTopCard(null)}
-          >
-            <div className="animate-marquee-left" style={{ animationPlayState: hoveredTopCard ? "paused" : "running" }}>
-              {/* 我们重复两遍内容块，制造无缝轮播 */}
+          <div className="pointer-events-auto absolute top-[175px] left-[50%] w-[100vw] -translate-x-1/2 overflow-hidden">
+            <div className="animate-marquee-left">
+              {/* Duplicate the eight-card sequence for a seamless loop. */}
               {[...Array(2)].map((_, i) => (
                 <div key={i} className="flex shrink-0 gap-[25px] pr-[25px]">
-                  {renderTopImageCard(1)}
-                  {renderTopImageCard(2)}
-                  {renderTopImageCard(3)}
-                  <div className="w-[295px] h-[160px] bg-[#FFFFFF]/25 rounded-[13px] border border-white/30 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#000000]/20 rounded-[13px] border border-white/20 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#FFFFFF]/20 rounded-[13px] border border-white/20 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#000000]/15 rounded-[13px] border border-white/20 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#FFFFFF]/30 rounded-[13px] border border-white/40 shadow-sm" />
+                  {TOPLIST_IMAGES.map((source, index) => (
+                    <img
+                      key={`${i}-${source}`}
+                      src={source}
+                      alt={`Top showcase ${index + 1}`}
+                      className="h-[160px] w-[295px] shrink-0 rounded-[13px] border border-white/20 object-cover shadow-sm"
+                    />
+                  ))}
                 </div>
               ))}
             </div>
@@ -482,24 +446,24 @@ export default function Home() {
           {/* Image Grid Row 2 (top: 354px) - Scrolls Right */}
           <div className="absolute top-[354px] left-[50%] -translate-x-1/2 w-[100vw] overflow-hidden pointer-events-auto">
             <div className="animate-marquee-right">
-              {/* 我们重复两遍内容块，制造无缝轮播 */}
+              {/* Duplicate the eight-card sequence for a seamless loop. */}
               {[...Array(2)].map((_, i) => (
                 <div key={i} className="flex shrink-0 gap-[25px] pr-[25px]">
-                  <div className="w-[295px] h-[160px] bg-[#FFFFFF]/30 rounded-[13px] border border-white/40 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#000000]/20 rounded-[13px] border border-white/20 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#FFFFFF]/25 rounded-[13px] border border-white/30 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#000000]/10 rounded-[13px] border border-white/20 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#FFFFFF]/15 rounded-[13px] border border-white/10 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#000000]/15 rounded-[13px] border border-white/20 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#FFFFFF]/20 rounded-[13px] border border-white/20 shadow-sm" />
-                  <div className="w-[295px] h-[160px] bg-[#000000]/25 rounded-[13px] border border-white/20 shadow-sm" />
+                  {DOWNLIST_IMAGES.map((source, index) => (
+                    <img
+                      key={`${i}-${source}`}
+                      src={source}
+                      alt={`Bottom showcase ${index + 1}`}
+                      className="h-[160px] w-[295px] shrink-0 rounded-[13px] border border-white/20 object-cover shadow-sm"
+                    />
+                  ))}
                 </div>
               ))}
             </div>
           </div>
 
           {/* Title: All IN ONE... */}
-          <div className="absolute top-[632px] left-[357px] w-[726px] h-[69px]">
+          <div className="absolute top-[700px] left-[357px] w-[726px] h-[69px]">
             <h2 className="font-baskervville text-center font-semibold italic text-[56px] leading-[72px] text-white drop-shadow-md">
               All IN ONE, All IN ONCE.
             </h2>
@@ -526,7 +490,10 @@ export default function Home() {
       </section>
 
       {/* ======================= MacBook Pro 16 - Footer ======================= */}
-      <footer className="font-epilogue relative h-[1117px] w-full overflow-hidden bg-[#060402] font-normal text-white">
+      <footer
+        className="font-epilogue relative h-[1117px] w-full overflow-hidden font-normal text-white"
+        style={{ background: "linear-gradient(180deg, #000000 7.87%, #060402 27.4%, #26190F 68.27%)" }}
+      >
         {/* Figma background atmosphere */}
         <div className="pointer-events-none absolute inset-x-[-105px] top-[465px] h-[1009px] bg-[rgba(42,29,20,0.89)] blur-[90px]" />
         <div className="pointer-events-none absolute inset-x-0 top-[684px] h-[884px] bg-[#3C2F1C] blur-[85px]" />

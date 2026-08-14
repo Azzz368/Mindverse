@@ -1,9 +1,17 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { ThinkingOrb } from "thinking-orbs";
+
+// The package creates browser-only visual resources. Do not evaluate it while
+// Next.js renders the page on the server; load it after this client component hydrates.
+const LiquidGlass = dynamic(() => import("liquid-glass-react"), {
+  ssr: false,
+  loading: () => <div className="h-full w-full rounded-[42px] bg-white/10 backdrop-blur-[18px]" />,
+});
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger);
@@ -60,14 +68,30 @@ export function DirectorAgentPanel() {
   const pillRef = useRef<HTMLDivElement>(null);
   const pillTextRef = useRef<HTMLParagraphElement>(null);
   const leftPanelRef = useRef<HTMLDivElement>(null);
+  const thinkingIconRef = useRef<HTMLDivElement>(null);
+  const thinkingTextRef = useRef<HTMLParagraphElement>(null);
+  const buildingTextRef = useRef<HTMLParagraphElement>(null);
+  const detailTextRef = useRef<HTMLParagraphElement>(null);
+  const stepRowRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const customModifyRef = useRef<HTMLDivElement>(null);
+  const applyRef = useRef<HTMLDivElement>(null);
 
   // Frame 5 only: brief / Script / Storyboard / Text (final) column grid.
   const stage1Ref = useRef<HTMLDivElement>(null);
+  const briefStageRef = useRef<HTMLDivElement>(null);
+  const scriptStageRef = useRef<HTMLDivElement>(null);
+  const storyboardStageRef = useRef<HTMLDivElement>(null);
+  const textStageRef = useRef<HTMLDivElement>(null);
+  const textContentRef = useRef<HTMLDivElement>(null);
 
   // Frame 6-8: the single track that carries every pipeline element with one shared translateY.
   const pipelineTrackRef = useRef<HTMLDivElement>(null);
+  const imageStageRef = useRef<HTMLDivElement>(null);
+  const videoStageRef = useRef<HTMLDivElement>(null);
+  const mergeStageRef = useRef<HTMLDivElement>(null);
   const bigVideoRef = useRef<HTMLDivElement>(null);
-  const vector22Ref = useRef<HTMLDivElement>(null);
+  const mergedPreviewVideoRef = useRef<HTMLVideoElement>(null);
+  const vector22Ref = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
     const panel = panelRef.current;
@@ -77,20 +101,26 @@ export function DirectorAgentPanel() {
       const tl = gsap.timeline({
         scrollTrigger: {
           trigger: panel,
-          start: "top top",
+          // Begin when the panel reaches the exact centre of the viewport. From
+          // here through `end`, the panel stays at this camera position while
+          // scrolling advances the timeline below.
+          start: "center center",
           // Virtual scroll distance the pinned panel consumes while the internal
           // motion1-motion8 timeline plays from progress 0 to 1.
-          end: () => "+=" + Math.round(window.innerHeight * 3),
+          end: () => "+=" + Math.round(window.innerHeight * 1.25),
           scrub: 1,
           pin: true,
-          // The Hero section above this panel uses transform/filter (mouse-parallax
-          // objectPosition tweaks, liquid-glass feDisplacementMap/SVG filters) on
-          // ancestor elements. Any transform/filter/perspective ancestor creates a new
-          // containing block, which breaks GSAP's default position:fixed pin and lets
-          // the page keep scrolling past it. Force GSAP to pin via transform instead,
-          // which is unaffected by ancestor transform/filter contexts.
-          pinType: "transform",
-          anticipatePin: 1,
+          // Keep a finite spacer in document flow. It is what lets the browser
+          // scroll normally during the pinned scene and releases the next
+          // section when the timeline reaches its end.
+          pinSpacing: true,
+          // Use an actual viewport-fixed pin rather than a transform-based pin.
+          // Reparenting while pinned prevents any transformed/filter ancestor from
+          // becoming the fixed-position containing block, keeping the canvas at a
+          // stable screen pixel position throughout the whole scroll scene.
+          pinType: "fixed",
+          pinReparent: true,
+          anticipatePin: 0,
           invalidateOnRefresh: true,
         },
       });
@@ -128,18 +158,37 @@ export function DirectorAgentPanel() {
           "frame2",
         )
         .addLabel("frame3", "+=0.3")
-        // Frame 3 -> Frame 4: left agent detail panel fades in.
-        .to(leftPanelRef.current, { autoAlpha: 1, duration: 1 }, "frame3")
+        // Frame 3 -> Frame 4: director details reveal in reading/workflow order.
+        .to(leftPanelRef.current, { autoAlpha: 1, duration: 0.01 }, "frame3")
+        .to([thinkingIconRef.current, thinkingTextRef.current], { autoAlpha: 1, duration: 0.15 }, "frame3")
+        .to(buildingTextRef.current, { autoAlpha: 1, duration: 0.15 }, "frame3+=0.15")
+        .to(detailTextRef.current, { autoAlpha: 1, duration: 0.15 }, "frame3+=0.3")
+        .to(stepRowRefs.current[0], { autoAlpha: 1, duration: 0.15 }, "frame3+=0.45")
+        .to(stepRowRefs.current[1], { autoAlpha: 1, duration: 0.15 }, "frame3+=0.6")
+        .to(stepRowRefs.current[2], { autoAlpha: 1, duration: 0.15 }, "frame3+=0.75")
+        .to(customModifyRef.current, { autoAlpha: 1, duration: 0.15 }, "frame3+=0.9")
+        .to(applyRef.current, { autoAlpha: 1, duration: 0.15 }, "frame3+=1.05")
         .addLabel("frame4", "+=0.3")
-        // Frame 4 -> Frame 5: the brief/Script/Storyboard/Text node grid fades in.
+        // Frame 4 -> Frame 5: the four initial workflow columns reveal in order.
         .to(stage1Ref.current, { autoAlpha: 1, duration: 1 }, "frame4")
+        .to(briefStageRef.current, { autoAlpha: 1, duration: 0.3 }, "frame4")
+        .to(scriptStageRef.current, { autoAlpha: 1, duration: 0.3 }, "frame4+=0.28")
+        .to(storyboardStageRef.current, { autoAlpha: 1, duration: 0.3 }, "frame4+=0.56")
+        .to(textStageRef.current, { autoAlpha: 1, duration: 0.3 }, "frame4+=0.84")
         .addLabel("frame5", "+=0.3")
-        // Frame 5 -> Frame 6: crossfade to the Text/Image/Video/Video-merge pipeline stage.
-        .to(stage1Ref.current, { autoAlpha: 0, duration: 1 }, "frame5")
-        .to(pipelineTrackRef.current, { autoAlpha: 1, duration: 1 }, "frame5")
+        // Frame 5 -> Frame 6: pan all four initial columns left. Text lands at
+        // x = -9 (its motion6 clipped position), then the next three nodes reveal.
+        .to(stage1Ref.current, { x: -445, duration: 0.48 }, "frame5")
+        .to(textStageRef.current, { x: -445, duration: 0.48 }, "frame5")
+        .to(textContentRef.current, { x: -17, duration: 0.48 }, "frame5")
+        .to(imageStageRef.current, { autoAlpha: 1, duration: 0.16 }, "frame5+=0.5")
+        .to(videoStageRef.current, { autoAlpha: 1, duration: 0.16 }, "frame5+=0.68")
+        .to(mergeStageRef.current, { autoAlpha: 1, duration: 0.16 }, "frame5+=0.86")
         .addLabel("frame6", "+=0.3")
         // Frame 6 -> Frame 7: the whole pipeline pans up; a small merged-video node + selection box appear.
         .to(pipelineTrackRef.current, { y: -149, duration: 1 }, "frame6")
+        .to(stage1Ref.current, { y: -149, duration: 1 }, "frame6")
+        .to(textStageRef.current, { y: -149, duration: 1 }, "frame6")
         .to(
           bigVideoRef.current,
           { autoAlpha: 1, left: 201, width: 114, height: 73, duration: 1 },
@@ -150,9 +199,19 @@ export function DirectorAgentPanel() {
         // Frame 7 -> Frame 8: pan up further; the merged node grows into the final video preview.
         // (top is expressed in the track's local space: 418 - trackY(-258) = 160px visual, matching Figma.)
         .to(pipelineTrackRef.current, { y: -258, duration: 1 }, "frame7")
+        .to(stage1Ref.current, { y: -258, duration: 1 }, "frame7")
+        .to(textStageRef.current, { y: -258, duration: 1 }, "frame7")
         .to(
           bigVideoRef.current,
-          { left: 70, top: 418, width: 416, height: 267, duration: 1 },
+          {
+            left: 70,
+            top: 418,
+            width: 416,
+            height: 267,
+            duration: 1,
+            onComplete: () => void mergedPreviewVideoRef.current?.play(),
+            onReverseComplete: () => mergedPreviewVideoRef.current?.pause(),
+          },
           "frame7",
         );
     }, panel);
@@ -161,16 +220,13 @@ export function DirectorAgentPanel() {
   }, []);
 
   return (
-    // Outer wrapper: this is the actual GSAP pin target. It must stay in normal document
-    // flow (position: relative, never absolute/fixed) so that the pin-spacer GSAP inserts
-    // around it genuinely contributes flow height to its ancestors, letting the page's
-    // scrollHeight grow to cover the pinned scroll distance. The left/top offsets below
-    // still resolve against this same "1440px" containing block exactly as before —
-    // relative positioning honors top/left offsets for painting without removing the box
-    // from flow the way absolute positioning did.
+    // Outer wrapper: this is the actual GSAP pin target. `mt-[921px]` reserves its
+    // real location in normal document flow (unlike a relative `top` offset), so
+    // ScrollTrigger's pin spacer expands the page by the finite animation distance.
+    // This produces: normal scroll -> centered pinned scene -> normal scroll.
     <div
       ref={panelRef}
-      className="pointer-events-auto relative left-[calc(50%-527px)] top-[921px] h-[558px] w-[1054px] overflow-hidden rounded-[10px] bg-[#0E0404]"
+      className="pointer-events-auto relative left-[calc(50%-527px)] mt-[921px] h-[558px] w-[1054px] overflow-hidden rounded-[10px] bg-[#212121]"
     >
       {/* Inner wrapper: purely a positioning boundary (inset-0 matches the outer box exactly),
           so every decorative child below keeps its original absolute + top/left pixel values
@@ -204,16 +260,36 @@ export function DirectorAgentPanel() {
         }}
       />
 
-      {/* Prompt pill */}
+      {/* Darken the background and ambient glows without dimming foreground UI. */}
+      <div className="pointer-events-none absolute inset-0 bg-black/25" />
+
+      {/* Prompt pill: the animated wrapper is kept separate from LiquidGlass so
+          GSAP can move and resize the same glass object in every frame. */}
       <div
         ref={pillRef}
-        className="pointer-events-none absolute rounded-[50px]"
-        style={{ width: 357, height: 80, left: 348, top: 239, background: "rgba(162, 162, 162, 0.2)" }}
-      />
+        className="pointer-events-none absolute overflow-hidden rounded-[42px] border border-white/20 bg-[#D9D9D9]/40 shadow-[inset_0_1px_3px_rgba(255,255,255,0.28),inset_0_-1px_4px_rgba(0,0,0,0.25)] backdrop-blur-[18px]"
+        style={{ width: 258, height: 87, left: 398, top: 242 }}
+      >
+        <LiquidGlass
+          displacementScale={100}
+          blurAmount={0.1}
+          saturation={125}
+          aberrationIntensity={1}
+          elasticity={0.04}
+          cornerRadius={42}
+          mouseContainer={panelRef}
+          mode="standard"
+          padding="0"
+          className="h-full w-full overflow-hidden"
+          style={{ position: "relative", width: "100%", height: "100%" }}
+        >
+          <span aria-hidden="true" className="block h-full w-full" />
+        </LiquidGlass>
+      </div>
       <p
         ref={pillTextRef}
-        className="font-epilogue pointer-events-none absolute font-normal leading-[150%] text-[#C0C0C0] opacity-0"
-        style={{ width: 293, height: 48, left: 380, top: 260, fontSize: 14 }}
+        className="font-epilogue pointer-events-none absolute z-10 font-normal leading-[150%] text-[#C0C0C0] opacity-0"
+        style={{ width: 210, height: 48, left: 422, top: 255, fontSize: 14 }}
       >
         {PROMPT_TEXT}
       </p>
@@ -225,147 +301,222 @@ export function DirectorAgentPanel() {
           style={{ left: 651, top: 178 }}
         />
         <div
-          className="absolute flex h-[32px] w-[41px] items-center justify-center"
+          ref={thinkingIconRef}
+          className="absolute flex h-[32px] w-[41px] items-center justify-center opacity-0"
           style={{ left: 662, top: 173 }}
         >
           <ThinkingOrb state="working" size={20} />
         </div>
         <p
-          className="font-epilogue absolute font-light leading-[150%] text-white"
+          ref={thinkingTextRef}
+          className="font-epilogue absolute font-light leading-[150%] text-white opacity-0"
           style={{ left: 703, top: 180, width: 110, height: 15, fontSize: 10 }}
         >
           Thinking for 3 seconds
         </p>
         <p
-          className="font-epilogue absolute font-light leading-[150%] text-[#8F8F8F]"
+          ref={buildingTextRef}
+          className="font-epilogue absolute font-light leading-[150%] text-[#8F8F8F] opacity-0"
           style={{ left: 662, top: 218, width: 109, height: 15, fontSize: 10 }}
         >
           Building storyboard......
         </p>
         <p
-          className="font-epilogue absolute font-light leading-[150%] text-[#8F8F8F]"
+          ref={detailTextRef}
+          className="font-epilogue absolute font-light leading-[150%] text-[#8F8F8F] opacity-0"
           style={{ left: 662, top: 233, width: 335, height: 30, fontSize: 10 }}
         >
           3 editable steps prepared. Cost-bearing capabilities require preview approval before execution.
         </p>
 
-        {/* Step markers */}
-        {STEPS.map((_, index) => {
-          const top = 289 + index * 25;
+        {/* Steps */}
+        {STEPS.map((step, index) => {
+          const top = 282 + index * 25;
           return (
-            <div key={index}>
+            <div
+              key={index}
+              ref={(element) => { stepRowRefs.current[index] = element; }}
+              className="absolute h-[25px] w-[226px] opacity-0"
+              style={{ left: 662, top }}
+            >
               <div
-                className="absolute box-border h-[10px] w-[10px] rounded-full border-[0.5px] border-[#616161]"
-                style={{ left: 662, top }}
+                className="absolute top-[7px] box-border h-[10px] w-[10px] rounded-full border-[0.5px] border-[#616161]"
               />
               <div
-                className="absolute h-[6px] w-[6px] rounded-full bg-[#616161]"
-                style={{ left: 664, top: top + 2 }}
+                className="absolute left-[2px] top-[9px] h-[6px] w-[6px] rounded-full bg-[#616161]"
               />
+              <p
+                className="font-epilogue absolute font-light leading-[250%] text-[#8F8F8F]"
+                style={{ left: 21, top: 0, width: 205, height: 25, fontSize: 10 }}
+              >
+                {step}
+              </p>
             </div>
           );
         })}
-        <p
-          className="font-epilogue absolute font-light leading-[250%] text-[#8F8F8F]"
-          style={{ left: 683, top: 282, width: 205, height: 75, fontSize: 10 }}
-        >
-          {STEPS.map((step, index) => (
-            <span key={index}>
-              {step}
-              {index < STEPS.length - 1 && <br />}
-            </span>
-          ))}
-        </p>
 
         {/* Buttons */}
         <div
-          className="absolute rounded-[8px]"
-          style={{ left: 662, top: 370, width: 98, height: 33, background: "rgba(18, 8, 2, 0.2)" }}
-        />
+          ref={customModifyRef}
+          className="absolute z-10 overflow-hidden rounded-[8px] border border-[#B58A5B]/20 bg-[rgba(70,42,20,0.42)] opacity-0 shadow-[inset_0_1px_2px_rgba(255,227,184,0.2),inset_0_-1px_3px_rgba(18,8,2,0.35)] backdrop-blur-[12px]"
+          style={{ left: 662, top: 370, width: 98, height: 33 }}
+        >
+          <LiquidGlass
+            displacementScale={24}
+            blurAmount={0.12}
+            saturation={110}
+            aberrationIntensity={1}
+            elasticity={0.02}
+            cornerRadius={8}
+            mouseContainer={panelRef}
+            mode="standard"
+            padding="0"
+            className="h-full w-full"
+            style={{ position: "relative", width: "100%", height: "100%" }}
+          >
+            <span aria-hidden="true" className="block h-full w-full" />
+          </LiquidGlass>
+          <p className="font-epilogue absolute z-10 font-normal leading-[250%] text-white" style={{ left: 12, top: 4, width: 74, height: 25, fontSize: 10 }}>
+            Custom modify
+          </p>
+        </div>
         <div
-          className="absolute rounded-[8px]"
-          style={{ left: 775, top: 370, width: 98, height: 33, background: "rgba(18, 8, 2, 0.2)" }}
-        />
-        <p
-          className="font-epilogue absolute font-normal leading-[250%] text-white"
-          style={{ left: 674, top: 374, width: 74, height: 25, fontSize: 10 }}
+          ref={applyRef}
+          className="absolute z-10 overflow-hidden rounded-[8px] border border-[#B58A5B]/20 bg-[rgba(70,42,20,0.42)] opacity-0 shadow-[inset_0_1px_2px_rgba(255,227,184,0.2),inset_0_-1px_3px_rgba(18,8,2,0.35)] backdrop-blur-[12px]"
+          style={{ left: 775, top: 370, width: 98, height: 33 }}
         >
-          Custom modify
-        </p>
-        <p
-          className="font-epilogue absolute font-normal leading-[250%] text-white"
-          style={{ left: 810, top: 374, width: 27, height: 25, fontSize: 10 }}
-        >
-          Apply
-        </p>
+          <LiquidGlass
+            displacementScale={24}
+            blurAmount={0.12}
+            saturation={110}
+            aberrationIntensity={1}
+            elasticity={0.02}
+            cornerRadius={8}
+            mouseContainer={panelRef}
+            mode="standard"
+            padding="0"
+            className="h-full w-full"
+            style={{ position: "relative", width: "100%", height: "100%" }}
+          >
+            <span aria-hidden="true" className="block h-full w-full" />
+          </LiquidGlass>
+          <p className="font-epilogue absolute z-10 font-normal leading-[250%] text-white" style={{ left: 35, top: 4, width: 27, height: 25, fontSize: 10 }}>
+            Apply
+          </p>
+        </div>
       </div>
 
-      {/* Frame 5: brief / Script / Storyboard / Text node grid (fades in, then crossfades out at frame 6). */}
+      {/* Frame 5: columns reveal in workflow order. Frame 6 keeps them on-screen and slides the set left. */}
       <div ref={stage1Ref} className="pointer-events-none absolute inset-0 opacity-0">
-        <p className={LABEL_CLASS} style={{ left: 23, top: 163, width: 23, height: 15, fontSize: 10 }}>brief</p>
-        <p className={LABEL_CLASS} style={{ left: 166, top: 112, width: 29, height: 15, fontSize: 10 }}>Script</p>
-        <p className={LABEL_CLASS} style={{ left: 301, top: 112, width: 55, height: 15, fontSize: 10 }}>Storyboard</p>
-        <p className={LABEL_CLASS} style={{ left: 436, top: 112, width: 21, height: 15, fontSize: 10 }}>Text</p>
+        <div ref={briefStageRef} className="absolute inset-0 opacity-0">
+          <p className={LABEL_CLASS} style={{ left: 23, top: 163, width: 23, height: 15, fontSize: 10 }}>brief</p>
+          <div className={NODE_CARD_CLASS} style={{ left: 23, top: 181, width: 114, height: 73 }} />
+          <p className={CAPTION_CLASS} style={{ left: 34, top: 193, width: 92, height: 47, fontSize: 5 }}>A little boy skateboards through city streets, weaving through vehicles and skillfully navigating large trucks.</p>
+          <svg className="pointer-events-none absolute" style={{ left: 140, top: 167, width: 22, height: 103 }} viewBox="0 0 22 103" fill="none" aria-hidden="true">
+            <path d="M21 0.928915C17.046 -0.536425 9.13796 0.782381 9.13796 17.7803C9.13796 39.0278 9.76716 51.4832 0 51.4832" stroke="#606060" strokeDasharray="2 2" />
+            <path d="M21 102.037C17.046 103.503 9.13796 102.184 9.13796 85.186C9.13796 63.9385 9.76716 51.4832 0 51.4832" stroke="#606060" strokeDasharray="2 2" />
+          </svg>
+        </div>
 
-        <div className={NODE_CARD_CLASS} style={{ left: 23, top: 181, width: 114, height: 73 }} />
-        <div className={NODE_CARD_CLASS} style={{ left: 166, top: 130, width: 114, height: 73 }} />
-        <div className={NODE_CARD_CLASS} style={{ left: 166, top: 230, width: 114, height: 73 }} />
-        <div className={NODE_CARD_CLASS} style={{ left: 301, top: 130, width: 114, height: 73 }} />
-        <div className={NODE_CARD_CLASS} style={{ left: 301, top: 230, width: 114, height: 73 }} />
-        <div className={NODE_CARD_CLASS} style={{ left: 436, top: 130, width: 114, height: 73 }} />
-        <div className={NODE_CARD_CLASS} style={{ left: 436, top: 230, width: 114, height: 73 }} />
+        <div ref={scriptStageRef} className="absolute inset-0 opacity-0">
+          <p className={LABEL_CLASS} style={{ left: 166, top: 112, width: 29, height: 15, fontSize: 10 }}>Script</p>
+          <div className={NODE_CARD_CLASS} style={{ left: 166, top: 130, width: 114, height: 73 }} />
+          <div className={NODE_CARD_CLASS} style={{ left: 166, top: 230, width: 114, height: 73 }} />
+          <p className={CAPTION_CLASS} style={{ left: 177, top: 143, width: 92, height: 47, fontSize: 5 }}>The first shot: introduces the characters and establishes the scene&apos;s style and camera angles.</p>
+          <p className={CAPTION_CLASS} style={{ left: 177, top: 243, width: 92, height: 47, fontSize: 5 }}>The second shot: creates a minor climax, establishes the protagonist&apos;s character, and explores various camera techniques.</p>
+          <div className={DASHED_H_CLASS} style={{ left: 283, top: 167, width: 15.5 }} />
+          <div className={DASHED_H_CLASS} style={{ left: 283, top: 269, width: 15.5 }} />
+        </div>
 
-        <div className={DASHED_V_CLASS} style={{ left: 140, top: 167, width: 21, height: 51, transform: "matrix(-1, 0, 0, 1, 0, 0)" }} />
-        <div className={DASHED_V_CLASS} style={{ left: 140, top: 218, width: 21, height: 51, transform: "rotate(180deg)" }} />
-        <div className={DASHED_H_CLASS} style={{ left: 283, top: 167, width: 15.5 }} />
-        <div className={DASHED_H_CLASS} style={{ left: 418, top: 167, width: 15.5 }} />
-        <div className={DASHED_H_CLASS} style={{ left: 283, top: 269, width: 15.5 }} />
-        <div className={DASHED_H_CLASS} style={{ left: 418, top: 269, width: 15.5 }} />
+        <div ref={storyboardStageRef} className="absolute inset-0 opacity-0">
+          <p className={LABEL_CLASS} style={{ left: 301, top: 112, width: 55, height: 15, fontSize: 10 }}>Storyboard</p>
+          <div className={NODE_CARD_CLASS} style={{ left: 301, top: 130, width: 114, height: 73 }} />
+          <div className={NODE_CARD_CLASS} style={{ left: 301, top: 230, width: 114, height: 73 }} />
+          <p className={CAPTION_CLASS} style={{ left: 312, top: 143, width: 92, height: 47, fontSize: 5 }}>{CAPTION_TEXT_SKATE}</p>
+          <p className={CAPTION_CLASS} style={{ left: 312, top: 243, width: 92, height: 47, fontSize: 5 }}>{CAPTION_TEXT_BUS}</p>
+          <div className={DASHED_H_CLASS} style={{ left: 418, top: 167, width: 15.5 }} />
+          <div className={DASHED_H_CLASS} style={{ left: 418, top: 269, width: 15.5 }} />
+        </div>
 
-        <p className={CAPTION_CLASS} style={{ left: 448, top: 143, width: 92, height: 47, fontSize: 5 }}>{CAPTION_TEXT_STYLE}</p>
-        <p className={CAPTION_CLASS} style={{ left: 312, top: 143, width: 92, height: 47, fontSize: 5 }}>{CAPTION_TEXT_SKATE}</p>
-        <p className={CAPTION_CLASS} style={{ left: 448, top: 243, width: 92, height: 47, fontSize: 5 }}>{CAPTION_TEXT_CHASSIS}</p>
-        <p className={CAPTION_CLASS} style={{ left: 312, top: 243, width: 92, height: 47, fontSize: 5 }}>{CAPTION_TEXT_BUS}</p>
       </div>
 
-      {/* Frames 6-8: Text / Image / Video / Video-merge pipeline. A single translating track carries
+      {/* Text starts as the fourth motion5 column. Its content gets a 17px
+          additional offset during the transition, matching the original motion6
+          clipped card position (label -9px; cards -26px). */}
+      <div ref={textStageRef} className="pointer-events-none absolute inset-0 opacity-0">
+        <p className={LABEL_CLASS} style={{ left: 436, top: 112, width: 21, height: 15, fontSize: 10 }}>Text</p>
+        <div ref={textContentRef} className="absolute inset-0">
+          <div className={NODE_CARD_CLASS} style={{ left: 436, top: 130, width: 114, height: 73 }} />
+          <div className={NODE_CARD_CLASS} style={{ left: 436, top: 230, width: 114, height: 73 }} />
+          <p className={CAPTION_CLASS} style={{ left: 448, top: 143, width: 92, height: 47, fontSize: 5 }}>{CAPTION_TEXT_STYLE}</p>
+          <p className={CAPTION_CLASS} style={{ left: 448, top: 243, width: 92, height: 47, fontSize: 5 }}>{CAPTION_TEXT_CHASSIS}</p>
+        </div>
+      </div>
+
+      {/* Frames 6-8: Image / Video / Video-merge pipeline. A single translating track carries
           every element with one shared translateY (validated against the Figma deltas: -149 then -258),
           so only the track itself needs to move between frame 6, frame 7 and frame 8. */}
-      <div ref={pipelineTrackRef} className="pointer-events-none absolute inset-0 opacity-0">
-        <p className={LABEL_CLASS} style={{ left: -9, top: 112, width: 21, height: 15, fontSize: 10 }}>Text</p>
-        <p className={LABEL_CLASS} style={{ left: 108, top: 112, width: 30, height: 15, fontSize: 10 }}>Image</p>
-        <p className={LABEL_CLASS} style={{ left: 242, top: 112, width: 28, height: 15, fontSize: 10 }}>Video</p>
-        <p className={LABEL_CLASS} style={{ left: 381, top: 164, width: 62, height: 15, fontSize: 10 }}>Video merge</p>
+      <div ref={pipelineTrackRef} className="pointer-events-none absolute inset-0">
+        <div ref={imageStageRef} className="absolute inset-0 opacity-0">
+          <p className={LABEL_CLASS} style={{ left: 108, top: 112, width: 30, height: 15, fontSize: 10 }}>Image</p>
+          <div className={`${NODE_THUMB_TOP_CLASS} overflow-hidden`} style={{ left: 108, top: 130, width: 114, height: 73 }}>
+            <img src="/website/agent/imagetop.png" alt="Generated top scene" className="h-full w-full object-cover" />
+          </div>
+          <div className={`${NODE_THUMB_BOTTOM_CLASS} overflow-hidden`} style={{ left: 108, top: 230, width: 114, height: 73 }}>
+            <img src="/website/agent/imagedown.png" alt="Generated bottom scene" className="h-full w-full object-cover" />
+          </div>
+          <div className={DASHED_H_CLASS} style={{ left: 90, top: 166, width: 15.5 }} />
+          <div className={DASHED_H_CLASS} style={{ left: 90, top: 268, width: 15.5 }} />
+        </div>
 
-        <div className={NODE_CARD_CLASS} style={{ left: -26, top: 130, width: 114, height: 73 }} />
-        <div className={NODE_CARD_CLASS} style={{ left: -26, top: 230, width: 114, height: 73 }} />
-        <div className={NODE_THUMB_TOP_CLASS} style={{ left: 108, top: 130, width: 114, height: 73 }} />
-        <div className={NODE_THUMB_BOTTOM_CLASS} style={{ left: 108, top: 230, width: 114, height: 73 }} />
-        <div className={NODE_THUMB_TOP_CLASS} style={{ left: 242, top: 130, width: 114, height: 73 }} />
-        <div className={NODE_THUMB_BOTTOM_CLASS} style={{ left: 242, top: 230, width: 114, height: 73 }} />
-        <div className={NODE_CARD_CLASS} style={{ left: 381, top: 182, width: 114, height: 73 }} />
+        <div ref={videoStageRef} className="absolute inset-0 opacity-0">
+          <p className={LABEL_CLASS} style={{ left: 242, top: 112, width: 28, height: 15, fontSize: 10 }}>Video</p>
+          <div className={`${NODE_THUMB_TOP_CLASS} overflow-hidden`} style={{ left: 242, top: 130, width: 114, height: 73 }}>
+            <video src="/website/agent/videotop.mp4" muted playsInline preload="auto" className="h-full w-full scale-105 object-cover blur-[2px]" />
+          </div>
+          <div className={`${NODE_THUMB_BOTTOM_CLASS} overflow-hidden`} style={{ left: 242, top: 230, width: 114, height: 73 }}>
+            <video src="/website/agent/videodown.mp4" muted playsInline preload="auto" className="h-full w-full scale-105 object-cover blur-[2px]" />
+          </div>
+          <div className={DASHED_H_CLASS} style={{ left: 225, top: 166, width: 15.5 }} />
+          <div className={DASHED_H_CLASS} style={{ left: 225, top: 268, width: 15.5 }} />
+        </div>
 
-        <div className={DASHED_V_CLASS} style={{ left: 360, top: 166, width: 21, height: 51 }} />
-        <div className={DASHED_V_CLASS} style={{ left: 360, top: 217, width: 21, height: 51, transform: "matrix(1, 0, 0, -1, 0, 0)" }} />
-        <div className={DASHED_H_CLASS} style={{ left: 225, top: 166, width: 15.5 }} />
-        <div className={DASHED_H_CLASS} style={{ left: 90, top: 166, width: 15.5 }} />
-        <div className={DASHED_H_CLASS} style={{ left: 225, top: 268, width: 15.5 }} />
-        <div className={DASHED_H_CLASS} style={{ left: 90, top: 268, width: 15.5 }} />
-
-        <p className={CAPTION_CLASS} style={{ left: -15, top: 143, width: 92, height: 47, fontSize: 5 }}>{CAPTION_TEXT_STYLE}</p>
-        <p className={CAPTION_CLASS} style={{ left: -15, top: 243, width: 92, height: 47, fontSize: 5 }}>{CAPTION_TEXT_CHASSIS}</p>
+        <div ref={mergeStageRef} className="absolute inset-0 opacity-0">
+          <p className={LABEL_CLASS} style={{ left: 381, top: 164, width: 62, height: 15, fontSize: 10 }}>Video merge</p>
+          <div className={`${NODE_CARD_CLASS} overflow-hidden`} style={{ left: 381, top: 182, width: 114, height: 73 }}>
+            <video src="/website/agent/full1.mp4" muted playsInline preload="auto" className="h-full w-full object-cover" />
+          </div>
+          <svg className="pointer-events-none absolute" style={{ left: 360, top: 166, width: 22, height: 103, transform: "scaleX(-1)", transformOrigin: "center" }} viewBox="0 0 22 103" fill="none" aria-hidden="true">
+            <path d="M21 0.928915C17.046 -0.536425 9.13796 0.782381 9.13796 17.7803C9.13796 39.0278 9.76716 51.4832 0 51.4832" stroke="#606060" strokeDasharray="2 2" />
+            <path d="M21 102.037C17.046 103.503 9.13796 102.184 9.13796 85.186C9.13796 63.9385 9.76716 51.4832 0 51.4832" stroke="#606060" strokeDasharray="2 2" />
+          </svg>
+        </div>
 
         {/* Frame 7-8 only: merged-video node (grows into the final preview) and its dashed selection box. */}
         <div
           ref={bigVideoRef}
-          className={`${NODE_CARD_CLASS} opacity-0`}
+          className={`${NODE_CARD_CLASS} overflow-hidden opacity-0`}
           style={{ left: 201, top: 413, width: 114, height: 73 }}
-        />
-        <div
+        >
+          <video
+            ref={mergedPreviewVideoRef}
+            src="/website/agent/full1.mp4"
+            muted
+            playsInline
+            preload="auto"
+            className="h-full w-full object-cover"
+          />
+        </div>
+        <svg
           ref={vector22Ref}
-          className={`${DASHED_V_CLASS} opacity-0`}
-          style={{ left: 257.98, top: 265, width: 178.09, height: 139 }}
-        />
+          className="pointer-events-none absolute opacity-0"
+          style={{ left: 257.98, top: 265, width: 180, height: 139 }}
+          viewBox="0 0 180 139"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path d="M178.594 0.00317383L178.5 14.4757C178.5 55.6423 173.925 71.9757 141.925 71.9757C102.725 71.9757 48.6667 71.9757 32 71.9757C11.9253 71.9757 0.5 77.1757 0.5 113.976C0.5 130.003 0.5 120.515 0.5 139.003" stroke="#606060" strokeDasharray="2 2" />
+        </svg>
       </div>
       </div>
     </div>
