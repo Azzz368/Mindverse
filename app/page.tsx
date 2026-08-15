@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
-import { ThinkingOrb } from "thinking-orbs";
 import { DirectorAgentPanel } from "@/components/DirectorAgentPanel";
 import { LensRefraction } from "@/components/LensRefraction";
 
@@ -471,21 +470,6 @@ export default function Home() {
 
           {/* Rectangle 20: 单个深色展示面板，GSAP + ScrollTrigger 驱动的 frame1-frame4 滚轮动画 */}
           <DirectorAgentPanel />
-
-          {/* Your Custom Director Agent */}
-          <div className="absolute top-[963px] left-[calc(50%-219px)] w-[476px] h-[36px]">
-            <h3
-              className="font-baskervville-bold text-center font-normal text-[30px] leading-[36px] text-white"
-              style={{ fontFamily: "var(--font-baskervville-bold)" }}
-            >
-              Your Custom Director Agent
-            </h3>
-          </div>
-
-          {/* image 6：Figma 中为占位图 (url(image.png))，改用 thinking-orbs 的 ThinkingOrb 图标 */}
-          <div className="absolute top-[946px] left-[435px] flex h-[70px] w-[89px] items-center justify-center pointer-events-none">
-            <ThinkingOrb state="composing" size={64} speed={0.95} />
-          </div>
         </div>
       </section>
 

@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { ThinkingOrb } from "thinking-orbs";
+import { baskervvilleRegular } from "@/app/fonts";
 
 // The package creates browser-only visual resources. Do not evaluate it while
 // Next.js renders the page on the server; load it after this client component hydrates.
@@ -67,6 +68,9 @@ export function DirectorAgentPanel() {
   const ellipse10Ref = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLDivElement>(null);
   const pillTextRef = useRef<HTMLParagraphElement>(null);
+  const directorTitleRef = useRef<HTMLHeadingElement>(null);
+  const directorOrbRef = useRef<HTMLDivElement>(null);
+  const directorOrbInnerRef = useRef<HTMLDivElement>(null);
   const leftPanelRef = useRef<HTMLDivElement>(null);
   const thinkingIconRef = useRef<HTMLDivElement>(null);
   const thinkingTextRef = useRef<HTMLParagraphElement>(null);
@@ -157,6 +161,17 @@ export function DirectorAgentPanel() {
           { fontSize: 10, width: 214, height: 39, left: 732, top: 99, duration: 1 },
           "frame2",
         )
+        .to(
+          directorTitleRef.current,
+          { width: 280, height: 22, left: 695, top: 30, fontSize: 17, lineHeight: "22px", duration: 1 },
+          "frame2",
+        )
+        .to(
+          directorOrbRef.current,
+          { width: 55, height: 43, left: 675, top: 21, duration: 1 },
+          "frame2",
+        )
+        .to(directorOrbInnerRef.current, { scale: 0.3125, duration: 1 }, "frame2")
         .addLabel("frame3", "+=0.3")
         // Frame 3 -> Frame 4: director details reveal in reading/workflow order.
         .to(leftPanelRef.current, { autoAlpha: 1, duration: 0.01 }, "frame3")
@@ -232,6 +247,24 @@ export function DirectorAgentPanel() {
           so every decorative child below keeps its original absolute + top/left pixel values
           completely unchanged. */}
       <div className="pointer-events-none absolute inset-0">
+      {/* Motion1 title/orb: both move and reduce to the motion2 Figma coordinates. */}
+      <h3
+        ref={directorTitleRef}
+        className={`${baskervvilleRegular.className} pointer-events-none absolute z-10 text-center font-normal text-white`}
+        style={{ width: 420, height: 39, left: 350, top: 36, fontSize: 30, lineHeight: "39px" }}
+      >
+        Your Custom Director Agent
+      </h3>
+      <div
+        ref={directorOrbRef}
+        className="pointer-events-none absolute z-10 flex items-center justify-center"
+        style={{ width: 89, height: 70, left: 260, top: 19 }}
+      >
+        <div ref={directorOrbInnerRef} style={{ transformOrigin: "center" }}>
+          <ThinkingOrb state="composing" size={64} speed={0.95} />
+        </div>
+      </div>
+
       {/* Ellipse 9 */}
       <div
         ref={ellipse9Ref}

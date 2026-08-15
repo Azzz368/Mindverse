@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+import { baskervvilleRegular } from "./fonts";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { LangProvider } from "@/components/providers/LangProvider";
 
@@ -39,7 +40,7 @@ const themeScript = `try{const t=localStorage.getItem('theme');const d=window.ma
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN" className={`${epilogue.variable} ${baskervville.variable} ${baskervvilleBold.variable} ${baskervvilleMediumItalic.variable}`}>
+    <html lang="zh-CN" className={`${epilogue.variable} ${baskervville.variable} ${baskervvilleRegular.variable} ${baskervvilleBold.variable} ${baskervvilleMediumItalic.variable}`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
