@@ -37,8 +37,8 @@ const PROMPT_PILL_COMPACT = { width: 268, height: 60, left: 705, top: 84 };
 const PROMPT_TEXT_INITIAL = { width: 248, height: 48, left: 410, top: 253, fontSize: 14 };
 const PROMPT_TEXT_COMPACT = { width: 214, height: 39, left: 732, top: 99, fontSize: 10 };
 // Increase these two values to make the motion4 information reveal consume more scroll.
-const DIRECTOR_DETAIL_STAGGER = 0.55;
-const DIRECTOR_DETAIL_FADE_DURATION = 0.25;
+const DIRECTOR_DETAIL_STAGGER = 2.55;
+const DIRECTOR_DETAIL_FADE_DURATION = 0.45;
 
 /** Shared node-card style (Rectangle 40/41/42/43/44/45/46 etc.): black card, thin border, 15px radius. */
 const NODE_CARD_CLASS = "absolute box-border rounded-[15px] border-[0.5px] border-[#535353] bg-black";
@@ -200,32 +200,32 @@ export function DirectorAgentPanel() {
         .to(applyRef.current, { autoAlpha: 1, duration: DIRECTOR_DETAIL_FADE_DURATION }, `frame3+=${DIRECTOR_DETAIL_STAGGER * 7}`)
         .addLabel("frame4", "+=0.3")
         // Frame 4 -> Frame 5: the four initial workflow columns reveal in order.
-        .to(stage1Ref.current, { autoAlpha: 1, duration: 2 }, "frame4")
-        .to(briefStageRef.current, { autoAlpha: 1, duration: 0.6 }, "frame4")
-        .to(scriptStageRef.current, { autoAlpha: 1, duration: 0.6 }, "frame4+=0.56")
-        .to(storyboardStageRef.current, { autoAlpha: 1, duration: 0.6 }, "frame4+=1.12")
-        .to(textStageRef.current, { autoAlpha: 1, duration: 0.6 }, "frame4+=1.68")
-        .addLabel("frame5", "+=0.6")
+        .to(stage1Ref.current, { autoAlpha: 1, duration: 4 }, "frame4")
+        .to(briefStageRef.current, { autoAlpha: 1, duration: 1.2 }, "frame4")
+        .to(scriptStageRef.current, { autoAlpha: 1, duration: 1.2 }, "frame4+=1.12")
+        .to(storyboardStageRef.current, { autoAlpha: 1, duration: 1.2 }, "frame4+=2.24")
+        .to(textStageRef.current, { autoAlpha: 1, duration: 1.2 }, "frame4+=3.36")
+        .addLabel("frame5", "+=1.2")
         // Frame 5 -> Frame 6: pan all four initial columns left. Text lands at
         // x = -9 (its motion6 clipped position), then the next three nodes reveal.
-        .to(stage1Ref.current, { x: -445, duration: 0.96 }, "frame5")
-        .to(textStageRef.current, { x: -445, duration: 0.96 }, "frame5")
-        .to(textContentRef.current, { x: -17, duration: 0.96 }, "frame5")
-        .to(imageStageRef.current, { autoAlpha: 1, duration: 0.32 }, "frame5+=1")
-        .to(videoStageRef.current, { autoAlpha: 1, duration: 0.32 }, "frame5+=1.36")
-        .to(mergeStageRef.current, { autoAlpha: 1, duration: 0.32 }, "frame5+=1.72")
-        .addLabel("frame6", "+=0.6")
+        .to(stage1Ref.current, { x: -445, duration: 1.92 }, "frame5")
+        .to(textStageRef.current, { x: -445, duration: 1.92 }, "frame5")
+        .to(textContentRef.current, { x: -17, duration: 1.92 }, "frame5")
+        .to(imageStageRef.current, { autoAlpha: 1, duration: 0.64 }, "frame5+=2")
+        .to(videoStageRef.current, { autoAlpha: 1, duration: 0.64 }, "frame5+=2.72")
+        .to(mergeStageRef.current, { autoAlpha: 1, duration: 0.64 }, "frame5+=3.44")
+        .addLabel("frame6", "+=1.2")
         // Frame 6 -> Frame 7: the whole pipeline pans up; a small merged-video node + selection box appear.
-        .to(pipelineTrackRef.current, { y: -149, duration: 2 }, "frame6")
-        .to(stage1Ref.current, { y: -149, duration: 2 }, "frame6")
-        .to(textStageRef.current, { y: -149, duration: 2 }, "frame6")
+        .to(pipelineTrackRef.current, { y: -149, duration: 4 }, "frame6")
+        .to(stage1Ref.current, { y: -149, duration: 4 }, "frame6")
+        .to(textStageRef.current, { y: -149, duration: 4 }, "frame6")
         .to(
           bigVideoRef.current,
-          { autoAlpha: 1, left: 201, width: 114, height: 73, duration: 2 },
+          { autoAlpha: 1, left: 201, width: 114, height: 73, duration: 4 },
           "frame6",
         )
-        .to(vector22Ref.current, { autoAlpha: 1, duration: 2 }, "frame6")
-        .addLabel("frame7", "+=0.6")
+        .to(vector22Ref.current, { autoAlpha: 1, duration: 4 }, "frame6")
+        .addLabel("frame7", "+=1.2")
         // Frame 7 -> Frame 8: pan up further; the merged node grows into the final video preview.
         // (top is expressed in the track's local space: 418 - trackY(-258) = 160px visual, matching Figma.)
         .to(pipelineTrackRef.current, { y: -258, duration: 2 }, "frame7")
@@ -276,7 +276,7 @@ export function DirectorAgentPanel() {
         style={{ width: 89, height: 70, left: 260, top: 19 }}
       >
         <div ref={directorOrbInnerRef} style={{ transformOrigin: "center" }}>
-          <ThinkingOrb state="composing" size={64} speed={0.95} />
+          <ThinkingOrb state="connecting" size={64} theme="dark" speed={1.15} />
         </div>
       </div>
 
@@ -288,6 +288,22 @@ export function DirectorAgentPanel() {
       <div ref={(element) => { backgroundGlowRefs.current[3] = element; }} className="pointer-events-none absolute bg-[#FFA467] blur-[125px]" style={{ width: 357.98, height: 235.94, left: 850, top: 513, transform: "rotate(27.8deg)" }} />
       <div ref={(element) => { backgroundGlowRefs.current[4] = element; }} className="pointer-events-none absolute bg-[#FFF4F5] blur-[75px]" style={{ width: 572.22, height: 234.78, left: 284.31, top: 653.52, transform: "rotate(-2.2deg)" }} />
       <div ref={(element) => { backgroundGlowRefs.current[5] = element; }} className="pointer-events-none absolute bg-[#AB4700] blur-[150px]" style={{ width: 161.56, height: 538.35, left: -169.05, top: 125.21, transform: "rotate(-24.04deg)" }} />
+
+      {/* Figma-like dither: masks 8-bit browser blur banding without changing the palette. */}
+      <svg className="pointer-events-none absolute inset-0 h-full w-full" style={{ mixBlendMode: "soft-light", opacity: 0.1 }} aria-hidden="true">
+        <filter id="director-background-dither" x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" seed="19" stitchTiles="stitch" />
+          <feColorMatrix type="saturate" values="0" />
+        </filter>
+        <rect width="100%" height="100%" filter="url(#director-background-dither)" />
+      </svg>
+      <svg className="pointer-events-none absolute inset-0 h-full w-full" style={{ mixBlendMode: "overlay", opacity: 0.035 }} aria-hidden="true">
+        <filter id="director-background-low-frequency-dither" x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.17" numOctaves="2" seed="73" stitchTiles="stitch" />
+          <feColorMatrix type="saturate" values="0" />
+        </filter>
+        <rect width="100%" height="100%" filter="url(#director-background-low-frequency-dither)" />
+      </svg>
 
       {/* Prompt pill: the animated wrapper is kept separate from LiquidGlass so
           GSAP can move and resize the same glass object in every frame. */}
