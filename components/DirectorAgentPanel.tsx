@@ -73,6 +73,7 @@ const CAPTION_CLASS = "font-epilogue pointer-events-none absolute font-light lea
  */
 export function DirectorAgentPanel() {
   const panelRef = useRef<HTMLDivElement>(null);
+  const backgroundGlowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const pillRef = useRef<HTMLDivElement>(null);
   const pillTextRef = useRef<HTMLParagraphElement>(null);
   const directorTitleRef = useRef<HTMLHeadingElement>(null);
@@ -109,6 +110,25 @@ export function DirectorAgentPanel() {
     if (!panel) return;
 
     const ctx = gsap.context(() => {
+      const glowAnimationConfig = [
+        { opacity: 0.05, duration: 7.2, delay: 0 },
+        { opacity: 0.18, duration: 5.8, delay: 0.7 },
+        { opacity: 0.08, duration: 8.4, delay: 1.4 },
+        { opacity: 0.28, duration: 6.6, delay: 0.3 },
+        { opacity: 0.12, duration: 9.1, delay: 1.1 },
+        { opacity: 0.22, duration: 5.2, delay: 1.8 },
+      ];
+
+      backgroundGlowRefs.current.forEach((glow, index) => {
+        if (!glow) return;
+        gsap.to(glow, {
+          ...glowAnimationConfig[index],
+          repeat: -1,
+          yoyo: true,
+          ease: "sine.inOut",
+        });
+      });
+
       const tl = gsap.timeline({
         scrollTrigger: {
           trigger: panel,
@@ -262,12 +282,12 @@ export function DirectorAgentPanel() {
 
       {/* New motion1 background: Dark Gradient 08 plus the supplied warm glows. */}
       <div className="pointer-events-none absolute inset-0 bg-black" />
-      <div className="pointer-events-none absolute bg-[rgba(171,71,0,0.46)] blur-[200px]" style={{ width: 546, height: 849, left: 184, top: 262 }} />
-      <div className="pointer-events-none absolute bg-[#FFF4F5] blur-[150px]" style={{ width: 888.58, height: 358.3, left: 156.63, top: 483.27, transform: "rotate(9.05deg)" }} />
-      <div className="pointer-events-none absolute bg-[#FF9900] blur-[150px]" style={{ width: 665, height: 568, left: -302, top: 513 }} />
-      <div className="pointer-events-none absolute bg-[#FFA467] blur-[125px]" style={{ width: 357.98, height: 235.94, left: 850, top: 513, transform: "rotate(27.8deg)" }} />
-      <div className="pointer-events-none absolute bg-[#FFF4F5] blur-[75px]" style={{ width: 572.22, height: 234.78, left: 284.31, top: 653.52, transform: "rotate(-2.2deg)" }} />
-      <div className="pointer-events-none absolute bg-[#AB4700] blur-[150px]" style={{ width: 161.56, height: 538.35, left: -169.05, top: 125.21, transform: "rotate(-24.04deg)" }} />
+      <div ref={(element) => { backgroundGlowRefs.current[0] = element; }} className="pointer-events-none absolute bg-[rgba(171,71,0,0.46)] blur-[200px]" style={{ width: 546, height: 849, left: 184, top: 262 }} />
+      <div ref={(element) => { backgroundGlowRefs.current[1] = element; }} className="pointer-events-none absolute bg-[#FFF4F5] blur-[150px]" style={{ width: 888.58, height: 358.3, left: 156.63, top: 483.27, transform: "rotate(9.05deg)" }} />
+      <div ref={(element) => { backgroundGlowRefs.current[2] = element; }} className="pointer-events-none absolute bg-[#FF9900] blur-[150px]" style={{ width: 665, height: 568, left: -302, top: 513 }} />
+      <div ref={(element) => { backgroundGlowRefs.current[3] = element; }} className="pointer-events-none absolute bg-[#FFA467] blur-[125px]" style={{ width: 357.98, height: 235.94, left: 850, top: 513, transform: "rotate(27.8deg)" }} />
+      <div ref={(element) => { backgroundGlowRefs.current[4] = element; }} className="pointer-events-none absolute bg-[#FFF4F5] blur-[75px]" style={{ width: 572.22, height: 234.78, left: 284.31, top: 653.52, transform: "rotate(-2.2deg)" }} />
+      <div ref={(element) => { backgroundGlowRefs.current[5] = element; }} className="pointer-events-none absolute bg-[#AB4700] blur-[150px]" style={{ width: 161.56, height: 538.35, left: -169.05, top: 125.21, transform: "rotate(-24.04deg)" }} />
 
       {/* Prompt pill: the animated wrapper is kept separate from LiquidGlass so
           GSAP can move and resize the same glass object in every frame. */}
