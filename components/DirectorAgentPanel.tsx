@@ -18,8 +18,6 @@ if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger);
 }
 
-const PROMPT_TEXT = "Generate a 10s cartoon-style video of a child playing on a skateboard. |";
-
 const STEPS = [
   "prompt (video prompt words)",
   "script (storyline and custom-style script)",
@@ -30,6 +28,17 @@ const CAPTION_TEXT_STYLE = "1930s rubber hose cartoon style, exaggerated squash 
 const CAPTION_TEXT_SKATE = "A young boy skateboards on a retro-style track through a city street, gliding along a main road surrounded by vehicles.";
 const CAPTION_TEXT_CHASSIS = "Generating at the next intersection, the protagonist in black lies face up on the skateboard, hands behind his head, a relaxed expression on his face. He closes his eyes, preparing to enter the chassis. The......";
 const CAPTION_TEXT_BUS = "As he crosses an intersection, a school bus suddenly appears on his right, and the boy skillfully changes his posture to get across.";
+const PROMPT_LINES = ["Generate a 10s cartoon-style", "video of a child playing on a skateboard. |"];
+
+// Manual prompt layout controls: edit these values to reposition or resize the
+// large prompt bubble/wording, or its compact panel state after motion2.
+const PROMPT_PILL_INITIAL = { width: 318, height: 80, left: 368, top: 242 };
+const PROMPT_PILL_COMPACT = { width: 268, height: 60, left: 705, top: 84 };
+const PROMPT_TEXT_INITIAL = { width: 248, height: 48, left: 410, top: 253, fontSize: 14 };
+const PROMPT_TEXT_COMPACT = { width: 214, height: 39, left: 732, top: 99, fontSize: 10 };
+// Increase these two values to make the motion4 information reveal consume more scroll.
+const DIRECTOR_DETAIL_STAGGER = 0.55;
+const DIRECTOR_DETAIL_FADE_DURATION = 0.25;
 
 /** Shared node-card style (Rectangle 40/41/42/43/44/45/46 etc.): black card, thin border, 15px radius. */
 const NODE_CARD_CLASS = "absolute box-border rounded-[15px] border-[0.5px] border-[#535353] bg-black";
@@ -64,8 +73,6 @@ const CAPTION_CLASS = "font-epilogue pointer-events-none absolute font-light lea
  */
 export function DirectorAgentPanel() {
   const panelRef = useRef<HTMLDivElement>(null);
-  const ellipse9Ref = useRef<HTMLDivElement>(null);
-  const ellipse10Ref = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLDivElement>(null);
   const pillTextRef = useRef<HTMLParagraphElement>(null);
   const directorTitleRef = useRef<HTMLHeadingElement>(null);
@@ -130,35 +137,23 @@ export function DirectorAgentPanel() {
       });
 
       tl.addLabel("frame1")
-        // Frame 1 -> Frame 2: the prompt text types into the pill.
-        .to(pillTextRef.current, { autoAlpha: 1, duration: 1 }, "frame1")
+        // Motion2 prompt: first row reveals left-to-right, then the second row fades in.
+        .to(pillTextRef.current, { autoAlpha: 1, duration: 0.01 }, "frame1")
+        .to(
+          gsap.utils.toArray<HTMLElement>("[data-prompt-character]", pillTextRef.current),
+          { autoAlpha: 1, duration: 0.04, stagger: 0.095 },
+          "frame1",
+        )
         .addLabel("frame2", "+=0.3")
         // Frame 2 -> Frame 3: pill docks top-right and shrinks; glow expands.
         .to(
-          ellipse9Ref.current,
-          { width: 954, height: 650, left: 53, top: 69, duration: 1 },
-          "frame2",
-        )
-        .to(
-          ellipse10Ref.current,
-          {
-            width: 325,
-            height: 834,
-            left: 113,
-            top: 435,
-            backgroundColor: "rgba(170, 142, 94, 0.35)",
-            duration: 1,
-          },
-          "frame2",
-        )
-        .to(
           pillRef.current,
-          { width: 268, height: 60, left: 705, top: 84, duration: 1 },
+          { ...PROMPT_PILL_COMPACT, duration: 1 },
           "frame2",
         )
         .to(
           pillTextRef.current,
-          { fontSize: 10, width: 214, height: 39, left: 732, top: 99, duration: 1 },
+          { ...PROMPT_TEXT_COMPACT, duration: 1 },
           "frame2",
         )
         .to(
@@ -175,47 +170,47 @@ export function DirectorAgentPanel() {
         .addLabel("frame3", "+=0.3")
         // Frame 3 -> Frame 4: director details reveal in reading/workflow order.
         .to(leftPanelRef.current, { autoAlpha: 1, duration: 0.01 }, "frame3")
-        .to([thinkingIconRef.current, thinkingTextRef.current], { autoAlpha: 1, duration: 0.15 }, "frame3")
-        .to(buildingTextRef.current, { autoAlpha: 1, duration: 0.15 }, "frame3+=0.15")
-        .to(detailTextRef.current, { autoAlpha: 1, duration: 0.15 }, "frame3+=0.3")
-        .to(stepRowRefs.current[0], { autoAlpha: 1, duration: 0.15 }, "frame3+=0.45")
-        .to(stepRowRefs.current[1], { autoAlpha: 1, duration: 0.15 }, "frame3+=0.6")
-        .to(stepRowRefs.current[2], { autoAlpha: 1, duration: 0.15 }, "frame3+=0.75")
-        .to(customModifyRef.current, { autoAlpha: 1, duration: 0.15 }, "frame3+=0.9")
-        .to(applyRef.current, { autoAlpha: 1, duration: 0.15 }, "frame3+=1.05")
+        .to([thinkingIconRef.current, thinkingTextRef.current], { autoAlpha: 1, duration: DIRECTOR_DETAIL_FADE_DURATION }, "frame3")
+        .to(buildingTextRef.current, { autoAlpha: 1, duration: DIRECTOR_DETAIL_FADE_DURATION }, `frame3+=${DIRECTOR_DETAIL_STAGGER}`)
+        .to(detailTextRef.current, { autoAlpha: 1, duration: DIRECTOR_DETAIL_FADE_DURATION }, `frame3+=${DIRECTOR_DETAIL_STAGGER * 2}`)
+        .to(stepRowRefs.current[0], { autoAlpha: 1, duration: DIRECTOR_DETAIL_FADE_DURATION }, `frame3+=${DIRECTOR_DETAIL_STAGGER * 3}`)
+        .to(stepRowRefs.current[1], { autoAlpha: 1, duration: DIRECTOR_DETAIL_FADE_DURATION }, `frame3+=${DIRECTOR_DETAIL_STAGGER * 4}`)
+        .to(stepRowRefs.current[2], { autoAlpha: 1, duration: DIRECTOR_DETAIL_FADE_DURATION }, `frame3+=${DIRECTOR_DETAIL_STAGGER * 5}`)
+        .to(customModifyRef.current, { autoAlpha: 1, duration: DIRECTOR_DETAIL_FADE_DURATION }, `frame3+=${DIRECTOR_DETAIL_STAGGER * 6}`)
+        .to(applyRef.current, { autoAlpha: 1, duration: DIRECTOR_DETAIL_FADE_DURATION }, `frame3+=${DIRECTOR_DETAIL_STAGGER * 7}`)
         .addLabel("frame4", "+=0.3")
         // Frame 4 -> Frame 5: the four initial workflow columns reveal in order.
-        .to(stage1Ref.current, { autoAlpha: 1, duration: 1 }, "frame4")
-        .to(briefStageRef.current, { autoAlpha: 1, duration: 0.3 }, "frame4")
-        .to(scriptStageRef.current, { autoAlpha: 1, duration: 0.3 }, "frame4+=0.28")
-        .to(storyboardStageRef.current, { autoAlpha: 1, duration: 0.3 }, "frame4+=0.56")
-        .to(textStageRef.current, { autoAlpha: 1, duration: 0.3 }, "frame4+=0.84")
-        .addLabel("frame5", "+=0.3")
+        .to(stage1Ref.current, { autoAlpha: 1, duration: 2 }, "frame4")
+        .to(briefStageRef.current, { autoAlpha: 1, duration: 0.6 }, "frame4")
+        .to(scriptStageRef.current, { autoAlpha: 1, duration: 0.6 }, "frame4+=0.56")
+        .to(storyboardStageRef.current, { autoAlpha: 1, duration: 0.6 }, "frame4+=1.12")
+        .to(textStageRef.current, { autoAlpha: 1, duration: 0.6 }, "frame4+=1.68")
+        .addLabel("frame5", "+=0.6")
         // Frame 5 -> Frame 6: pan all four initial columns left. Text lands at
         // x = -9 (its motion6 clipped position), then the next three nodes reveal.
-        .to(stage1Ref.current, { x: -445, duration: 0.48 }, "frame5")
-        .to(textStageRef.current, { x: -445, duration: 0.48 }, "frame5")
-        .to(textContentRef.current, { x: -17, duration: 0.48 }, "frame5")
-        .to(imageStageRef.current, { autoAlpha: 1, duration: 0.16 }, "frame5+=0.5")
-        .to(videoStageRef.current, { autoAlpha: 1, duration: 0.16 }, "frame5+=0.68")
-        .to(mergeStageRef.current, { autoAlpha: 1, duration: 0.16 }, "frame5+=0.86")
-        .addLabel("frame6", "+=0.3")
+        .to(stage1Ref.current, { x: -445, duration: 0.96 }, "frame5")
+        .to(textStageRef.current, { x: -445, duration: 0.96 }, "frame5")
+        .to(textContentRef.current, { x: -17, duration: 0.96 }, "frame5")
+        .to(imageStageRef.current, { autoAlpha: 1, duration: 0.32 }, "frame5+=1")
+        .to(videoStageRef.current, { autoAlpha: 1, duration: 0.32 }, "frame5+=1.36")
+        .to(mergeStageRef.current, { autoAlpha: 1, duration: 0.32 }, "frame5+=1.72")
+        .addLabel("frame6", "+=0.6")
         // Frame 6 -> Frame 7: the whole pipeline pans up; a small merged-video node + selection box appear.
-        .to(pipelineTrackRef.current, { y: -149, duration: 1 }, "frame6")
-        .to(stage1Ref.current, { y: -149, duration: 1 }, "frame6")
-        .to(textStageRef.current, { y: -149, duration: 1 }, "frame6")
+        .to(pipelineTrackRef.current, { y: -149, duration: 2 }, "frame6")
+        .to(stage1Ref.current, { y: -149, duration: 2 }, "frame6")
+        .to(textStageRef.current, { y: -149, duration: 2 }, "frame6")
         .to(
           bigVideoRef.current,
-          { autoAlpha: 1, left: 201, width: 114, height: 73, duration: 1 },
+          { autoAlpha: 1, left: 201, width: 114, height: 73, duration: 2 },
           "frame6",
         )
-        .to(vector22Ref.current, { autoAlpha: 1, duration: 1 }, "frame6")
-        .addLabel("frame7", "+=0.3")
+        .to(vector22Ref.current, { autoAlpha: 1, duration: 2 }, "frame6")
+        .addLabel("frame7", "+=0.6")
         // Frame 7 -> Frame 8: pan up further; the merged node grows into the final video preview.
         // (top is expressed in the track's local space: 418 - trackY(-258) = 160px visual, matching Figma.)
-        .to(pipelineTrackRef.current, { y: -258, duration: 1 }, "frame7")
-        .to(stage1Ref.current, { y: -258, duration: 1 }, "frame7")
-        .to(textStageRef.current, { y: -258, duration: 1 }, "frame7")
+        .to(pipelineTrackRef.current, { y: -258, duration: 2 }, "frame7")
+        .to(stage1Ref.current, { y: -258, duration: 2 }, "frame7")
+        .to(textStageRef.current, { y: -258, duration: 2 }, "frame7")
         .to(
           bigVideoRef.current,
           {
@@ -223,7 +218,7 @@ export function DirectorAgentPanel() {
             top: 418,
             width: 416,
             height: 267,
-            duration: 1,
+            duration: 2,
             onComplete: () => void mergedPreviewVideoRef.current?.play(),
             onReverseComplete: () => mergedPreviewVideoRef.current?.pause(),
           },
@@ -241,7 +236,7 @@ export function DirectorAgentPanel() {
     // This produces: normal scroll -> centered pinned scene -> normal scroll.
     <div
       ref={panelRef}
-      className="pointer-events-auto relative left-[calc(50%-527px)] mt-[921px] h-[558px] w-[1054px] overflow-hidden rounded-[10px] bg-[#212121]"
+      className="pointer-events-auto relative left-[calc(50%-527px)] mt-[921px] h-[558px] w-[1054px] overflow-hidden rounded-[10px] bg-[#0E0404]"
     >
       {/* Inner wrapper: purely a positioning boundary (inset-0 matches the outer box exactly),
           so every decorative child below keeps its original absolute + top/left pixel values
@@ -265,53 +260,31 @@ export function DirectorAgentPanel() {
         </div>
       </div>
 
-      {/* Ellipse 9 */}
-      <div
-        ref={ellipse9Ref}
-        className="pointer-events-none absolute"
-        style={{
-          width: 954,
-          height: 391,
-          left: 53,
-          top: 328,
-          background: "rgba(92, 58, 40, 0.2)",
-          filter: "blur(150px)",
-        }}
-      />
-      {/* Ellipse 10 */}
-      <div
-        ref={ellipse10Ref}
-        className="pointer-events-none absolute"
-        style={{
-          width: 161,
-          height: 134,
-          left: 463,
-          top: 246,
-          background: "rgba(170, 142, 94, 0.6)",
-          filter: "blur(100px)",
-          transform: "rotate(90deg)",
-        }}
-      />
-
-      {/* Darken the background and ambient glows without dimming foreground UI. */}
-      <div className="pointer-events-none absolute inset-0 bg-black/25" />
+      {/* New motion1 background: Dark Gradient 08 plus the supplied warm glows. */}
+      <div className="pointer-events-none absolute inset-0 bg-black" />
+      <div className="pointer-events-none absolute bg-[rgba(171,71,0,0.46)] blur-[200px]" style={{ width: 546, height: 849, left: 184, top: 262 }} />
+      <div className="pointer-events-none absolute bg-[#FFF4F5] blur-[150px]" style={{ width: 888.58, height: 358.3, left: 156.63, top: 483.27, transform: "rotate(9.05deg)" }} />
+      <div className="pointer-events-none absolute bg-[#FF9900] blur-[150px]" style={{ width: 665, height: 568, left: -302, top: 513 }} />
+      <div className="pointer-events-none absolute bg-[#FFA467] blur-[125px]" style={{ width: 357.98, height: 235.94, left: 850, top: 513, transform: "rotate(27.8deg)" }} />
+      <div className="pointer-events-none absolute bg-[#FFF4F5] blur-[75px]" style={{ width: 572.22, height: 234.78, left: 284.31, top: 653.52, transform: "rotate(-2.2deg)" }} />
+      <div className="pointer-events-none absolute bg-[#AB4700] blur-[150px]" style={{ width: 161.56, height: 538.35, left: -169.05, top: 125.21, transform: "rotate(-24.04deg)" }} />
 
       {/* Prompt pill: the animated wrapper is kept separate from LiquidGlass so
           GSAP can move and resize the same glass object in every frame. */}
       <div
         ref={pillRef}
-        className="pointer-events-none absolute overflow-hidden rounded-[42px] border border-white/20 bg-[#D9D9D9]/40 shadow-[inset_0_1px_3px_rgba(255,255,255,0.28),inset_0_-1px_4px_rgba(0,0,0,0.25)] backdrop-blur-[18px]"
-        style={{ width: 258, height: 87, left: 398, top: 242 }}
+        className="pointer-events-auto absolute isolate overflow-hidden rounded-[42px] border border-white/20 bg-white/[0.06] shadow-[inset_0_1px_3px_rgba(255,255,255,0.28),inset_0_-1px_4px_rgba(0,0,0,0.25)]"
+        style={PROMPT_PILL_INITIAL}
       >
         <LiquidGlass
-          displacementScale={100}
-          blurAmount={0.1}
+          displacementScale={70}
+          blurAmount={0.015}
           saturation={125}
-          aberrationIntensity={1}
-          elasticity={0.04}
+          aberrationIntensity={2}
+          elasticity={0.15}
           cornerRadius={42}
-          mouseContainer={panelRef}
-          mode="standard"
+          mouseContainer={pillRef}
+          mode="polar"
           padding="0"
           className="h-full w-full overflow-hidden"
           style={{ position: "relative", width: "100%", height: "100%" }}
@@ -322,9 +295,22 @@ export function DirectorAgentPanel() {
       <p
         ref={pillTextRef}
         className="font-epilogue pointer-events-none absolute z-10 font-normal leading-[150%] text-[#C0C0C0] opacity-0"
-        style={{ width: 210, height: 48, left: 422, top: 255, fontSize: 14 }}
+        style={PROMPT_TEXT_INITIAL}
       >
-        {PROMPT_TEXT}
+        {PROMPT_LINES.map((line, lineIndex) => (
+          <span key={lineIndex} className="block">
+            {Array.from(line).map((character, characterIndex) => (
+              <span
+                key={`${lineIndex}-${characterIndex}`}
+                data-prompt-character
+                className="inline-block opacity-0"
+                style={{ whiteSpace: "pre" }}
+              >
+                {character}
+              </span>
+            ))}
+          </span>
+        ))}
       </p>
 
       {/* Left agent detail panel (frame 4) */}
@@ -391,7 +377,7 @@ export function DirectorAgentPanel() {
         {/* Buttons */}
         <div
           ref={customModifyRef}
-          className="absolute z-10 overflow-hidden rounded-[8px] border border-[#B58A5B]/20 bg-[rgba(70,42,20,0.42)] opacity-0 shadow-[inset_0_1px_2px_rgba(255,227,184,0.2),inset_0_-1px_3px_rgba(18,8,2,0.35)] backdrop-blur-[12px]"
+          className="pointer-events-auto absolute z-10 isolate overflow-hidden rounded-[8px] border border-[#B58A5B]/20 bg-[rgba(70,42,20,0.14)] opacity-0 shadow-[inset_0_1px_2px_rgba(255,227,184,0.2),inset_0_-1px_3px_rgba(18,8,2,0.35)]"
           style={{ left: 662, top: 370, width: 98, height: 33 }}
         >
           <LiquidGlass
@@ -401,7 +387,7 @@ export function DirectorAgentPanel() {
             aberrationIntensity={1}
             elasticity={0.02}
             cornerRadius={8}
-            mouseContainer={panelRef}
+            mouseContainer={customModifyRef}
             mode="standard"
             padding="0"
             className="h-full w-full"
@@ -415,7 +401,7 @@ export function DirectorAgentPanel() {
         </div>
         <div
           ref={applyRef}
-          className="absolute z-10 overflow-hidden rounded-[8px] border border-[#B58A5B]/20 bg-[rgba(70,42,20,0.42)] opacity-0 shadow-[inset_0_1px_2px_rgba(255,227,184,0.2),inset_0_-1px_3px_rgba(18,8,2,0.35)] backdrop-blur-[12px]"
+          className="pointer-events-auto absolute z-10 isolate overflow-hidden rounded-[8px] border border-[#B58A5B]/20 bg-[rgba(70,42,20,0.14)] opacity-0 shadow-[inset_0_1px_2px_rgba(255,227,184,0.2),inset_0_-1px_3px_rgba(18,8,2,0.35)]"
           style={{ left: 775, top: 370, width: 98, height: 33 }}
         >
           <LiquidGlass
@@ -425,7 +411,7 @@ export function DirectorAgentPanel() {
             aberrationIntensity={1}
             elasticity={0.02}
             cornerRadius={8}
-            mouseContainer={panelRef}
+            mouseContainer={applyRef}
             mode="standard"
             padding="0"
             className="h-full w-full"
