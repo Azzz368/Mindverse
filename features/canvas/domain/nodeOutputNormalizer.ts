@@ -31,7 +31,7 @@ export const outputFromProvider = (nodeType: CanvasNode["data"]["nodeType"], val
   const data = asRecord(value);
   if (nodeType === "text") {
     const text = asText(data.text);
-    return makeOutput("text", text.slice(0, 90), { generatedText: text });
+    return makeOutput("text", text.slice(0, 90), { generatedText: text, provider: asText(data.provider), model: asText(data.model) });
   }
   if (nodeType === "script") {
     const scenes = Array.isArray(data.scenes) ? data.scenes : [];
@@ -40,7 +40,8 @@ export const outputFromProvider = (nodeType: CanvasNode["data"]["nodeType"], val
   }
   if (nodeType === "storyboard") {
     const scenes = Array.isArray(data.scenes) ? data.scenes : [];
-    return makeOutput("storyboard", `${scenes.length} shots created`, scenes);
+    const requested = Number(data.requestedSceneCount) || scenes.length;
+    return makeOutput("storyboard", `${scenes.length}/${requested} shots created`, value);
   }
   if (nodeType === "motion") {
     const composition = asRecord(data.composition || data.motionComposition);
@@ -56,6 +57,17 @@ export const outputFromProvider = (nodeType: CanvasNode["data"]["nodeType"], val
     const audioUrl = asText(data.audioUrl || data.url || data.resultUrl);
     return makeOutput("audio", audioUrl ? "Cloned voice audio generated" : "Cloned voice TTS request submitted", { ...data, audioUrl, url: asText(data.url) || audioUrl });
   }
+  if (nodeType === "videoRegeneration") {
+    const url = asText(data.videoUrl || data.resultUrl);
+    const status = asText(data.status);
+    const polling = ["pending", "running"].includes(status);
+    return makeOutput("video", url ? "MiniMax H3 2K video regenerated" : polling ? "Waiting for MiniMax H3 regeneration..." : status === "failed" ? "MiniMax H3 regeneration failed" : "MiniMax H3 regeneration submitted", value);
+  }
+  if (nodeType === "musicGeneration" || nodeType === "hkgaiTTS") {
+    const audioUrl = asText(data.audioUrl || data.url || data.resultUrl);
+    const summary = nodeType === "musicGeneration" ? "HKGAI music generated" : "HKGAI speech generated";
+    return makeOutput("audio", audioUrl ? summary : `${summary} request submitted`, { ...data, audioUrl, url: asText(data.url) || audioUrl });
+  }
   const url = asText(data.imageUrl || data.videoUrl || data.audioUrl || data.resultUrl || data.finalVideoUrl);
   const status = asText(data.status);
   const polling = ["pending", "running"].includes(status);
@@ -64,4 +76,4 @@ export const outputFromProvider = (nodeType: CanvasNode["data"]["nodeType"], val
 };
 
 export const canRunRemotely = (type: CanvasNode["data"]["nodeType"]) =>
-  ["text", "script", "image", "video", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "storyboard"].includes(type);
+  ["text", "script", "image", "video", "videoRegeneration", "videoEdit", "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "storyboard"].includes(type);

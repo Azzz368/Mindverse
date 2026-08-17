@@ -1,11 +1,12 @@
 import { asRecord, asText } from "./values";
 import { DEFAULT_QWEN_VOICE_MODEL, qwenTtsLanguageTypes } from "@/shared/api/qwenContracts";
 import { imagePromptWithPreset } from "@/shared/workflow/imagePromptPresets";
-import { videoAspectRatioForPreset, videoInputPortsForPreset, videoModelPatch, videoModelPresetIdFromData, videoReferenceLimitForPreset, type VideoInputPortKind } from "@/shared/workflow/videoModelPresets";
-import { clampStoryboardSceneCount, storyboardSceneFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
+import { videoAspectRatioForPreset, videoInputPortsForPreset, videoModelPatch, videoModelPresetIdFromData, videoPromptMaxLengthForPreset, videoReferenceLimitForPreset, type VideoInputPortKind } from "@/shared/workflow/videoModelPresets";
+import { clampStoryboardSceneCount, storyboardSceneFromValue, storyboardScenesFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation, WorkflowEdge } from "@/shared/canvas";
 
 const MAX_PROVIDER_PROMPT_LENGTH = 2400;
+const MAX_STORY_PROMPT_LENGTH = 12_000;
 
 export const limitProviderPrompt = (value: string, maxLength = MAX_PROVIDER_PROMPT_LENGTH) => {
   const trimmed = value.trim();
@@ -20,8 +21,8 @@ export const limitProviderPrompt = (value: string, maxLength = MAX_PROVIDER_PROM
 };
 
 export const scenesFrom = (value: unknown) =>
-  Array.isArray(value)
-    ? value
+  storyboardScenesFromValue(value).length
+    ? storyboardScenesFromValue(value)
         .map((scene) => {
           const item = asRecord(scene);
           return `Scene ${asText(item.sceneNumber)}: ${asText(item.description)}. Visual: ${asText(item.visualPrompt)}. Camera: ${asText(item.camera)}.`;
@@ -127,9 +128,9 @@ export const promptFrom = (node: CanvasNode, upstream: CanvasNode[]) => {
 type MediaReferenceKind = "image" | "video" | "audio";
 
 const mediaReferenceKindForNode = (node: CanvasNode): MediaReferenceKind | undefined => {
-  if (node.data.nodeType === "image" || node.data.nodeType === "reference") return "image";
-  if (node.data.nodeType === "video" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") return "video";
-  if (node.data.nodeType === "audio" || node.data.nodeType === "voiceTTS") return "audio";
+  if (node.data.nodeType === "image" || node.data.nodeType === "reference" || node.data.nodeType === "videoFrame") return "image";
+  if (node.data.nodeType === "video" || node.data.nodeType === "videoRegeneration" || node.data.nodeType === "videoEdit" || node.data.nodeType === "motion") return "video";
+  if (node.data.nodeType === "audio" || node.data.nodeType === "musicGeneration" || node.data.nodeType === "hkgaiTTS" || node.data.nodeType === "voiceTTS") return "audio";
   return undefined;
 };
 
@@ -175,9 +176,9 @@ const legacyVideoHandleKind = (handleId: string | undefined | null): VideoInputP
 };
 
 const nodeKind = (source: CanvasNode): VideoInputPortKind | undefined => {
-  if (source.data.nodeType === "image" || source.data.nodeType === "reference") return "image";
+  if (source.data.nodeType === "image" || source.data.nodeType === "reference" || source.data.nodeType === "videoFrame") return "image";
   if (source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion") return "video";
-  if (source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS") return "audio";
+  if (source.data.nodeType === "audio" || source.data.nodeType === "musicGeneration" || source.data.nodeType === "hkgaiTTS" || source.data.nodeType === "voiceTTS") return "audio";
   if (["text", "prompt", "script", "storyboard"].includes(source.data.nodeType)) return "text";
   return undefined;
 };
@@ -260,16 +261,18 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
   const prompt = promptFrom(node, upstream);
   const inputs = upstream.map((source) => source.data.output?.value).filter((value) => value !== undefined);
   const upstreamImage = upstream.map(imageUrlFrom).find(Boolean);
-  const upstreamImageUrls = upstream.filter((source) => source.data.nodeType === "image").map(imageUrlFrom).filter(Boolean);
+  const upstreamImageUrls = upstream.filter((source) => source.data.nodeType === "image" || source.data.nodeType === "videoFrame").map(imageUrlFrom).filter(Boolean);
   const upstreamReferenceImageUrls = upstream.filter((source) => source.data.nodeType === "reference").map(imageUrlFrom).filter(Boolean);
   const explicitReferenceImageUrls = referencedImageUrlsFrom(node, upstream);
 
   if (d.nodeType === "script") {
+    // Script output is rendered separately from the editable brief. Never feed a
+    // previous generated screenplay back into the next run as hidden input.
+    const scriptBrief = [d.storyBrief, contextFrom(upstream)].filter(Boolean).join("\n\n");
     return {
-      storyBrief: limitProviderPrompt(prompt),
+      storyBrief: limitProviderPrompt(scriptBrief, MAX_STORY_PROMPT_LENGTH),
       scriptTone: d.scriptTone,
       numberOfScenes: clampStoryboardSceneCount(d.numberOfScenes),
-      model: d.model,
     };
   }
 
@@ -277,7 +280,6 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
     const storyboardSceneText = isStoryboardSceneTextNode(node, upstream);
     return {
       prompt: limitProviderPrompt(prompt),
-      model: d.model,
       temperature: d.temperature,
       upstreamContext: storyboardSceneText ? undefined : inputs,
     };
@@ -312,10 +314,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
     const imageSources = videoSourcesForKind(connections, "image", supportedKinds);
     const videoSources = videoSourcesForKind(connections, "video", supportedKinds);
     const audioSources = videoSourcesForKind(connections, "audio", supportedKinds);
-    const handleImageUrls = [
-      ...imageSources.filter((source) => source.data.nodeType === "image").map(imageUrlFrom),
-      ...imageSources.filter((source) => source.data.nodeType === "reference").map(imageUrlFrom),
-    ].filter(Boolean);
+    const handleImageUrls = imageSources.map(imageUrlFrom).filter(Boolean);
     const selectedImageUrls = explicitReferenceImageUrls.filter((url) => handleImageUrls.includes(url));
     const allReferenceImageUrls = supportedKinds.has("image")
       ? [...(d.referenceImageUrl ? [d.referenceImageUrl] : []), ...(hasExplicitReferenceSelection ? selectedImageUrls : selectedImageUrls.length ? selectedImageUrls : handleImageUrls)].filter(Boolean)
@@ -330,12 +329,16 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
     const referenceAudioUrls = audioLimit === undefined ? allReferenceAudioUrls : allReferenceAudioUrls.slice(0, audioLimit);
     const promptSources = textSources.length ? textSources : supportedKinds.has("text") ? upstream.filter((source) => nodeKind(source) === "text") : [];
     const videoPrompt = ownPromptFrom(d) || promptFrom(node, promptSources);
+    const promptMaxLength = videoPromptMaxLengthForPreset(activeVideoModel);
     const orderedPromptReferences = (d.videoReferenceNodeIds || [])
       .map((referenceId) => upstream.find((source) => source.id === referenceId))
       .filter((source): source is CanvasNode => Boolean(source));
+    const compiledVideoPrompt = activeVideoModel === "minimax-h3-hkgai"
+      ? imagePromptReferences(videoPrompt)
+      : videoPromptReferences(videoPrompt, orderedPromptReferences);
 
     return {
-      prompt: limitProviderPrompt(videoPromptReferences(videoPrompt, orderedPromptReferences)),
+      prompt: limitProviderPrompt(compiledVideoPrompt, promptMaxLength),
       videoModelPreset: activeVideoModel,
       negativePrompt: d.negativePrompt,
       model: activeVideoPatch.model,
@@ -345,6 +348,7 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       referenceAudioUrls,
       useImageInput: activeVideoPatch.videoInputMode === "image-to-video",
       duration: d.duration,
+      audioFlowShift: d.audioFlowShift,
       resolution: d.resolution,
       aspectRatio: videoAspectRatioForPreset(activeVideoModel, d.aspectRatio),
       fps: d.fps,
@@ -363,16 +367,16 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
 
   if (d.nodeType === "videoEdit") {
     const upstreamVideoUrls = upstream
-      .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion")
-      .map(videoUrlFrom)
-      .filter(Boolean);
+      .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoRegeneration" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion")
+      .map(videoUrlFrom);
     const upstreamAudioUrls = upstream
-      .filter((source) => source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS")
-      .map(audioUrlFrom)
-      .filter(Boolean);
+      .filter((source) => source.data.nodeType === "audio" || source.data.nodeType === "musicGeneration" || source.data.nodeType === "hkgaiTTS" || source.data.nodeType === "voiceTTS")
+      .map(audioUrlFrom);
     return {
       prompt: limitProviderPrompt(ownPromptFrom(d) || prompt),
-      editPlan: limitProviderPrompt(d.editPlan || ""),
+      // editPlan is executable JSON consumed locally by the FFmpeg runner, not
+      // a provider prompt. Truncating it can turn a valid plan into invalid JSON.
+      editPlan: d.editPlan || "",
       referenceVideoUrls: upstreamVideoUrls,
       referenceAudioUrls: upstreamAudioUrls,
       preserveAudio: d.preserveAudio !== false,
@@ -388,9 +392,15 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
   }
 
   if (d.nodeType === "motion") {
-    const motionMode = d.motionMode || "codex-hyperframes";
+    const motionPrompt = limitProviderPrompt(ownPromptFrom(d) || prompt);
+    const previousOutput = asRecord(d.output?.value);
+    const previousProjectDir = asText(previousOutput.hyperframesProjectDir);
+    const previousProjectId = d.hyperframesProjectId
+      || asText(previousOutput.hyperframesProjectId)
+      || previousProjectDir.split(/[\\/]/).filter(Boolean).at(-1)
+      || "";
     const referenceVideoUrls = upstream
-      .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoEdit")
+      .filter((source) => source.data.nodeType === "video" || source.data.nodeType === "videoRegeneration" || source.data.nodeType === "videoEdit")
       .map(videoUrlFrom)
       .filter(Boolean);
     const referenceImageUrls = upstream
@@ -398,16 +408,15 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
       .map(imageUrlFrom)
       .filter(Boolean);
     const referenceAudioUrls = upstream
-      .filter((source) => source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS")
+      .filter((source) => source.data.nodeType === "audio" || source.data.nodeType === "musicGeneration" || source.data.nodeType === "hkgaiTTS" || source.data.nodeType === "voiceTTS")
       .map(audioUrlFrom)
       .filter(Boolean);
     return {
-      prompt: limitProviderPrompt(ownPromptFrom(d) || prompt),
+      prompt: motionPrompt,
       compositionJson: d.compositionJson,
-      templateId: d.templateId,
-      motionVariablesJson: d.motionVariablesJson,
-      motionMode,
-      codexInstruction: motionMode === "codex-hyperframes" ? d.codexInstruction || d.prompt : undefined,
+      motionMode: "codex-hyperframes",
+      codexInstruction: motionPrompt,
+      hyperframesProjectId: previousProjectId || undefined,
       referenceVideoUrls,
       referenceImageUrls,
       referenceAudioUrls,
@@ -442,6 +451,55 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
     };
   }
 
+  if (d.nodeType === "videoRegeneration") {
+    const connections = upstreamConnectionsFrom(upstream, incomingEdges);
+    const sourcesForHandle = (handle: string) => connections.filter((connection) => connection.targetHandle === handle).map((connection) => connection.node);
+    const baseVideoSources = sourcesForHandle("base-video");
+    const baseVideos = baseVideoSources.map(videoUrlFrom).filter(Boolean);
+    const textSources = sourcesForHandle("text");
+    const firstFrameUrl = sourcesForHandle("first-frame").map(imageUrlFrom).find(Boolean);
+    const lastFrameUrl = sourcesForHandle("last-frame").map(imageUrlFrom).find(Boolean);
+    const referenceImageUrls = sourcesForHandle("reference-image").map(imageUrlFrom).filter(Boolean);
+    const referenceVideoUrls = sourcesForHandle("reference-video").map(videoUrlFrom).filter(Boolean);
+    const referenceAudioUrls = sourcesForHandle("reference-audio").map(audioUrlFrom).filter(Boolean);
+    return {
+      mode: d.regenerationMode || "base-video",
+      sourceTaskId: d.sourceTaskId,
+      prompt: limitProviderPrompt(ownPromptFrom(d) || (textSources[0] ? generatedTextFrom(textSources[0]) : "") || baseVideoSources[0]?.data.prompt || baseVideoSources[0]?.data.generationContext || "", 40_000),
+      baseVideoUrl: baseVideos[0],
+      baseVideoCount: baseVideos.length,
+      firstFrameUrl,
+      lastFrameUrl,
+      referenceImageUrls,
+      referenceVideoUrls,
+      referenceAudioUrls,
+      aigcWatermark: d.aigcWatermark === true,
+    };
+  }
+
+  if (d.nodeType === "musicGeneration") {
+    const connections = upstreamConnectionsFrom(upstream, incomingEdges);
+    const textSource = connections.find((connection) => connection.targetHandle === "text")?.node
+      || connections.find((connection) => ["text", "prompt", "script", "storyboard"].includes(connection.node.data.nodeType))?.node;
+    return {
+      name: d.musicName || "mindverse_track",
+      tags: d.musicTags || "",
+      userPrompt: (d.prompt || "").trim() || (textSource ? generatedTextFrom(textSource) : limitProviderPrompt(prompt)),
+    };
+  }
+
+  if (d.nodeType === "hkgaiTTS") {
+    const connections = upstreamConnectionsFrom(upstream, incomingEdges);
+    const textSource = connections.find((connection) => connection.targetHandle === "text")?.node
+      || connections.find((connection) => ["text", "prompt", "script", "storyboard"].includes(connection.node.data.nodeType))?.node;
+    return {
+      text: (d.ttsText || d.inputText || "").trim() || (textSource ? generatedTextFrom(textSource) : limitProviderPrompt(prompt)),
+      voiceId: d.voice || "",
+      instructions: d.ttsInstructions,
+      xVectorOnly: d.xVectorOnly !== false,
+    };
+  }
+
   if (d.nodeType === "audio") {
     return {
       text: limitProviderPrompt(prompt),
@@ -454,9 +512,8 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
   }
 
   return {
-    storyBrief: limitProviderPrompt(prompt),
+    storyBrief: limitProviderPrompt(prompt, MAX_STORY_PROMPT_LENGTH),
     numberOfScenes: clampStoryboardSceneCount(d.targetShotCount ?? d.numberOfScenes),
-    model: d.model,
   };
 };
 

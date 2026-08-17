@@ -4,7 +4,7 @@ export type AgentMemoryIntent = "dialogue" | "create" | "edit" | "organize" | "s
 
 export type AgentReferenceAsset = {
   nodeId: string;
-  kind: "image";
+  kind: "image" | "video" | "audio";
   title: string;
   role?: string;
   searchQuery?: string;

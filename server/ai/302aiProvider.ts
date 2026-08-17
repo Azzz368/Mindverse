@@ -3,7 +3,7 @@ import { request302, request302OpenAI } from "./302aiClient";
 import { AIProviderError } from "./errors";
 import { requestChatCompletion, storyboardModel, textModel, textProvider } from "./textLLMClient";
 import { professionalStoryboardInstructionFromSkill } from "@/server/workflow/storySkillPrompts";
-import { clampStoryboardSceneCount } from "@/shared/workflow/storyPipeline";
+import { clampStoryboardSceneCount, parseJsonResponse } from "@/shared/workflow/storyPipeline";
 import type { AIProvider, EditImageWithAnnotationsInput, EditImageWithAnnotationsOutput, GenerateAudioInput, GenerateAudioOutput, GenerateImageInput, GenerateImageOutput, GenerateStoryboardInput, GenerateStoryboardOutput, GenerateTextInput, GenerateTextOutput, GenerateVideoInput, GenerateVideoOutput, StoryboardScene } from "./types";
 
 type RecordValue = Record<string, unknown>;
@@ -11,46 +11,37 @@ const compact = (value: RecordValue) => Object.fromEntries(Object.entries(value)
 const object = (value: unknown): RecordValue => value && typeof value === "object" ? value as RecordValue : {};
 const string = (value: unknown) => typeof value === "string" ? value : undefined;
 const taskStatus = (value: unknown): "completed" | "pending" | "failed" => ["completed", "success", "succeeded", "done"].includes(String(value).toLowerCase()) ? "completed" : ["failed", "error", "cancelled"].includes(String(value).toLowerCase()) ? "failed" : "pending";
-const cleanJson = (value: string) => value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-const parseJson = (value: string) => {
-  const cleaned = cleanJson(value);
-  try { return JSON.parse(cleaned) as unknown; } catch {}
-  const objectStart = cleaned.indexOf("{"), objectEnd = cleaned.lastIndexOf("}");
-  if (objectStart >= 0 && objectEnd > objectStart) return JSON.parse(cleaned.slice(objectStart, objectEnd + 1)) as unknown;
-  const arrayStart = cleaned.indexOf("["), arrayEnd = cleaned.lastIndexOf("]");
-  if (arrayStart >= 0 && arrayEnd > arrayStart) return JSON.parse(cleaned.slice(arrayStart, arrayEnd + 1)) as unknown;
-  throw new Error("No parseable JSON found.");
-};
 const sceneArrayFrom = (value: unknown) => {
   const data = object(value);
   const candidates = [value, data.scenes, data.shots, data.storyboard];
   return candidates.find(Array.isArray) as unknown[] | undefined;
 };
-const normalizeScenes = (value: unknown, fallback: string, requestedCount: number): StoryboardScene[] => {
+const normalizeScenes = (value: unknown, requestedCount: number): StoryboardScene[] => {
   const count = clampStoryboardSceneCount(requestedCount, 1);
   const scenes = sceneArrayFrom(value) || [];
-  const normalized = scenes.map((scene, index) => {
+  return scenes.map((scene, index) => {
     const item = object(scene);
-    const description = string(item.description) || string(item.action) || string(item.summary) || fallback;
+    const description = string(item.description) || string(item.action) || string(item.summary);
+    const visualPrompt = string(item.visualPrompt) || string(item.imagePrompt) || description;
+    if (!description && !visualPrompt) return undefined;
     return {
       sceneNumber: Number(item.sceneNumber || item.shotNumber) || index + 1,
-      description,
-      visualPrompt: string(item.visualPrompt) || string(item.imagePrompt) || description,
-      camera: string(item.camera) || string(item.cameraDirection) || "电影感单镜头构图，保持前后连续性",
+      description: description || visualPrompt || "",
+      visualPrompt: visualPrompt || description || "",
+      camera: string(item.camera) || string(item.cameraDirection) || "",
       duration: Number(item.duration) || 5,
     };
-  });
-  while (normalized.length < count) {
-    const next = normalized.length + 1;
-    normalized.push({
-      sceneNumber: next,
-      description: `第 ${next} 镜：延续前一镜的动作和情绪，继续推进：${fallback}`,
-      visualPrompt: `第 ${next} 镜，一张单独电影关键帧画面，保持同一人物、服装、场景、光线和故事连续性：${fallback}`,
-      camera: "电影感单镜头构图，保持前后连续性",
-      duration: 5,
-    });
-  }
-  return normalized.slice(0, count).map((scene, index) => ({ ...scene, sceneNumber: index + 1 }));
+  }).filter((scene): scene is NonNullable<typeof scene> => Boolean(scene)).slice(0, count).map((scene, index) => ({ ...scene, sceneNumber: index + 1 }));
+};
+
+const messageContent = (value: unknown) => {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return undefined;
+  const parts = value.map((part) => {
+    const item = object(part);
+    return string(item.text) || string(item.content) || "";
+  }).filter(Boolean);
+  return parts.length ? parts.join("\n") : undefined;
 };
 const imageExtension = (contentType: string | null) => contentType?.includes("jpeg") ? "jpg" : contentType?.includes("webp") ? "webp" : contentType?.includes("gif") ? "gif" : "png";
 const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
@@ -100,10 +91,13 @@ export const ai302Provider: AIProvider = {
   name: "302ai",
   async generateText(input: GenerateTextInput): Promise<GenerateTextOutput> {
     const fallbackModel = input.model || process.env.AI_302_TEXT_MODEL || "gpt-4o-mini";
-    const raw = await requestChatCompletion<RecordValue>({ provider: textProvider(), body: { model: textModel(fallbackModel), messages: [{ role: "system", content: input.systemPrompt || "You are a helpful creative AI assistant." }, { role: "user", content: input.prompt }], temperature: input.temperature ?? 0.7 } });
-    const choice = Array.isArray(raw.choices) ? object(raw.choices[0]) : {}; const content = string(object(choice.message).content) || string(object(choice.delta).content);
-    if (!content) throw new Error("302.AI chat completion did not include message content.");
-    return { text: content, raw };
+    const provider = textProvider();
+    const model = textModel(fallbackModel);
+    const raw = await requestChatCompletion<RecordValue>({ provider, body: { model, messages: [{ role: "system", content: input.systemPrompt || "You are a helpful creative AI assistant." }, { role: "user", content: input.prompt }], temperature: input.temperature ?? 0.7 } });
+    const choice = Array.isArray(raw.choices) ? object(raw.choices[0]) : {};
+    const content = messageContent(object(choice.message).content) || messageContent(object(choice.delta).content);
+    if (!content) throw new AIProviderError(`${provider === "hkgai" ? "HKGAI MaaS" : "302.AI"} chat completion did not include message content.`, "TEXT_RESPONSE_EMPTY", 502);
+    return { text: content, provider, model, raw };
   },
   async generateStoryboard(input: GenerateStoryboardInput): Promise<GenerateStoryboardOutput> {
     const fallbackModel = input.model || process.env.AI_302_STORYBOARD_MODEL || process.env.AI_302_TEXT_MODEL || "gpt-4o-mini";
@@ -113,8 +107,11 @@ export const ai302Provider: AIProvider = {
       systemPrompt: "你是一名电影导演、分镜指导和连续性监督。只返回严格 JSON，不要 Markdown。",
       prompt: professionalStoryboardInstructionFromSkill(input.storyBrief, input.numberOfScenes)
     });
-    try { return { scenes: normalizeScenes(parseJson(result.text), result.text, input.numberOfScenes), rawText: result.text, raw: result.raw }; }
-    catch { return { scenes: normalizeScenes({}, result.text, input.numberOfScenes), rawText: result.text, raw: result.raw }; }
+    let scenes: StoryboardScene[];
+    try { scenes = normalizeScenes(parseJsonResponse(result.text), input.numberOfScenes); }
+    catch { throw new AIProviderError("分镜模型返回了内容，但无法解析为 JSON。请重试；若持续失败，请检查服务端分镜模型配置。", "STORYBOARD_RESPONSE_INVALID", 502); }
+    if (!scenes.length) throw new AIProviderError("分镜模型返回的 JSON 中没有有效 scenes/shots。请重试或检查服务端分镜模型配置。", "STORYBOARD_SCENES_EMPTY", 502);
+    return { scenes, requestedSceneCount: clampStoryboardSceneCount(input.numberOfScenes), provider: result.provider, model: result.model, rawText: result.text, raw: result.raw };
   },
   async generateImage(input: GenerateImageInput): Promise<GenerateImageOutput> {
     const model = input.model || process.env.AI_302_IMAGE_MODEL || "gpt-image-2";

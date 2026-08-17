@@ -41,9 +41,13 @@ Rules:
 - For a progress bar, set `type:"progressBar"`, a short height such as `8`, and style fields like `fillColor`, `trackColor`, `borderRadius`.
 - For connected video/image media, do not manually put historical URLs in `assets`; connect upstream nodes and refer to generated asset ids only if needed.
 - For `videoEdit`, connect upstream `video` steps to it. If background music is requested, also create/connect an `audio` step unless a suitable audio node already exists.
-- Put an editable FFmpeg JSON plan in `params.editPlan`. Supported shape:
-  `{"clips":[{"source":1,"start":0,"end":3,"volume":1},{"source":2,"start":"00:00:03","duration":5,"muted":false}],"preserveAudio":true,"originalVolume":1,"backgroundAudio":{"source":1,"volume":0.2,"loop":true},"subtitles":[{"start":0,"end":2.5,"text":"中文字幕"}],"fadeIn":0.5,"fadeOut":1,"output":{"resolution":"1080p","aspectRatio":"16:9","fps":30}}`.
-- In `videoEdit` plans, `clips[].source` is the 1-based order of connected video sources. `backgroundAudio.source` is the 1-based order of connected audio sources. Use seconds or `HH:MM:SS` timecodes. Omit unsupported complex timeline effects.
+- Put an editable FFmpeg JSON plan in `params.editPlan`. It must be a JSON object, never a natural-language sentence; keep the human-readable instruction in the step `prompt` or `purpose`. Supported shape:
+  `{"clips":[{"source":1,"start":0,"end":3,"volume":1,"fadeIn":0.3,"fadeOut":0.3,"speed":1,"rotate":0,"fit":"contain"},{"source":2,"start":0,"duration":5,"muted":false,"speed":1.25,"fit":"cover"}],"preserveAudio":true,"originalVolume":1,"backgroundAudio":{"source":1,"volume":0.2,"loop":true,"offset":0},"subtitles":[{"start":0,"end":2.5,"text":"中文字幕"}],"output":{"resolution":"1080p","aspectRatio":"16:9","fps":30}}`.
+- In `videoEdit` plans, `clips[]` order is the final playback order. `clips[].source` is the 1-based order of connected video sources, while `backgroundAudio.source` independently indexes connected audio sources.
+- Clip `start`, `end`, and `duration` are always local timestamps inside that source video, starting from 0. They are never positions on the final concatenated timeline. For two complete five-second sources, use `[{"source":1,"start":0,"end":5},{"source":2,"start":0,"end":5}]`, never 0-5 followed by 5-10.
+- Supported per-clip controls: trim with `start` plus `end` or `duration`; `muted`; `volume` from 0 to 3; `fadeIn`/`fadeOut` from 0 to 10 seconds; `speed` from 0.5 to 2; `rotate` as 0/90/180/270; and `fit` as `contain`, `cover`, or `stretch`.
+- `fadeIn`/`fadeOut` on a clip create a fade through black and matching audio fade. They are not overlapping crossfades. Omit unsupported multi-track effects and arbitrary FFmpeg expressions.
+- To fade the beginning or end of the whole assembled video, set `fadeIn` on the first clip or `fadeOut` on the last clip. Do not also add root-level `fadeIn`/`fadeOut` because that duplicates the same user-facing control.
 - Script steps must request a complete shootable screenplay, not only a title or concept.
 - Keep scene counts consistent: if `sceneCount` is 3, script and storyboard steps must both use 3 unless the user explicitly asks for a different shot count.
 - Never plan more than 3 storyboard scenes or 3 storyboard image branches. Use fewer when the user requests fewer; clamp larger requests to the first 3 essential shots.

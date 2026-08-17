@@ -1,6 +1,6 @@
 import type { CanvasNode, NodeType, WorkflowEdge } from "@/shared/canvas";
 
-export const workflowColumnByType: Record<NodeType, number> = { prompt: 0, text: 1, script: 1, storyboard: 2, storyboardImage: 3, image: 4, reference: 4, video: 5, audio: 5, voiceClone: 5, voiceTTS: 6, videoEdit: 7, motion: 8, output: 9 };
+export const workflowColumnByType: Record<NodeType, number> = { prompt: 0, text: 1, script: 1, storyboard: 2, storyboardImage: 3, image: 4, reference: 4, video: 5, audio: 5, musicGeneration: 5, hkgaiTTS: 6, voiceClone: 5, voiceTTS: 6, videoFrame: 6, videoRegeneration: 7, videoEdit: 8, motion: 9, output: 10 };
 export const selectedNodeIdsFrom = (state: { nodes: CanvasNode[]; selectedNodeId: string | null }) => [...new Set([...state.nodes.filter((node) => node.selected).map((node) => node.id), ...(state.selectedNodeId ? [state.selectedNodeId] : [])])];
 export const connectedNodeIdsFrom = (seedIds: string[], nodes: CanvasNode[], edges: WorkflowEdge[]) => {
   const ids = new Set(nodes.map((node) => node.id));

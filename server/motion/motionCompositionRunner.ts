@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createWriteStream, existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Buffer } from "node:buffer";
@@ -27,6 +27,7 @@ export type MotionCompositionInput = {
   motionVariablesJson?: string;
   motionMode?: string;
   codexInstruction?: string;
+  hyperframesProjectId?: string;
   referenceVideoUrls?: string[];
   referenceImageUrls?: string[];
   referenceAudioUrls?: string[];
@@ -597,7 +598,7 @@ const restoreSourceVideoAudioTracks = async (projectDir: string) => {
   return result.addedTracks;
 };
 
-const writeCodexPrompt = async (input: MotionCompositionInput, composition: MotionComposition, projectDir: string) => {
+const writeCodexPrompt = async (input: MotionCompositionInput, composition: MotionComposition, projectDir: string, continuing = false) => {
   const localAssets = composition.assets
     .map((item, index) => {
       const ext = item.url && dataUrlPattern.exec(item.url)?.[1]
@@ -640,11 +641,13 @@ const writeCodexPrompt = async (input: MotionCompositionInput, composition: Moti
     "9. Ensure the video remains full-bleed and correctly framed for the current canvas, especially 9:16 vertical output.",
     "10. This job includes package scripts. Use `npm run lint` while making structural edits. Run one final `npm run check`; it already includes lint.",
     "11. When the final check returns `ok: true`, stop immediately and return the result. Do not start optional polish passes or repeat a passing check.",
-    "12. Budget your work: inspect sources with ffprobe only, make one focused edit pass, and do not generate contact sheets, run volume analysis, or perform optional exploratory work.",
+    "12. Budget your work: inspect sources with ffprobe only, make one focused edit pass, and do not render the final MP4 or perform optional exploratory work. The host will create review contact sheets after this pass.",
     "",
     "## Notes",
     "- This file is generated so Codex can take over the edit from the app.",
-    "- The app already produced a renderable baseline; improve it rather than starting from an empty file.",
+    continuing
+      ? "- This is a follow-up instruction. Preserve the existing project and make the requested revision instead of rebuilding it from scratch."
+      : "- The app already produced a renderable baseline; improve it rather than starting from an empty file.",
   ].join("\n");
   await writeFile(path.join(projectDir, "CODEX_PROMPT.md"), prompt, "utf8");
 };
@@ -779,9 +782,46 @@ type CodexRunRecord = {
   recoveredByCheck?: boolean;
   eventLogPath?: string;
   stderrLogPath?: string;
+  sessionId?: string;
+  visualReviews?: CodexVisualReviewRecord[];
   instruction: string;
   completedAt: string;
 };
+
+type CodexVisualReviewRecord = {
+  round: number;
+  ok: boolean;
+  contactSheetPath?: string;
+  eventLogPath?: string;
+  stderrLogPath?: string;
+  outputPath?: string;
+  error?: string;
+  rolledBack?: boolean;
+  completedAt: string;
+};
+
+const codexTimeoutMs = () => configuredTimeout("MINDVERSE_CODEX_TIMEOUT_MS", 600_000, 30_000);
+
+const codexSessionIdFrom = (stdout: string) => {
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>;
+      for (const key of ["thread_id", "threadId", "session_id", "sessionId"]) {
+        const value = event[key];
+        if (typeof value === "string" && value.trim()) return value.trim();
+      }
+    } catch {
+      // Codex can emit a non-JSON diagnostic before JSONL starts. Ignore it.
+    }
+  }
+  return undefined;
+};
+
+const codexProcessEnv = () => ({
+  ...hyperframesEnv(),
+  CODEX_HOME: codexHome(),
+});
 
 const runCodexHyperframesEdit = async (projectDir: string, input: MotionCompositionInput) => {
   const cliPath = codexCliPath();
@@ -805,7 +845,6 @@ const runCodexHyperframesEdit = async (projectDir: string, input: MotionComposit
   const args = [
     cliPath,
     "exec",
-    "--ephemeral",
     "--cd", projectDir,
     "--skip-git-repo-check",
     "--json",
@@ -820,16 +859,10 @@ const runCodexHyperframesEdit = async (projectDir: string, input: MotionComposit
   const model = process.env.MINDVERSE_CODEX_MODEL?.trim();
   if (model) args.push("--model", model);
   args.push(prompt);
-  const env = {
-    ...hyperframesEnv(),
-    CODEX_HOME: codexHome(),
-  };
-  const configuredTimeout = Number(process.env.MINDVERSE_CODEX_TIMEOUT_MS || 600000);
-  const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 600000;
   const result = await runProcess(process.execPath, args, {
     cwd: projectDir,
-    env,
-    timeoutMs,
+    env: codexProcessEnv(),
+    timeoutMs: codexTimeoutMs(),
     stdoutLogPath: eventLogPath,
     stderrLogPath,
   });
@@ -839,11 +872,88 @@ const runCodexHyperframesEdit = async (projectDir: string, input: MotionComposit
     stderr: result.stderr.slice(-4000),
     eventLogPath,
     stderrLogPath,
+    sessionId: codexSessionIdFrom(result.stdout),
     instruction: input.codexInstruction || input.prompt || "",
     completedAt: new Date().toISOString(),
   };
   await writeFile(path.join(projectDir, "codex-run.json"), JSON.stringify(record, null, 2), "utf8");
   return record;
+};
+
+const visualReviewPrompt = (input: MotionCompositionInput, round: number) => [
+  `# HyperFrames visual review ${round}`,
+  "",
+  "Inspect the attached contact sheet from the current HyperFrames timeline, then edit the existing index.html only when a material visual or timing issue is visible.",
+  "",
+  "## Original user instruction",
+  input.codexInstruction || input.prompt || "Create a polished short-video HyperFrames edit from the connected media.",
+  "",
+  "## Review rubric",
+  "- No black, blank, broken, duplicated, or unexpectedly frozen frames.",
+  "- Every connected visual source is represented and the requested story/order is preserved.",
+  "- Full-bleed media is framed correctly for the canvas without accidental stretching or cropping of the subject.",
+  "- Titles and captions are readable, inside safe margins, concise, and visually consistent.",
+  "- Transitions, entrances, exits, and the end frame look intentional at the sampled timestamps.",
+  "- Preserve local media paths, separate source-audio tracks, root timing attributes, and deterministic offline rendering.",
+  "",
+  "If the contact sheet already meets the instruction, leave the visual design unchanged. Otherwise make one focused correction pass. Run `npm run check` once after any edit. Do not render an MP4, create more screenshots, add remote dependencies, or ask questions.",
+].join("\n");
+
+const runCodexVisualReview = async (
+  projectDir: string,
+  input: MotionCompositionInput,
+  sessionId: string | undefined,
+  contactSheetPath: string,
+  round: number,
+) => {
+  const cliPath = codexCliPath();
+  const outputPath = path.join(projectDir, `CODEX_REVIEW_RESULT-${round}.md`);
+  const eventLogPath = path.join(projectDir, `codex-review-${round}-events.jsonl`);
+  const stderrLogPath = path.join(projectDir, `codex-review-${round}-stderr.log`);
+  const prompt = visualReviewPrompt(input, round);
+  const args = sessionId
+    ? [
+      cliPath, "exec", "resume",
+      "--image", contactSheetPath,
+      "--skip-git-repo-check",
+      "--json",
+      "--output-last-message", outputPath,
+    ]
+    : [
+      cliPath, "exec",
+      "--cd", projectDir,
+      "--image", contactSheetPath,
+      "--skip-git-repo-check",
+      "--json",
+      "--output-last-message", outputPath,
+      "--color", "never",
+    ];
+  if (codexBypassSandbox()) {
+    args.push("--dangerously-bypass-approvals-and-sandbox");
+  } else if (!sessionId) {
+    args.push("--sandbox", "workspace-write");
+  }
+  const model = process.env.MINDVERSE_CODEX_MODEL?.trim();
+  if (model) args.push("--model", model);
+  if (sessionId) args.push(sessionId);
+  args.push(prompt);
+  const result = await runProcess(process.execPath, args, {
+    cwd: projectDir,
+    env: codexProcessEnv(),
+    timeoutMs: codexTimeoutMs(),
+    stdoutLogPath: eventLogPath,
+    stderrLogPath,
+  });
+  return {
+    round,
+    ok: true,
+    contactSheetPath,
+    eventLogPath,
+    stderrLogPath,
+    outputPath,
+    completedAt: new Date().toISOString(),
+    sessionId: codexSessionIdFrom(result.stdout) || sessionId,
+  };
 };
 
 const hyperframesEnv = () => {
@@ -878,6 +988,121 @@ const checkWithHyperframes = async (projectDir: string) => {
   });
 };
 
+const visualReviewEnabled = () =>
+  !["0", "false", "no", "off"].includes(String(process.env.MINDVERSE_CODEX_VISUAL_REVIEW_ENABLED || "true").trim().toLowerCase());
+
+const visualReviewRounds = () => {
+  if (!visualReviewEnabled()) return 0;
+  return clamp(Math.floor(configuredTimeout("MINDVERSE_CODEX_VISUAL_REVIEW_ROUNDS", 1, 0)), 0, 3);
+};
+
+const reviewFrameCount = () =>
+  clamp(Math.floor(configuredTimeout("MINDVERSE_HYPERFRAMES_REVIEW_FRAMES", 7, 3)), 3, 12);
+
+const snapshotWithHyperframes = async (projectDir: string, round: number) => {
+  const cliPath = path.join(process.cwd(), "node_modules", "hyperframes", "dist", "cli.js");
+  const snapshotDir = path.join(projectDir, `review-snapshots-${round}`);
+  await runProcess(process.execPath, [
+    cliPath,
+    "snapshot",
+    projectDir,
+    "--output", snapshotDir,
+    "--frames", String(reviewFrameCount()),
+    "--describe", "false",
+    "--timeout", "15000",
+  ], {
+    cwd: projectDir,
+    env: hyperframesEnv(),
+    timeoutMs: configuredTimeout("MINDVERSE_HYPERFRAMES_SNAPSHOT_TIMEOUT_MS", 180_000, 30_000),
+  });
+  const files = (await readdir(snapshotDir))
+    .filter((fileName) => /^contact-sheet(?:-\d+)?\.jpe?g$/i.test(fileName))
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  if (!files.length) throw new Error("HyperFrames snapshot completed without producing a review contact sheet.");
+  return path.join(snapshotDir, files[0]);
+};
+
+const validateCodexComposition = async (projectDir: string) => {
+  await restoreSourceVideoAudioTracks(projectDir);
+  await assertLocalRuntimeDependencies(projectDir);
+  await checkWithHyperframes(projectDir);
+};
+
+const runVisualReviewLoop = async (
+  projectDir: string,
+  input: MotionCompositionInput,
+  codexRun: CodexRunRecord,
+  report: (update: MotionProgressUpdate) => Promise<void>,
+) => {
+  const records: CodexVisualReviewRecord[] = [];
+  let sessionId = codexRun.sessionId;
+  const rounds = visualReviewRounds();
+  for (let round = 1; round <= rounds; round += 1) {
+    const progress = 52 + Math.round((round - 1) / Math.max(rounds, 1) * 12);
+    await report({ phase: "checking", message: `Capturing HyperFrames review frames (${round}/${rounds}).`, progress });
+    let contactSheetPath: string | undefined;
+    const indexPath = path.join(projectDir, "index.html");
+    const stableHtml = await readFile(indexPath, "utf8");
+    try {
+      contactSheetPath = await snapshotWithHyperframes(projectDir, round);
+      await report({ phase: "codex", message: `Codex is reviewing the timeline contact sheet (${round}/${rounds}).`, progress: progress + 4 });
+      const result = await runCodexVisualReview(projectDir, input, sessionId, contactSheetPath, round);
+      sessionId = result.sessionId;
+      await validateCodexComposition(projectDir);
+      records.push({
+        round,
+        ok: true,
+        contactSheetPath,
+        eventLogPath: result.eventLogPath,
+        stderrLogPath: result.stderrLogPath,
+        outputPath: result.outputPath,
+        completedAt: result.completedAt,
+      });
+    } catch (error) {
+      await writeFile(indexPath, stableHtml, "utf8");
+      records.push({
+        round,
+        ok: false,
+        contactSheetPath,
+        error: error instanceof Error ? error.message : "Codex visual review failed.",
+        rolledBack: true,
+        completedAt: new Date().toISOString(),
+      });
+      // A custom OpenAI-compatible Codex provider may not support image input.
+      // Keep the last independently checked HTML and render it instead of
+      // failing an otherwise valid video job.
+      break;
+    }
+  }
+  codexRun.sessionId = sessionId;
+  codexRun.visualReviews = records;
+  if (records.some((record) => !record.ok)) {
+    codexRun.warning = [
+      codexRun.warning,
+      "Visual review was unavailable or failed; the last independently checked HyperFrames version was kept.",
+    ].filter(Boolean).join(" ");
+  }
+  await writeFile(path.join(projectDir, "codex-run.json"), JSON.stringify(codexRun, null, 2), "utf8");
+  return records;
+};
+
+const compositionCanvasFromProject = async (projectDir: string, fallback: MotionComposition["canvas"]) => {
+  const html = await readFile(path.join(projectDir, "index.html"), "utf8");
+  const root = /<[^>]+\bdata-composition-id\s*=\s*(["']).*?\1[^>]*>/i.exec(html)?.[0];
+  if (!root) return fallback;
+  const positive = (name: string, fallbackValue: number) => {
+    const value = htmlNumberAttribute(root, name, fallbackValue);
+    return Number.isFinite(value) && value > 0 ? value : fallbackValue;
+  };
+  return {
+    ...fallback,
+    width: Math.round(positive("data-width", fallback.width)),
+    height: Math.round(positive("data-height", fallback.height)),
+    duration: positive("data-duration", fallback.duration),
+    fps: positive("data-fps", fallback.fps),
+  };
+};
+
 const renderWithHyperframes = async (projectDir: string, outputPath: string, composition: MotionComposition) => {
   const cliPath = path.join(process.cwd(), "node_modules", "hyperframes", "dist", "cli.js");
   await runProcess(process.execPath, [
@@ -904,29 +1129,76 @@ const renderWithHyperframes = async (projectDir: string, outputPath: string, com
   });
 };
 
+const hyperframesProjectIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const motionWorkRoot = () => {
+  const configured = process.env.MINDVERSE_MOTION_WORK_ROOT?.trim();
+  return configured ? resolveHomePath(configured) : path.join(process.cwd(), ".mindverse", "hyperframes-jobs");
+};
+
+const resolveHyperframesProject = (requestedId: string | undefined) => {
+  const root = motionWorkRoot();
+  const canReuse = Boolean(requestedId && hyperframesProjectIdPattern.test(requestedId));
+  const requestedDir = canReuse ? path.join(root, requestedId!) : undefined;
+  if (requestedDir && existsSync(path.join(requestedDir, "index.html"))) {
+    return { id: requestedId!, projectDir: requestedDir, reused: true, warning: undefined };
+  }
+  const id = randomUUID();
+  return {
+    id,
+    projectDir: path.join(root, id),
+    reused: false,
+    warning: requestedId
+      ? "The previous HyperFrames workspace was unavailable, so this run started from a fresh project. Configure MINDVERSE_MOTION_WORK_ROOT on persistent storage to keep revisions across restarts."
+      : undefined,
+  };
+};
+
+const readProjectRevision = async (projectDir: string) => {
+  try {
+    const metadata = JSON.parse(await readFile(path.join(projectDir, "mindverse-job.json"), "utf8")) as { revision?: unknown };
+    const revision = Number(metadata.revision);
+    return Number.isFinite(revision) && revision >= 1 ? Math.floor(revision) : 0;
+  } catch {
+    return 0;
+  }
+};
+
 export const createMotionComposition = async (input: MotionCompositionInput, options: MotionCompositionOptions = {}) => {
   const report = async (update: MotionProgressUpdate) => { await options.onProgress?.(update); };
-  const composition = buildComposition(input);
+  let composition = buildComposition(input);
   const persistent = isCodexHyperframesMode(input);
-  const projectDir = persistent
-    ? path.join(process.cwd(), ".mindverse", "hyperframes-jobs", randomUUID())
-    : await mkdtemp(path.join(tmpdir(), "mindverse-motion-"));
+  const persistentProject = persistent ? resolveHyperframesProject(input.hyperframesProjectId) : undefined;
+  const projectDir = persistentProject?.projectDir || await mkdtemp(path.join(tmpdir(), "mindverse-motion-"));
+  const revision = persistentProject ? await readProjectRevision(projectDir) + 1 : 1;
   try {
-    await report({ phase: "preparing", message: "Downloading connected media and preparing the composition.", progress: 10 });
+    await report({
+      phase: "preparing",
+      message: persistentProject?.reused
+        ? "Opening the previous HyperFrames project for another revision."
+        : "Downloading connected media and preparing the composition.",
+      progress: 10,
+    });
     if (persistent) await mkdir(projectDir, { recursive: true });
-    await writeProject(composition, projectDir);
+    if (!persistentProject?.reused) await writeProject(composition, projectDir);
     let codexRun: CodexRunRecord | undefined;
     if (persistent) {
-      await report({ phase: "codex", message: "Codex is editing the HyperFrames composition.", progress: 28 });
-      await writeCodexPrompt(input, composition, projectDir);
+      await report({
+        phase: "codex",
+        message: persistentProject?.reused
+          ? "Codex is applying your revision to the existing HyperFrames project."
+          : "Codex is editing the HyperFrames composition.",
+        progress: 28,
+      });
+      await writeCodexPrompt(input, composition, projectDir, persistentProject?.reused);
+      const stableHtmlBeforeCodex = await readFile(path.join(projectDir, "index.html"), "utf8");
       let codexCompleted = false;
       try {
         codexRun = await runCodexHyperframesEdit(projectDir, input);
         codexCompleted = true;
-        await report({ phase: "checking", message: "Checking the Codex composition with HyperFrames.", progress: 55 });
-        await restoreSourceVideoAudioTracks(projectDir);
-        await assertLocalRuntimeDependencies(projectDir);
-        await checkWithHyperframes(projectDir);
+        await report({ phase: "checking", message: "Checking the Codex composition with HyperFrames.", progress: 48 });
+        await validateCodexComposition(projectDir);
+        await runVisualReviewLoop(projectDir, input, codexRun, report);
       } catch (error) {
         const timedOut = !codexCompleted && error instanceof ProcessTimeoutError;
         let recoveredByCheck = false;
@@ -934,9 +1206,7 @@ export const createMotionComposition = async (input: MotionCompositionInput, opt
         if (timedOut) {
           await new Promise((resolve) => setTimeout(resolve, 750));
           try {
-            await restoreSourceVideoAudioTracks(projectDir);
-            await assertLocalRuntimeDependencies(projectDir);
-            await checkWithHyperframes(projectDir);
+            await validateCodexComposition(projectDir);
             recoveredByCheck = true;
           } catch (checkError) {
             recoveryError = checkError;
@@ -967,10 +1237,21 @@ export const createMotionComposition = async (input: MotionCompositionInput, opt
             completedAt: new Date().toISOString(),
           };
         await writeFile(path.join(projectDir, "codex-run.json"), JSON.stringify(codexRun, null, 2), "utf8");
+        if (!recoveredByCheck) {
+          await writeFile(path.join(projectDir, "index.html"), stableHtmlBeforeCodex, "utf8");
+        }
         if (!recoveredByCheck && codexRequired()) {
           throw new Error(codexRun.error || "Codex HyperFrames execution failed.");
         }
       }
+    }
+    if (persistent) {
+      composition = { ...composition, canvas: await compositionCanvasFromProject(projectDir, composition.canvas) };
+      await writeFile(path.join(projectDir, "mindverse-job.json"), JSON.stringify({
+        projectId: persistentProject?.id,
+        revision,
+        updatedAt: new Date().toISOString(),
+      }, null, 2), "utf8");
     }
     const outputPath = path.join(projectDir, "motion.mp4");
     await report({ phase: "rendering", message: "Rendering video with Chromium and FFmpeg.", progress: 68 });
@@ -995,7 +1276,11 @@ export const createMotionComposition = async (input: MotionCompositionInput, opt
       elementCount: composition.elements.length,
       motionMode: input.motionMode || "template",
       codexInstruction: input.codexInstruction,
+      hyperframesProjectId: persistentProject?.id,
       hyperframesProjectDir: persistent ? projectDir : undefined,
+      hyperframesProjectReused: persistentProject?.reused || false,
+      hyperframesRevision: revision,
+      hyperframesProjectWarning: persistentProject?.warning,
       codexPromptPath: persistent ? path.join(projectDir, "CODEX_PROMPT.md") : undefined,
       codexRunPath: persistent ? path.join(projectDir, "codex-run.json") : undefined,
       codexRun,

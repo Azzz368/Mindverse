@@ -6,7 +6,7 @@ import { summarizeCanvasForAgent } from "@/server/agent/summarizeCanvas";
 import { normalizeAIError } from "@/server/ai/errors";
 import { runAgentDialogueLLM, runAgentOrganizeLLM, runAgentPlannerLLM, runAgentPromptComposerLLM, runAgentRequirementLLM, runAgentRouterLLM } from "@/server/ai/302aiLLMProvider";
 import { agentMemorySummary, type AgentProjectMemory } from "@/shared/agent/projectMemory";
-import { validateAgentSemanticRoute, type AgentDialogueMessage } from "@/shared/agent/agentSchema";
+import { validateAgentSemanticRoute, type AgentDialogueMessage, type AgentWorkflowPlan } from "@/shared/agent/agentSchema";
 import type { AgentRouterIntent } from "@/shared/api/aiContracts";
 import type { CanvasNode, WorkflowEdge } from "@/shared/canvas";
 import type { ActiveSkillContext } from "@/shared/skills/skillTypes";
@@ -22,6 +22,9 @@ import { approvalRequiredStepIds, bindPlanCapabilities, bindRoutedCanvasInputs, 
 import { applyComposedPrompts, fallbackComposedPrompts } from "@/server/agent/composeWorkflowPrompts";
 import { resolvePromptProfiles } from "@/server/agent/promptProfiles/resolver";
 import { DEFAULT_AGENT_EXECUTION_MODEL, isAgentExecutionModelId, type AgentExecutionModelId } from "@/shared/agent/executionModels";
+import { DIGITAL_HUMAN_VIDEO_PROMPT } from "@/shared/workflow/videoModelPresets";
+import { requireSession } from "@/server/auth/auth";
+import { getWorkflow } from "@/server/storage/workflowStorage";
 
 type RouterSnapshot = {
   projectName: string;
@@ -33,6 +36,81 @@ type RouterSnapshot = {
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const stringArray = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : [];
 const validIntents: AgentRouterIntent[] = ["dialogue", "create", "edit", "organize", "skill", "tool"];
+
+type DigitalHumanSourcePair = { imageNodeId: string; audioNodeId: string };
+
+const digitalHumanSourcePairFrom = (
+  userMessage: string,
+  snapshot: RouterSnapshot,
+  attachmentNodeIds: string[],
+): DigitalHumanSourcePair | undefined => {
+  if (!/(?:数字人|口型同步|人物.{0,8}(?:说话|演唱|唱歌)|digital[\s_-]*human|talking[\s_-]*avatar|lip[\s_-]*sync)/i.test(userMessage)) return undefined;
+  const rememberedAgentUploadIds = snapshot.agentMemory?.referenceAssets
+    ?.filter((asset) => asset.role === "agent composer upload")
+    .map((asset) => asset.nodeId) || [];
+  const sourceIds = attachmentNodeIds.length ? attachmentNodeIds : rememberedAgentUploadIds;
+  const attachments = snapshot.nodes.filter((node) => sourceIds.includes(node.id));
+  const images = attachments.filter((node) => node.data.nodeType === "image" || node.data.nodeType === "reference");
+  const audios = attachments.filter((node) => node.data.nodeType === "audio" || node.data.nodeType === "voiceTTS");
+  if (attachments.length !== 2 || images.length !== 1 || audios.length !== 1) return undefined;
+  return { imageNodeId: images[0].id, audioNodeId: audios[0].id };
+};
+
+const deterministicDigitalHumanPlan = (
+  userMessage: string,
+  sources: DigitalHumanSourcePair,
+  bundle: CapabilityEvidenceBundle,
+): AgentWorkflowPlan => {
+  const videoCapability = bundle.capabilities.find((candidate) => candidate.supports.includes("digital_human_video"));
+  const outputCapability = bundle.capabilities.find((candidate) => candidate.supports.includes("deliver_output"));
+  if (!videoCapability || !outputCapability) throw new Error("数字人视频能力当前未配置，无法创建可执行工作流。");
+  const zh = /[\u3400-\u9fff]/.test(userMessage);
+  return {
+    title: zh ? "图片与音频生成数字人视频" : "Digital human video from image and audio",
+    description: zh ? "使用上传的人物图和音频创建口型同步的数字人视频。" : "Create a lip-synced digital human video from the uploaded portrait and audio.",
+    objective: userMessage,
+    goal: "image_to_video",
+    userPrompt: userMessage,
+    aspectRatio: "16:9",
+    includeAudio: false,
+    videoProvider: "tokenstar",
+    steps: [
+      {
+        id: "digital-human-video",
+        kind: "video",
+        capability: "digital_human_video",
+        providerCapabilityId: videoCapability.id,
+        evidenceIds: videoCapability.evidenceIds,
+        inputs: [
+          { source: "canvas_node", nodeId: sources.imageNodeId, role: "reference_image" },
+          { source: "canvas_node", nodeId: sources.audioNodeId, role: "reference_audio" },
+        ],
+        label: zh ? "数字人视频" : "Digital human video",
+        purpose: zh ? "保持人物身份稳定，并让口型与上传音频同步。" : "Preserve the subject identity and synchronize lip movement to the uploaded audio.",
+        prompt: DIGITAL_HUMAN_VIDEO_PROMPT,
+        params: { duration: 5, resolution: "720p", aspectRatio: "16:9" },
+        dependsOn: [],
+      },
+      {
+        id: "digital-human-output",
+        kind: "output",
+        capability: "deliver_output",
+        providerCapabilityId: outputCapability.id,
+        evidenceIds: outputCapability.evidenceIds,
+        inputs: [{ source: "step_output", stepId: "digital-human-video", role: "video" }],
+        label: zh ? "数字人成片" : "Digital human output",
+        purpose: zh ? "输出可预览和继续剪辑的数字人视频。" : "Expose the generated video for preview and further editing.",
+        dependsOn: ["digital-human-video"],
+        params: { format: "video/mp4" },
+      },
+    ],
+    successCriteria: [
+      zh ? "数字人节点准确连接一张人物图和一段音频。" : "The digital human node consumes exactly one portrait and one audio source.",
+      zh ? "输出视频可继续在画布中预览和编辑。" : "The resulting video remains editable on the canvas.",
+    ],
+    warnings: [],
+  };
+};
 
 const customSkillFrom = (value: unknown): ActiveSkillContext | undefined => {
   if (!value || typeof value !== "object") return undefined;
@@ -221,10 +299,12 @@ const numberConstraint = (constraints: Record<string, unknown>, key: string) => 
 const retrievalRequestFrom = (
   route: AgentSemanticRoute,
   snapshot: RouterSnapshot,
+  workspaceId: string,
   workflowId?: string,
   rawUserMessage?: string,
+  sourceNodeIds: string[] = route.targetNodeIds,
 ): CapabilityRetrievalRequest => {
-  const targetIds = new Set(route.targetNodeIds);
+  const targetIds = new Set(sourceNodeIds);
   const targets = snapshot.nodes.filter((node) => targetIds.has(node.id));
   const count = (types: string[]) => targets.filter((node) => types.includes(node.data.nodeType)).length;
   const constraintText = (key: string) => typeof route.constraints[key] === "string" ? route.constraints[key] as string : undefined;
@@ -253,7 +333,7 @@ const retrievalRequestFrom = (
       aspectRatio: constraintText("aspectRatio"),
       resolution: constraintText("resolution"),
       projectId: workflowId,
-      tenantId: "shared",
+      tenantId: workspaceId,
       availability: ["available"],
     },
     limit: 10,
@@ -312,6 +392,7 @@ const requirementSkillGuidanceFrom = (bundle?: CapabilityEvidenceBundle) => {
 };
 
 export async function POST(request: Request) {
+  let workspaceId = "";
   let run = createAgentRunRecorder();
   let executionMode: AgentRunExecutionMode = "browser";
   let executionModel: AgentExecutionModelId = DEFAULT_AGENT_EXECUTION_MODEL;
@@ -340,17 +421,19 @@ export async function POST(request: Request) {
       skillUsage: checkpointSkillUsage,
     } : undefined;
     try {
-      await persistAgentRunTrace(trace, { executionMode, request: runRequest, checkpoint });
+      await persistAgentRunTrace(trace, { workspaceId, executionMode, request: runRequest, checkpoint });
     } catch (storageError) {
       console.warn("Unable to persist Agent run checkpoint.", storageError instanceof Error ? storageError.message : storageError);
     }
     return NextResponse.json({ ...responsePayload, agentRun: trace }, init);
   };
   try {
+    workspaceId = (await requireSession(request)).workspaceId;
     const body = await request.json() as {
       userMessage?: unknown;
       canvasSnapshot?: unknown;
       selectedNodeIds?: unknown;
+      attachmentNodeIds?: unknown;
       conversation?: unknown;
       forceIntent?: unknown;
       customSkill?: unknown;
@@ -362,7 +445,7 @@ export async function POST(request: Request) {
     const userMessage = text(body.userMessage);
     const resumeRunId = text(body.resumeRunId);
     if (resumeRunId) {
-      const existingRun = await getAgentRun(resumeRunId);
+      const existingRun = await getAgentRun(resumeRunId, workspaceId);
       if (existingRun) {
         run = createAgentRunRecorder(existingRun);
         resumedExecutionModel = existingRun.request?.executionModel;
@@ -372,6 +455,11 @@ export async function POST(request: Request) {
     if (!userMessage) {
       run.finish("blocked", "blocked", "The Agent request did not include a user message.");
       return respond({ ok: false, error: { message: "userMessage is required." } }, { status: 400 });
+    }
+    const workflowId = text(body.workflowId);
+    if (workflowId && !await getWorkflow(workspaceId, workflowId)) {
+      run.finish("blocked", "blocked", "Workflow not found in this workspace.");
+      return respond({ ok: false, error: { message: "Workflow not found." } }, { status: 404 });
     }
     if (body.executionModel !== undefined && !isAgentExecutionModelId(body.executionModel)) {
       run.finish("blocked", "blocked", "Unsupported Agent execution model.");
@@ -385,14 +473,23 @@ export async function POST(request: Request) {
     });
 
     const snapshot = snapshotFrom(body.canvasSnapshot);
-    const selectedNodeIds = stringArray(body.selectedNodeIds);
+    const validSnapshotNodeIds = new Set(snapshot.nodes.map((node) => node.id));
+    const attachmentNodeIds = stringArray(body.attachmentNodeIds).filter((id) => validSnapshotNodeIds.has(id));
+    const digitalHumanSourcePair = digitalHumanSourcePairFrom(userMessage, snapshot, attachmentNodeIds);
+    const agentSourceNodeIds = digitalHumanSourcePair
+      ? [digitalHumanSourcePair.imageNodeId, digitalHumanSourcePair.audioNodeId]
+      : attachmentNodeIds;
+    const selectedNodeIds = [...new Set([
+      ...stringArray(body.selectedNodeIds).filter((id) => validSnapshotNodeIds.has(id)),
+      ...agentSourceNodeIds,
+    ])];
     executionMode = body.executionMode === "worker" ? "worker" : "browser";
     checkpointSnapshot = snapshot;
     checkpointSelectedNodeIds = selectedNodeIds;
     runRequest = {
       userMessage,
       selectedNodeIds,
-      workflowId: text(body.workflowId) || undefined,
+      workflowId: workflowId || undefined,
       executionModel,
     };
     const customSkill = customSkillFrom(body.customSkill);
@@ -411,7 +508,20 @@ export async function POST(request: Request) {
     let semanticRoute: AgentSemanticRoute;
     let intent: AgentRouterIntent;
     let routeReason: string | undefined;
-    if (forced) {
+    if (digitalHumanSourcePair && (!forced || forced === "create" || forced === "edit")) {
+      semanticRoute = validateAgentSemanticRoute({
+        route: "plan",
+        operation: "create_workflow",
+        objective: userMessage,
+        targetNodeIds: [],
+        requiredCapabilities: ["digital_human_video"],
+        constraints: { inputImages: 1, inputAudios: 1, inputVideos: 0, duration: 5, resolution: "720p" },
+        successCriteria: ["Use exactly one uploaded portrait and one uploaded audio source."],
+        confidence: 1,
+      }, userMessage, selectedNodeIds);
+      routeReason = "The request has the exact portrait-and-audio input pair required by the deterministic digital-human workflow.";
+      run.add("routing", routeReason, { kind: "decision", metadata: { fastPath: "digital-human", attachments: 2 } });
+    } else if (forced) {
       const route = forced === "dialogue" ? "dialogue" : forced === "organize" ? "organize" : forced === "tool" ? "tool" : "plan";
       let extracted: AgentSemanticRoute | undefined;
       if (route === "plan") {
@@ -569,10 +679,11 @@ export async function POST(request: Request) {
     let evidenceBundle: CapabilityEvidenceBundle | undefined;
     if (intent === "create" || intent === "edit") {
       const retrievalStartedAt = Date.now();
-      const retrievalQuery = retrievalRequestFrom(semanticRoute, snapshot, runRequest?.workflowId, userMessage);
+      const sourceNodeIds = [...new Set([...semanticRoute.targetNodeIds, ...agentSourceNodeIds])];
+      const retrievalQuery = retrievalRequestFrom(semanticRoute, snapshot, workspaceId, runRequest?.workflowId, userMessage, sourceNodeIds);
       run.add("tooling", "Retrieving Skills, Tools, models, and workflow evidence before evaluating missing requirements.", {
         kind: "tool",
-        metadata: { requiredCapabilities: retrievalQuery.requiredCapabilities.length, targetNodes: semanticRoute.targetNodeIds.length },
+        metadata: { requiredCapabilities: retrievalQuery.requiredCapabilities.length, targetNodes: sourceNodeIds.length, attachments: agentSourceNodeIds.length },
       });
       evidenceBundle = await retrieveCapabilities(retrievalQuery, { customSkill });
       checkpointRetrieval = {
@@ -604,7 +715,7 @@ export async function POST(request: Request) {
     }
 
     let effectiveUserMessage = userMessage;
-    if (intent === "create" || intent === "edit") {
+    if ((intent === "create" || intent === "edit") && !digitalHumanSourcePair) {
       const requirementStartedAt = Date.now();
       run.add("clarifying", "Checking whether critical execution information is missing.", { kind: "model" });
       const requirement = await runAgentRequirementLLM({
@@ -693,26 +804,38 @@ export async function POST(request: Request) {
     run.add("planning", "Planning only with capabilities from the retrieved Evidence Bundle.", { kind: "model" });
     const normalizeCapabilityPlan = (candidatePlan: Awaited<ReturnType<typeof runAgentPlannerLLM>>) => {
       const providerBound = bindPlanCapabilities(candidatePlan, evidenceBundle);
-      const inputBound = intent === "edit"
-        ? bindRoutedCanvasInputs(providerBound, evidenceBundle, snapshot.nodes, semanticRoute.targetNodeIds, semanticRoute.requiredCapabilities)
+      const sourceNodeIds = intent === "edit" ? semanticRoute.targetNodeIds : agentSourceNodeIds;
+      const inputBound = sourceNodeIds.length
+        ? bindRoutedCanvasInputs(providerBound, evidenceBundle, snapshot.nodes, sourceNodeIds, semanticRoute.requiredCapabilities)
         : providerBound;
       return bindPlanCapabilities(inputBound, evidenceBundle);
     };
-    let plan = normalizeCapabilityPlan(await runAgentPlannerLLM({
-      userPrompt: guidedUserMessage,
-      canvasSummary: intent === "edit" ? canvasSummaryWithMemory(snapshot, semanticRoute.targetNodeIds) : plannerSummary(snapshot),
-      semanticRoute,
-      evidenceBundle,
-      executionModel,
-    }));
+    let plan = normalizeCapabilityPlan(digitalHumanSourcePair
+      ? deterministicDigitalHumanPlan(guidedUserMessage, digitalHumanSourcePair, evidenceBundle)
+      : await runAgentPlannerLLM({
+        userPrompt: guidedUserMessage,
+        canvasSummary: intent === "edit"
+          ? canvasSummaryWithMemory(snapshot, semanticRoute.targetNodeIds)
+          : agentSourceNodeIds.length ? canvasSummaryWithMemory(snapshot, agentSourceNodeIds) : plannerSummary(snapshot),
+        semanticRoute,
+        evidenceBundle,
+        executionModel,
+      }));
+    if (digitalHumanSourcePair) {
+      run.add("planning", "Built the digital-human workflow deterministically from the uploaded portrait and audio without another model call.", {
+        kind: "decision",
+        metadata: { fastPath: "digital-human", stepCount: plan.steps.length },
+      });
+    }
     const editInputIssues = () => {
-      if (intent !== "edit" || !semanticRoute.targetNodeIds.length) return [];
+      const requiredSourceIds = intent === "edit" ? semanticRoute.targetNodeIds : agentSourceNodeIds;
+      if (!requiredSourceIds.length) return [];
       const referenced = plan.steps.flatMap((step) => (step.inputs || [])
         .filter((input) => input.source === "canvas_node" && input.nodeId)
         .map((input) => input.nodeId!));
       const canvasIds = new Set(snapshot.nodes.map((node) => node.id));
       const invalid = referenced.filter((id) => !canvasIds.has(id));
-      const missingTargets = semanticRoute.targetNodeIds.filter((id) => !referenced.includes(id));
+      const missingTargets = requiredSourceIds.filter((id) => !referenced.includes(id));
       return [
         ...invalid.map((id) => `The capability plan references unknown canvas node ${id}.`),
         ...(missingTargets.length ? [`The capability plan does not consume routed target nodes: ${missingTargets.join(", ")}.`] : []),
@@ -723,7 +846,9 @@ export async function POST(request: Request) {
       run.add("validating", "The first capability plan failed deterministic graph or capability checks; requesting one repair.", { kind: "validation", metadata: { issueCount: qualityIssues.length } });
       plan = normalizeCapabilityPlan(await runAgentPlannerLLM({
         userPrompt: guidedUserMessage,
-        canvasSummary: intent === "edit" ? canvasSummaryWithMemory(snapshot, semanticRoute.targetNodeIds) : plannerSummary(snapshot),
+        canvasSummary: intent === "edit"
+          ? canvasSummaryWithMemory(snapshot, semanticRoute.targetNodeIds)
+          : agentSourceNodeIds.length ? canvasSummaryWithMemory(snapshot, agentSourceNodeIds) : plannerSummary(snapshot),
         semanticRoute,
         evidenceBundle,
         previousPlan: plan,
@@ -734,7 +859,7 @@ export async function POST(request: Request) {
     }
     if (qualityIssues.length) throw new Error(`Agent planner returned an invalid capability plan: ${qualityIssues.join(" ")}`);
     const promptProfiles = resolvePromptProfiles(evidenceBundle.query, evidenceBundle.evidence, customSkill).profiles;
-    if (promptProfiles.length && plan.steps.some((step) => step.kind === "image" || step.kind === "video")) {
+    if (!digitalHumanSourcePair && promptProfiles.length && plan.steps.some((step) => step.kind === "image" || step.kind === "video")) {
       const promptStartedAt = Date.now();
       run.add("planning", `Composing visual node prompts with ${promptProfiles.map((profile) => profile.name).join(", ")}.`, { kind: "model" });
       try {
@@ -780,7 +905,12 @@ export async function POST(request: Request) {
       });
     }
 
-    const patch = compileWorkflowPlanToCanvas(plan);
+    const compiled = agentSourceNodeIds.length
+      ? compileCapabilityPlanToEditPatch({ plan, currentNodes: snapshot.nodes, currentEdges: snapshot.edges, selectedNodeIds: agentSourceNodeIds })
+      : undefined;
+    const patch = compiled
+      ? { nodes: compiled.createNodes, edges: compiled.createEdges }
+      : compileWorkflowPlanToCanvas(plan);
     run.add("validating", "Validated capability evidence and compiled the workflow plan into a canvas patch.", { kind: "validation", durationMs: Date.now() - planStartedAt, metadata: { stepCount: plan.steps.length, edgeCount: patch.edges.length } });
     run.finish("ready", "validating", "The evidence-backed workflow is ready to apply.");
     return respond({

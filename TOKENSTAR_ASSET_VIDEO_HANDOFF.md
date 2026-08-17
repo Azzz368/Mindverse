@@ -1,5 +1,7 @@
 # TokenStar Asset Video 全流程交接文档
 
+> **历史文档（2026-08-13 标记）：** 本文保留早期 TokenStar asset-video 接入过程，不再代表当前项目状态，旧目录 `D:\HKGAI\Unlimited_Map` 也已失效。当前实现、已验证结果及参考音频格式问题请以 [`WORKSPACE_HANDOFF.md`](WORKSPACE_HANDOFF.md) 为准。
+
 > 目标读者：接手 `D:\HKGAI\Unlimited_Map` 的 agent / 开发者。
 > 范围：Next.js + TypeScript + React Flow 中的 TokenStar `asset-video` 链路，重点是「图像节点连接 VideoNode」自动生成视频。
 > 状态：代码已包含自动素材组、图片/视频/音频引用、资产轮询和错误处理；**真实 TokenStar 素材组响应尚未成功采集，`material group id is required` 仍是当前最高优先级 bug，不能宣称 asset-video 已验证可用。**

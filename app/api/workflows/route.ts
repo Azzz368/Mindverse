@@ -1,20 +1,24 @@
 import { NextResponse } from "next/server";
+import { authErrorResponse, requireSession } from "@/server/auth/auth";
 import { createWorkflow, listWorkflows } from "@/server/storage/workflowStorage";
 
 export async function GET(request: Request) {
   try {
-    const accessCode = new URL(request.url).searchParams.get("accessCode");
-    return NextResponse.json({ ok: true, output: await listWorkflows(accessCode) });
+    const session = await requireSession(request);
+    return NextResponse.json({ ok: true, output: await listWorkflows(session.workspaceId) });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: { message: error instanceof Error ? error.message : "Could not load workflows.", status: 401 } }, { status: 401 });
+    const failure = authErrorResponse(error, "Could not load workflows.");
+    return NextResponse.json(failure.body, { status: failure.status });
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { accessCode?: unknown; name?: unknown };
-    return NextResponse.json({ ok: true, output: await createWorkflow(body.accessCode, body.name) });
+    const session = await requireSession(request);
+    const body = await request.json() as { name?: unknown };
+    return NextResponse.json({ ok: true, output: await createWorkflow({ workspaceId: session.workspaceId, userId: session.userId }, body.name) });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: { message: error instanceof Error ? error.message : "Could not create workflow.", status: 400 } }, { status: 400 });
+    const failure = authErrorResponse(error, "Could not create workflow.");
+    return NextResponse.json(failure.body, { status: failure.status });
   }
 }

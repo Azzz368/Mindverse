@@ -1,5 +1,3 @@
-import { Workspace } from "@/features/canvas/components/Workspace";
+import { redirect } from "next/navigation";
 
-export default function LocalWorkspacePage() {
-  return <Workspace />;
-}
+export default function LocalWorkspacePage() { redirect("/workspace"); }

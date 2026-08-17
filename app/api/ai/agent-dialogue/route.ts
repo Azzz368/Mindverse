@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireSession } from "@/server/auth/auth";
 import { normalizeAIError } from "@/server/ai/errors";
 import { runAgentDialogueLLM } from "@/server/ai/302aiLLMProvider";
 import type { AgentDialogueMessage } from "@/shared/agent/agentSchema";
@@ -16,6 +17,7 @@ const messagesFrom = (value: unknown): AgentDialogueMessage[] => Array.isArray(v
 
 export async function POST(request: Request) {
   try {
+    await requireSession(request);
     const body = await request.json() as { userMessage?: unknown; conversation?: unknown; executionModel?: unknown };
     const userMessage = text(body.userMessage);
     if (!userMessage) return NextResponse.json({ ok: false, error: { message: "userMessage is required." } }, { status: 400 });

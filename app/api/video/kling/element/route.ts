@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { normalizeAIError } from "@/server/ai/errors";
 import { createAigcElement, describeAigcElement, deleteAigcElement } from "@/server/ai/tokenstar/tokenstarElement";
+import { requireSession } from "@/server/auth/auth";
 
 export async function POST(request: Request) {
   try {
+    await requireSession(request);
     const body = await request.json() as { action?: unknown; name?: unknown; description?: unknown; imageUrl?: unknown; elementId?: unknown };
 
     if (body.action === "create") {

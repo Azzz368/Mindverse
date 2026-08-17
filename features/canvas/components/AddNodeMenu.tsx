@@ -4,13 +4,12 @@ import { archiveAudioFile, archiveImageFile, archiveVideoFile } from "@/features
 import { useLang } from "@/components/providers/LangProvider";
 import { imagePromptPresets } from "@/shared/workflow/imagePromptPresets";
 import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
-import { defaultMotionTemplateVariablesJson } from "@/shared/motion/templates";
 import { DEFAULT_VIDEO_MODEL_PRESET_ID, DIGITAL_HUMAN_VIDEO_PROMPT, videoModelPatch } from "@/shared/workflow/videoModelPresets";
 import type { CanvasNodeData, NodeType } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
 export function getIcon(type: string) {
-  const map: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", videoEdit: "\u2702", motion: "\u25A3", audio: "\u266B", voiceClone: "V", voiceTTS: "\u266A", storyboard: "\u25A6", reference: "\u2141", output: "\u2197", upload_image: "+", upload_video: "+", upload_audio: "+" };
+  const map: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", videoRegeneration: "2K", videoFrame: "\u25A3", videoEdit: "\u2702", motion: "\u25A3", audio: "\u266B", musicGeneration: "M", hkgaiTTS: "H", voiceClone: "V", voiceTTS: "\u266A", storyboard: "\u25A6", reference: "\u2141", output: "\u2197", upload_image: "+", upload_video: "+", upload_audio: "+" };
   return map[type] || "T";
 }
 
@@ -19,12 +18,15 @@ const ALL_CATEGORIES = ["New nodes", "Recently used", "Video", "Image", "Audio",
 
 const getTools = (t: Strings) => [
   { id: "upload-video", type: "upload_video", cat: "Video", title: "Upload Video", desc: "Use a local video file as editable canvas footage", iconSrc: "/icons/1.png" },
+  { id: "video-frame", type: "videoFrame", cat: "Video", title: "视频抽帧", desc: "连接视频，抽取当前画面或最后一帧", iconSrc: "/icons/1.png", data: { title: "Video* 视频抽帧", frameMode: "last" as const } },
+  { id: "minimax-h3-video-regeneration", type: "videoRegeneration", cat: "Video", title: "MiniMax H3 2K 再生成", desc: "将符合 H3 768P 规格的视频再生为 2K", iconSrc: "/icons/1.png", data: { title: "Video* MiniMax H3 2K 再生成", regenerationMode: "base-video" as const, resolution: "2K", aigcWatermark: false } },
   { id: DEFAULT_VIDEO_MODEL_PRESET_ID, type: "video", cat: "Video", title: "Seedance Asset Fast", desc: t.toolDescSeedance, iconSrc: "/icons/1.png", data: { title: "Seedance Asset Fast", ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID) } },
   { id: "digital-human-video", type: "video", cat: "Video", title: "数字人视频", desc: "人物图 + 音频生成口型同步视频", iconSrc: "/icons/1.png", data: { title: "数字人视频", prompt: DIGITAL_HUMAN_VIDEO_PROMPT, aspectRatio: "9:16", ...videoModelPatch("digital-human-video") } },
+  { id: "omnihuman-1.5-volcengine", type: "video", cat: "Video", title: "OmniHuman 1.5", desc: "Seedance 即梦同源数字人：单张图片 + 音频生成表演视频", iconSrc: "/icons/1.png", data: { title: "Video* OmniHuman 1.5", prompt: DIGITAL_HUMAN_VIDEO_PROMPT, aspectRatio: "9:16", ...videoModelPatch("omnihuman-1.5-volcengine") } },
   { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: t.toolDescGen45, iconSrc: "/icons/1.png", data: { title: "Gen-4.5", ...videoModelPatch("gen-4.5") } },
   { id: "kling-v3-omni", type: "video", cat: "Video", title: "Kling v3 Omni", desc: "TokenStar multi-reference image/element/video generation", iconSrc: "/icons/1.png", data: { title: "Kling v3 Omni", ...videoModelPatch("kling-v3-omni-tokenstar") } },
-{ id: "video-edit", type: "videoEdit", cat: "Video", title: "Video Edit", desc: "FFmpeg trim, concat, audio, subtitles and transcode", iconSrc: "/icons/1.png", data: { title: "Video Edit", editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" } },
-  { id: "motion-compose", type: "motion", cat: "Video", title: "Codex + HyperFrames", desc: "Use Codex to edit all connected video, image and audio assets as a HyperFrames composition", iconSrc: "/icons/1.png", data: { title: "Motion* Codex + HyperFrames", prompt: "Use all connected media to create a polished HyperFrames edit.", motionMode: "codex-hyperframes", templateId: "basic-title", motionVariablesJson: defaultMotionTemplateVariablesJson("basic-title"), compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")) } },
+{ id: "video-edit", type: "videoEdit", cat: "Video", title: "Video Edit", desc: "可视化排序、裁剪、淡入淡出、配乐、字幕和转码", iconSrc: "/icons/1.png", data: { title: "Video Edit", editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" } },
+  { id: "motion-compose", type: "motion", cat: "Video", title: "Codex + HyperFrames", desc: "Describe the edit in natural language; Codex builds and renders the HyperFrames composition", iconSrc: "/icons/1.png", data: { title: "Motion* Codex + HyperFrames", prompt: "", motionMode: "codex-hyperframes", compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")) } },
   { id: "gpt-image-2-tokenstar", type: "image", cat: "Image", title: "GPT Image 2 (TokenStar)", desc: "TokenStar GPT Image 2 text/image generation", iconSrc: "/icons/2.png", data: { title: "GPT Image 2 (TokenStar)", model: "gpt-image-2(tokenstar)", size: "2048x2048" } },
   ...Object.entries(imagePromptPresets).map(([id, preset]) => ({
     id: `gpt-image-2-tokenstar-${id}`,
@@ -39,9 +41,11 @@ const getTools = (t: Strings) => [
   { id: "upload-image", type: "upload_image", cat: "Image", title: t.uploadImage, desc: t.toolDescUploadImage, iconSrc: "/icons/normal.png" },
   { id: "upload-audio", type: "upload_audio", cat: "Audio", title: "Upload Audio", desc: "Use a local audio file as BGM or reference audio", iconSrc: "/icons/3.png" },
   { id: "audio-gen", type: "audio", cat: "Audio", title: t.nodeNames["audio"], desc: t.toolDescAudio, iconSrc: "/icons/3.png" },
+  { id: "hkgai-music", type: "musicGeneration", cat: "Audio", title: "HKGAI Music", desc: "Use tags and song sections to generate a WAV music track", iconSrc: "/icons/3.png", data: { title: "Audio* HKGAI Music", musicName: "mindverse_track", musicTags: "cinematic, warm, mid tempo, instrumental", prompt: "[intro];[verse] A gentle theme begins;[chorus] The melody opens into a memorable hook;[outro];" } },
+  { id: "hkgai-tts", type: "hkgaiTTS", cat: "Audio", title: "HKGAI TTS", desc: "Generate speech with a built-in voice or an uploaded reference voice", iconSrc: "/icons/3.png", data: { title: "Audio* HKGAI TTS", voice: "Mandarin_治愈女声", language: "auto", ttsInstructions: "温柔、自然、像在聊天", xVectorOnly: true, consentConfirmed: false } },
   { id: "voice-clone", type: "voiceClone", cat: "Audio", title: t.nodeNames["voiceClone"] || "Voice Clone", desc: "Clone an authorized reference voice with QwenCloud", iconSrc: "/icons/3.png" },
   { id: "voice-tts", type: "voiceTTS", cat: "Audio", title: t.nodeNames["voiceTTS"] || "Cloned Voice TTS", desc: "Generate audio from text using a cloned voice", iconSrc: "/icons/3.png" },
-  { id: "claude", type: "text", cat: "Text", title: "Claude", desc: t.toolDescText, iconSrc: "/icons/4.png" },
+  { id: "text", type: "text", cat: "Text", title: t.nodeNames["text"] || "Text", desc: t.toolDescText, iconSrc: "/icons/4.png" },
   { id: "prompt", type: "prompt", cat: "Text", title: t.nodeNames["prompt"], desc: t.toolDescPrompt, iconSrc: "/icons/4.png" },
   { id: "script", type: "script", cat: "Storyboard", title: t.nodeNames["script"], desc: t.toolDescScript, iconSrc: "/icons/5.png" },
   { id: "storyboard", type: "storyboard", cat: "Storyboard", title: t.nodeNames["storyboard"], desc: t.toolDescStoryboard, iconSrc: "/icons/5.png" },

@@ -5,7 +5,7 @@ import { uploadToBunny } from "./bunnyClient";
 import type { ArchivedMedia } from "./mediaTypes";
 
 type MediaType = "image" | "video" | "audio";
-type ArchiveContext = { nodeId?: string; projectId?: string; sourceProvider?: string; sourceTaskId?: string };
+type ArchiveContext = { workspaceId?: string; nodeId?: string; projectId?: string; sourceProvider?: string; sourceTaskId?: string };
 type ArchiveResultContext = ArchiveContext & { mediaTypeHint?: MediaType };
 
 const dataUrlPattern = /^data:([^;,]+);base64,(.+)$/i;
@@ -141,9 +141,12 @@ export async function archiveMediaBuffer(
     if (!buffer.byteLength) throw new Error("Uploaded media is empty.");
     const extension = extensionFor(mimeType, mediaType);
     const projectPrefix = cleanSegment(context.projectId);
+    const workspacePrefix = cleanSegment(context.workspaceId);
     const nodePrefix = cleanSegment(context.nodeId);
     const nameParts = [nodePrefix, crypto.randomUUID()].filter(Boolean).join("-");
-    const storageKey = ["canvas", projectPrefix, dateKey(), mediaType, `${nameParts}.${extension}`].filter(Boolean).join("/");
+    const storageKey = workspacePrefix
+      ? ["workspaces", workspacePrefix, "media", projectPrefix, dateKey(), mediaType, `${nameParts}.${extension}`].filter(Boolean).join("/")
+      : ["canvas", projectPrefix, dateKey(), mediaType, `${nameParts}.${extension}`].filter(Boolean).join("/");
     const cdnUrl = await uploadToBunny(buffer, storageKey, mimeType);
     return {
       storageProvider: "bunny",

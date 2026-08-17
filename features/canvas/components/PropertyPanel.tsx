@@ -6,9 +6,8 @@ import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { archiveImageFile } from "@/features/canvas/services/mediaArchiveClient";
 import { useLang } from "@/components/providers/LangProvider";
 import { ImeInput, ImeTextarea } from "./ImeTextFields";
-import { motionTemplateIds } from "@/shared/motion/templates";
 import { videoAspectRatioForPreset, videoAspectRatiosForPreset, videoModelPresetIdFromData } from "@/shared/workflow/videoModelPresets";
-import { MAX_STORYBOARD_SCENE_COUNT, clampStoryboardSceneCount } from "@/shared/workflow/storyPipeline";
+import { MAX_STORYBOARD_SCENE_COUNT, clampStoryboardSceneCount, storyboardScenesFromValue } from "@/shared/workflow/storyPipeline";
 import type { CanvasNodeData } from "@/shared/canvas";
 import type { Strings } from "@/shared/i18n/strings";
 
@@ -19,16 +18,16 @@ const imeTextareaClass = "min-h-20 w-full resize-y rounded-md border border-[#e7
 function buildFields(t: Strings): Record<string, Field[]> {
   return {
     prompt: [{ key: "title", label: t.fieldTitle }, { key: "prompt", label: t.fieldPrompt, kind: "textarea" }, { key: "negativePrompt", label: t.fieldNegativePrompt, kind: "textarea" }, { key: "style", label: t.fieldStyle }, { key: "aspectRatio", label: t.fieldAspectRatio, kind: "select", options: ["1:1", "16:9", "9:16", "4:5"] }],
-    text: [{ key: "title", label: t.fieldTitle }, { key: "instruction", label: t.fieldInstruction, kind: "textarea" }, { key: "inputText", label: t.fieldInputText, kind: "textarea" }, { key: "model", label: t.fieldModel }, { key: "temperature", label: t.fieldTemperature, kind: "number" }],
-    script: [{ key: "title", label: t.fieldTitle }, { key: "storyBrief", label: t.fieldCreativeBrief, kind: "textarea" }, { key: "scriptTone", label: t.fieldTone }, { key: "numberOfScenes", label: t.fieldSceneCount, kind: "number" }, { key: "model", label: t.fieldModel }],
+    text: [{ key: "title", label: t.fieldTitle }, { key: "instruction", label: t.fieldInstruction, kind: "textarea" }, { key: "inputText", label: t.fieldInputText, kind: "textarea" }, { key: "temperature", label: t.fieldTemperature, kind: "number" }],
+    script: [{ key: "title", label: t.fieldTitle }, { key: "storyBrief", label: t.fieldCreativeBrief, kind: "textarea" }, { key: "scriptTone", label: t.fieldTone }, { key: "numberOfScenes", label: t.fieldSceneCount, kind: "number" }],
     image: [{ key: "title", label: t.fieldTitle }, { key: "prompt", label: t.fieldImagePrompt, kind: "textarea" }, { key: "model", label: t.fieldModelNote, kind: "select", options: ["gpt-image-2(tokenstar)", "nano banana(tokenstar)"] }, { key: "aspectRatio", label: t.fieldAspectRatio, kind: "select", options: ["16:9", "21:9", "9:16", "3:2", "1:1"] }, { key: "resolution", label: t.fieldResolution, kind: "select", options: ["1K", "2K", "4K"] }, { key: "size", label: t.fieldSize, kind: "select", options: ["1024x1024", "1536x1024", "1024x1536", "2048x2048", "auto"] }],
-    video: [{ key: "title", label: t.fieldTitle }, { key: "videoProvider", label: t.fieldVideoProvider, kind: "select", options: ["kling", "302ai", "tokenstar"] }, { key: "prompt", label: t.fieldMotionPrompt, kind: "textarea" }, { key: "referenceImageUrl", label: t.fieldFirstFrameUrl }, { key: "model", label: t.fieldModelKlingNote }, { key: "klingMode", label: t.fieldKlingMode, kind: "select", options: ["image-to-video", "reference-image", "text-to-video", "omni"] }, { key: "klingElementId", label: t.fieldKlingElementId }, { key: "referenceVideoUrl", label: t.fieldReferenceVideoUrl }, { key: "tokenstarMode", label: t.fieldTokenstarMode, kind: "select", options: ["text-to-video", "asset-video", "kling-image", "kling-text", "kling-omni"] }, { key: "referenceImageAssetUrl", label: t.fieldImageAssetUrl, kind: "textarea" }, { key: "referenceVideoAssetUrl", label: t.fieldVideoAssetUrl, kind: "textarea" }, { key: "referenceAudioAssetUrl", label: t.fieldAudioAssetUrl, kind: "textarea" }, { key: "videoInputMode", label: t.field302Mode, kind: "select", options: ["text-to-video", "image-to-video"] }, { key: "duration", label: t.fieldDuration, kind: "number" }, { key: "resolution", label: t.fieldResolution }, { key: "fps", label: t.fieldFps }, { key: "aspectRatio", label: t.fieldAspectRatio, kind: "select", options: ["16:9", "9:16", "1:1"] }, { key: "generateAudio", label: t.fieldGenerateAudio, kind: "select", options: ["true", "false"] }],
-    videoEdit: [{ key: "title", label: t.fieldTitle }, { key: "editPlan", label: "Edit plan JSON", kind: "textarea" }, { key: "prompt", label: "Notes", kind: "textarea" }, { key: "preserveAudio", label: "Preserve audio", kind: "select", options: ["true", "false"] }, { key: "originalVolume", label: "Original volume", kind: "number" }, { key: "backgroundVolume", label: "BGM volume", kind: "number" }, { key: "fadeIn", label: "Fade in seconds", kind: "number" }, { key: "fadeOut", label: "Fade out seconds", kind: "number" }, { key: "resolution", label: t.fieldResolution, kind: "select", options: ["480p", "720p", "1080p"] }, { key: "fps", label: t.fieldFps }, { key: "aspectRatio", label: t.fieldAspectRatio, kind: "select", options: ["16:9", "9:16", "1:1"] }],
-    motion: [{ key: "title", label: t.fieldTitle }, { key: "motionMode", label: "Execution mode", kind: "select", options: ["codex-hyperframes", "template"] }, { key: "prompt", label: "Codex / motion instruction", kind: "textarea" }, { key: "codexInstruction", label: "Codex instruction override (optional)", kind: "textarea" }, { key: "templateId", label: "Template", kind: "select", options: ["", ...motionTemplateIds] }, { key: "motionVariablesJson", label: "Motion variables JSON", kind: "textarea" }, { key: "compositionJson", label: "Composition JSON fallback", kind: "textarea" }],
+    video: [{ key: "title", label: t.fieldTitle }, { key: "videoProvider", label: t.fieldVideoProvider, kind: "select", options: ["kling", "302ai", "tokenstar", "hkgai"] }, { key: "prompt", label: t.fieldMotionPrompt, kind: "textarea" }, { key: "referenceImageUrl", label: t.fieldFirstFrameUrl }, { key: "model", label: t.fieldModelKlingNote }, { key: "klingMode", label: t.fieldKlingMode, kind: "select", options: ["image-to-video", "reference-image", "text-to-video", "omni"] }, { key: "klingElementId", label: t.fieldKlingElementId }, { key: "referenceVideoUrl", label: t.fieldReferenceVideoUrl }, { key: "tokenstarMode", label: t.fieldTokenstarMode, kind: "select", options: ["text-to-video", "asset-video", "kling-image", "kling-text", "kling-omni"] }, { key: "referenceImageAssetUrl", label: t.fieldImageAssetUrl, kind: "textarea" }, { key: "referenceVideoAssetUrl", label: t.fieldVideoAssetUrl, kind: "textarea" }, { key: "referenceAudioAssetUrl", label: t.fieldAudioAssetUrl, kind: "textarea" }, { key: "videoInputMode", label: t.field302Mode, kind: "select", options: ["text-to-video", "image-to-video"] }, { key: "duration", label: t.fieldDuration, kind: "number" }, { key: "resolution", label: t.fieldResolution }, { key: "fps", label: t.fieldFps }, { key: "aspectRatio", label: t.fieldAspectRatio, kind: "select", options: ["16:9", "9:16", "1:1"] }, { key: "generateAudio", label: t.fieldGenerateAudio, kind: "select", options: ["true", "false"] }],
+    videoEdit: [{ key: "title", label: t.fieldTitle }, { key: "editPlan", label: "Agent edit plan JSON (advanced)", kind: "textarea" }, { key: "prompt", label: "Natural-language edit notes", kind: "textarea" }, { key: "preserveAudio", label: "Preserve audio", kind: "select", options: ["true", "false"] }, { key: "originalVolume", label: "Original volume", kind: "number" }, { key: "backgroundVolume", label: "BGM volume", kind: "number" }, { key: "resolution", label: t.fieldResolution, kind: "select", options: ["480p", "720p", "1080p"] }, { key: "fps", label: t.fieldFps }, { key: "aspectRatio", label: t.fieldAspectRatio, kind: "select", options: ["16:9", "9:16", "1:1"] }],
+    motion: [{ key: "prompt", label: "Prompt", kind: "textarea" }],
     audio: [{ key: "title", label: t.fieldTitle }, { key: "prompt", label: t.fieldAudioPrompt, kind: "textarea" }, { key: "model", label: t.fieldModel }, { key: "voice", label: t.fieldVoice }, { key: "emotion", label: t.fieldEmotion }, { key: "volume", label: t.fieldVolume, kind: "number" }, { key: "duration", label: t.fieldDurationSec, kind: "number" }],
     voiceClone: [{ key: "title", label: t.fieldTitle }, { key: "preferredName", label: "Preferred name" }, { key: "language", label: "Language", kind: "select", options: ["zh", "en", "de", "it", "pt", "es", "ja", "ko", "fr", "ru"] }, { key: "transcript", label: "Transcript", kind: "textarea" }, { key: "voice", label: "Voice ID" }, { key: "targetModel", label: "Target model" }],
     voiceTTS: [{ key: "title", label: t.fieldTitle }, { key: "ttsText", label: "Text", kind: "textarea" }, { key: "voice", label: "Voice ID" }, { key: "targetModel", label: "Target model" }, { key: "languageType", label: "Language type", kind: "select", options: ["Auto", "Chinese", "English", "German", "Italian", "Portuguese", "Spanish", "Japanese", "Korean", "French", "Russian"] }],
-    storyboard: [{ key: "title", label: t.fieldTitle }, { key: "storyBrief", label: t.fieldStoryBrief, kind: "textarea" }, { key: "targetShotCount", label: t.fieldShotCount, kind: "number" }, { key: "model", label: t.fieldModel }],
+    storyboard: [{ key: "title", label: t.fieldTitle }, { key: "storyBrief", label: t.fieldStoryBrief, kind: "textarea" }, { key: "targetShotCount", label: t.fieldShotCount, kind: "number" }],
     storyboardImage: [{ key: "title", label: t.fieldTitle }, { key: "aspectRatio", label: t.fieldAspectRatio, kind: "select", options: ["16:9", "9:16", "1:1"] }, { key: "negativePrompt", label: t.fieldNegativePrompt, kind: "textarea" }],
     reference: [{ key: "title", label: t.fieldTitle }, { key: "notes", label: t.fieldNotes, kind: "textarea" }],
     output: [{ key: "title", label: t.fieldTitle }, { key: "format", label: t.fieldFormat, kind: "select", options: ["Creative package", "Storyboard package", "Campaign brief", "Production sheet", "JSON"] }],
@@ -37,6 +36,12 @@ function buildFields(t: Strings): Record<string, Field[]> {
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown) => typeof value === "string" ? value : "";
+
+function GenerationBadge({ value }: { value: unknown }) {
+  const details = record(value);
+  const label = [text(details.provider).toUpperCase(), text(details.model)].filter(Boolean).join(" · ");
+  return label ? <p title={label} className="mt-2 truncate text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-300">真实调用：{label}</p> : null;
+}
 
 function ScriptOutputPreview({ value }: { value: unknown }) {
   const details = record(value);
@@ -67,6 +72,25 @@ function ScriptOutputPreview({ value }: { value: unknown }) {
   );
 }
 
+function StoryboardOutputPreview({ value }: { value: unknown }) {
+  const details = record(value);
+  const scenes = storyboardScenesFromValue(value);
+  const requested = Number(details.requestedSceneCount) || scenes.length;
+  return (
+    <div className="mt-3 space-y-2">
+      <GenerationBadge value={value} />
+      <p className={`text-xs font-semibold ${scenes.length < requested ? "text-amber-600 dark:text-amber-300" : "text-[#404040] dark:text-slate-300"}`}>已生成 {scenes.length}/{requested} 个分镜</p>
+      {scenes.map((scene, index) => (
+        <div key={`${String(scene.sceneNumber || index + 1)}-${index}`} className="rounded-lg border border-[#e7eaf0] bg-[#f7f9fc] p-3 dark:border-slate-800 dark:bg-slate-900/40">
+          <p className="text-xs font-semibold text-[#030303] dark:text-slate-100">Scene {String(scene.sceneNumber || index + 1)}</p>
+          <p className="mt-1 text-xs leading-5 text-[#404040] dark:text-slate-300">{text(scene.description) || text(scene.visualPrompt)}</p>
+          {text(scene.camera) && <p className="mt-1 text-[11px] leading-4 text-[#939393] dark:text-slate-500">镜头：{text(scene.camera)}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function PropertyPanel() {
   const { nodes, selectedNodeId, updateNodeData, createKeyframeBatch } = useCanvasStore();
   const { t } = useLang();
@@ -86,6 +110,9 @@ export function PropertyPanel() {
         ? clampStoryboardSceneCount(value)
         : key === "duration" || key === "temperature" || key === "volume" || key === "originalVolume" || key === "backgroundVolume" || key === "fadeIn" || key === "fadeOut"
           ? Number(value) : key === "generateAudio" || key === "preserveAudio" ? value === "true" : value,
+      ...(node.data.nodeType === "motion" && key === "prompt"
+        ? { motionMode: "codex-hyperframes" as const, codexInstruction: "", templateId: "", motionVariablesJson: "" }
+        : {}),
     });
   const uploadImageReference = (file: File | undefined) => {
     if (!file) return;
@@ -101,12 +128,7 @@ export function PropertyPanel() {
     ? (node.data.output?.value as { prompts: unknown[] }).prompts : [];
   const videoPresetId = videoModelPresetIdFromData(node.data);
   const videoAspectRatios = videoAspectRatiosForPreset(videoPresetId);
-  const motionMode = node.data.motionMode || "codex-hyperframes";
-  const visibleFields = fields[node.data.nodeType]?.filter((field) => {
-    if (node.data.nodeType !== "motion") return true;
-    if (motionMode === "codex-hyperframes") return field.key !== "templateId" && field.key !== "motionVariablesJson";
-    return field.key !== "codexInstruction";
-  });
+  const visibleFields = fields[node.data.nodeType];
 
   return (
     <aside className="w-72 shrink-0 overflow-y-auto border-l border-[#e7eaf0] bg-white p-4 dark:border-slate-800 dark:bg-[#0c1622]">
@@ -116,9 +138,7 @@ export function PropertyPanel() {
           const options = node.data.nodeType === "video" && field.key === "aspectRatio" ? videoAspectRatios : field.options;
           const value = node.data.nodeType === "video" && field.key === "aspectRatio"
             ? videoAspectRatioForPreset(videoPresetId, node.data.aspectRatio)
-            : node.data.nodeType === "motion" && field.key === "motionMode"
-              ? motionMode
-              : String(node.data[field.key] ?? "");
+            : String(node.data[field.key] ?? "");
           return (
           <label className="block" key={field.key}>
             <span className="mb-1.5 block text-xs text-[#676f7b] dark:text-slate-400">{field.label}</span>
@@ -145,9 +165,7 @@ export function PropertyPanel() {
       </div>
       {node.data.nodeType === "motion" && (
         <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-[11px] leading-5 text-blue-800 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200">
-          {motionMode === "codex-hyperframes"
-            ? "Codex mode localizes and edits every connected video, image and audio asset before HyperFrames renders the result."
-            : "Template mode is deterministic and may use only the first connected visual. Choose Codex mode for multi-asset editing."}
+          用自然语言描述成片要求。Codex 会使用已连接素材构建工程并自动截图审片；再次修改 Prompt 后运行，会在上一次工程上继续调整。
         </div>
       )}
       {node.data.nodeType === "image" && (
@@ -193,6 +211,7 @@ export function PropertyPanel() {
           <p className="text-xs font-semibold uppercase tracking-[.16em] text-[#939393] dark:text-slate-500">{t.lastOutput}</p>
           <p className="mt-2 text-xs leading-5 text-[#404040] dark:text-slate-300">{node.data.output.summary}</p>
           {node.data.nodeType === "script" && <ScriptOutputPreview value={node.data.output.value} />}
+          {node.data.nodeType === "storyboard" && <StoryboardOutputPreview value={node.data.output.value} />}
         </div>
       )}
     </aside>

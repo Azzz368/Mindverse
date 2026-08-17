@@ -1,6 +1,5 @@
 import type { CanvasNode, CanvasNodeData, NodeType, WorkflowEdge } from "@/shared/canvas";
 import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
-import { defaultMotionTemplateVariablesJson } from "@/shared/motion/templates";
 import { DEFAULT_VIDEO_MODEL_PRESET_ID, videoModelPatch, videoTargetHandleForNodeType } from "@/shared/workflow/videoModelPresets";
 import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER } from "@/shared/api/qwenContracts";
 
@@ -10,9 +9,13 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   script: { storyBrief: "A fictional creative story", scriptTone: "Cinematic, warm, fictional", numberOfScenes: 3, model: "" },
   image: { prompt: "A cinematic editorial image", model: "gpt-image-2(tokenstar)", size: "2048x2048", aspectRatio: "1:1", resolution: "2K", referenceImageUrl: "" },
   video: { prompt: "A gentle cinematic movement", aspectRatio: "16:9", referenceImageUrl: "", fps: "", ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID), referenceImageAssetUrl: "", referenceVideoAssetUrl: "", referenceAudioAssetUrl: "" },
+  videoRegeneration: { prompt: "", regenerationMode: "base-video", resolution: "2K", aigcWatermark: false },
+  videoFrame: { frameMode: "last" },
   videoEdit: { prompt: "", editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" },
-  motion: { prompt: "Use all connected media to create a polished HyperFrames edit.", compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")), templateId: "basic-title", motionVariablesJson: defaultMotionTemplateVariablesJson("basic-title"), motionMode: "codex-hyperframes" },
+  motion: { prompt: "", compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")), motionMode: "codex-hyperframes" },
   audio: { prompt: "A warm, modern ambient bed", voiceStyle: "Atmospheric", duration: 12, model: "", voice: "", emotion: "", volume: 1 },
+  musicGeneration: { musicName: "mindverse_track", musicTags: "cinematic, warm, mid tempo, instrumental", prompt: "[intro];[verse] A gentle theme begins;[chorus] The melody opens into a memorable hook;[outro];" },
+  hkgaiTTS: { ttsText: "", voice: "Mandarin_治愈女声", language: "auto", ttsInstructions: "温柔、自然、像在聊天", xVectorOnly: true, consentConfirmed: false },
   voiceClone: { preferredName: "voice_1", targetModel: DEFAULT_QWEN_VOICE_MODEL, voiceProvider: DEFAULT_QWEN_VOICE_PROVIDER, language: "zh", transcript: "", consentConfirmed: false },
   voiceTTS: { ttsText: "", voice: "", targetModel: DEFAULT_QWEN_VOICE_MODEL, voiceProvider: DEFAULT_QWEN_VOICE_PROVIDER, languageType: "Auto" },
   storyboard: { storyBrief: "A small transformation told in light and motion", numberOfScenes: 3, model: "" },
@@ -21,8 +24,8 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   output: { format: "Creative package" },
 };
 export function makeNode(type: NodeType, position = { x: 140, y: 120 }): CanvasNode {
-  const prefix = type === "videoEdit" ? "Video" : type === "motion" ? "Motion" : `${type[0].toUpperCase()}${type.slice(1)}`;
-  const title = type === "image" ? "Image* GPT Image 2 (TokenStar)" : type === "voiceClone" ? "Voice* Clone" : type === "voiceTTS" ? "Voice* Cloned TTS" : `${prefix}* New ${prefix}`;
+  const prefix = type === "videoEdit" ? "Video" : type === "videoRegeneration" ? "Video Regeneration" : type === "videoFrame" ? "Video Frame" : type === "motion" ? "Motion" : `${type[0].toUpperCase()}${type.slice(1)}`;
+  const title = type === "image" ? "Image* GPT Image 2 (TokenStar)" : type === "videoRegeneration" ? "Video* MiniMax H3 2K 再生成" : type === "videoFrame" ? "Video* 视频抽帧" : type === "musicGeneration" ? "Audio* HKGAI Music" : type === "hkgaiTTS" ? "Audio* HKGAI TTS" : type === "voiceClone" ? "Voice* Clone" : type === "voiceTTS" ? "Voice* Cloned TTS" : `${prefix}* New ${prefix}`;
   return { id: `${type}-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: type, title, status: "idle", ...defaults[type] } };
 }
 export type Template = { id: string; name: string; description: string; types: NodeType[] };
@@ -39,14 +42,14 @@ export function buildTemplate(template: Template): { nodes: CanvasNode[]; edges:
   const nodes = template.types.map((type, index) => { const node = makeNode(type, { x: 90 + index * 340, y: 170 + (index % 2) * 80 }); const prefix = type === "videoEdit" ? "Video" : type === "motion" ? "Motion" : `${type[0].toUpperCase()}${type.slice(1)}`; node.data.title = `${prefix}* ${template.name}`; return node; });
   nodes.forEach((node, index) => {
     if (node.data.nodeType !== "video") return;
-    const hasUpstreamMedia = nodes.slice(0, index).some((source) => ["image", "reference", "video", "audio", "voiceTTS"].includes(source.data.nodeType));
+    const hasUpstreamMedia = nodes.slice(0, index).some((source) => ["image", "reference", "video", "audio", "musicGeneration", "hkgaiTTS", "voiceTTS"].includes(source.data.nodeType));
     if (hasUpstreamMedia) node.data = { ...node.data, ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID) };
   });
   return { nodes, edges: nodes.slice(1).map((node, index) => {
     const source = nodes[index];
     const targetHandle = node.data.nodeType === "video" ? videoTargetHandleForNodeType(source.data.nodeType, node.data)
       : node.data.nodeType === "voiceTTS" ? source.data.nodeType === "voiceClone" ? "voice" : ["prompt", "text", "script", "storyboard"].includes(source.data.nodeType) ? "text" : undefined
-      : node.data.nodeType === "videoEdit" && (source.data.nodeType === "audio" || source.data.nodeType === "voiceTTS") ? "audio"
+      : node.data.nodeType === "videoEdit" && (["audio", "musicGeneration", "hkgaiTTS", "voiceTTS"] as NodeType[]).includes(source.data.nodeType) ? "audio"
       : node.data.nodeType === "videoEdit" && (source.data.nodeType === "video" || source.data.nodeType === "videoEdit" || source.data.nodeType === "motion") ? "video"
       : undefined;
     return { id: `edge-${source.id}-${node.id}`, source: source.id, target: node.id, ...(targetHandle ? { targetHandle } : {}) };

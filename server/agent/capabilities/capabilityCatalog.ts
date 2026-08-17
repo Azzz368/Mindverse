@@ -43,7 +43,7 @@ const runtimeRecords = (): CapabilityRecord[] => [
     id: "runtime:ffmpeg-video-edit",
     kind: "runtime",
     name: "FFmpeg Video Edit",
-    description: "Trim, concatenate, reorder, transcode, mix background audio, preserve audio, add subtitles, and apply simple fades.",
+    description: "Trim, concatenate, reorder, change speed, rotate, fit/crop, transcode, mix background audio, preserve audio, add subtitles, and apply per-clip or final fades.",
     capabilities: ["video_edit", "video_concat", "background_music", "subtitle_burn_in", "transcode"],
     aliases: ["ffmpeg", "剪辑", "拼接", "背景音乐", "字幕"],
     accepts: ["source_video", "source_audio", "background_music"],
