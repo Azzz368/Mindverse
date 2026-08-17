@@ -2,9 +2,9 @@ import type { CanvasNodeData, NodeType } from "@/shared/canvas";
 import { videoTargetHandleForNodeType } from "./videoModelPresets";
 
 const textSourceTypes = new Set<NodeType>(["prompt", "text", "script", "storyboard"]);
-const imageSourceTypes = new Set<NodeType>(["image", "reference"]);
-const videoSourceTypes = new Set<NodeType>(["video", "videoEdit", "motion"]);
-const audioSourceTypes = new Set<NodeType>(["audio", "voiceTTS"]);
+const imageSourceTypes = new Set<NodeType>(["image", "reference", "videoFrame"]);
+const videoSourceTypes = new Set<NodeType>(["video", "videoRegeneration", "videoEdit", "motion"]);
+const audioSourceTypes = new Set<NodeType>(["audio", "musicGeneration", "hkgaiTTS", "voiceTTS"]);
 
 export const targetHandleForNodeConnection = (
   sourceType: NodeType,
@@ -27,6 +27,18 @@ export const targetHandleForNodeConnection = (
     return videoTargetHandleForNodeType(sourceType, targetData);
   }
 
+  if (targetData.nodeType === "videoFrame") {
+    return videoSourceTypes.has(sourceType) ? "video" : undefined;
+  }
+
+  if (targetData.nodeType === "videoRegeneration") {
+    if (textSourceTypes.has(sourceType)) return "text";
+    if (imageSourceTypes.has(sourceType)) return preferredHandle && ["first-frame", "last-frame", "reference-image"].includes(preferredHandle) ? preferredHandle : "reference-image";
+    if (audioSourceTypes.has(sourceType)) return "reference-audio";
+    if (videoSourceTypes.has(sourceType)) return preferredHandle === "reference-video" ? "reference-video" : "base-video";
+    return undefined;
+  }
+
   if (targetData.nodeType === "videoEdit") {
     if (audioSourceTypes.has(sourceType)) return "audio";
     if (videoSourceTypes.has(sourceType)) return "video";
@@ -35,6 +47,10 @@ export const targetHandleForNodeConnection = (
 
   if (targetData.nodeType === "voiceTTS") {
     if (sourceType === "voiceClone") return "voice";
+    return textSourceTypes.has(sourceType) ? "text" : undefined;
+  }
+
+  if (targetData.nodeType === "musicGeneration" || targetData.nodeType === "hkgaiTTS") {
     return textSourceTypes.has(sourceType) ? "text" : undefined;
   }
 

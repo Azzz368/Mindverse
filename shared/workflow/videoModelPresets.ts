@@ -3,18 +3,21 @@ export type VideoModelPresetId =
   | "seedance-2.0-assets"
   | "seedance-asset-fast"
   | "digital-human-video"
+  | "omnihuman-1.5-volcengine"
   | "gen-4.5"
   | "kling-v2.6"
   | "kling-v3-tokenstar"
   | "kling-v3-omni-tokenstar"
   | "kling-v3-text-tokenstar"
+  | "minimax-h3-hkgai"
+  | "minimax-ref2va-hkgai"
   | "sora-2";
 
 export const DEFAULT_VIDEO_MODEL_PRESET_ID: VideoModelPresetId = "seedance-asset-fast";
 
 export type VideoModelPatch = {
   videoModelPreset: VideoModelPresetId;
-  videoProvider: "302ai" | "302-sora2" | "tokenstar" | "kling";
+  videoProvider: "302ai" | "302-sora2" | "tokenstar" | "kling" | "hkgai" | "volcengine";
   model: string;
   videoInputMode?: "text-to-video" | "image-to-video";
   tokenstarMode?: "text-to-video" | "asset-video" | "kling-image" | "kling-text" | "kling-omni";
@@ -43,6 +46,8 @@ export type VideoModelPreset = {
   inputPorts: VideoInputPort[];
   aspectRatios: VideoAspectRatio[];
   aspectRatioControl: VideoAspectRatioControl;
+  promptMaxLength?: number;
+  durationOptions?: number[];
   referenceLimits?: Partial<Record<Exclude<VideoInputPortKind, "text">, number>>;
 };
 
@@ -91,6 +96,17 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     aspectRatioControl: "native",
     referenceLimits: { image: 1, audio: 1, video: 0 },
   },
+  "omnihuman-1.5-volcengine": {
+    id: "omnihuman-1.5-volcengine",
+    label: "OmniHuman 1.5",
+    desc: "Volcengine Seedance digital human · one image + one audio",
+    patch: { videoModelPreset: "omnihuman-1.5-volcengine", videoProvider: "volcengine", model: "jimeng_realman_avatar_picture_omni_v15", videoInputMode: "image-to-video", resolution: "1080p", generateAudio: false },
+    inputPorts: [imagePort, audioPort],
+    aspectRatios: ["9:16", "16:9", "1:1"],
+    aspectRatioControl: "source",
+    promptMaxLength: 300,
+    referenceLimits: { image: 1, audio: 1, video: 0 },
+  },
   "gen-4.5": {
     id: "gen-4.5",
     label: "Gen-4.5",
@@ -136,6 +152,28 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     aspectRatios: ["16:9", "9:16", "1:1"],
     aspectRatioControl: "native",
   },
+  "minimax-h3-hkgai": {
+    id: "minimax-h3-hkgai",
+    label: "minimax_h3",
+    desc: "HKGAI MiniMax H3 · prompt 7k · up to 2 images",
+    patch: { videoModelPreset: "minimax-h3-hkgai", videoProvider: "hkgai", model: "t2_minimax-h3_bf16_7k2p", videoInputMode: "image-to-video", duration: 5 },
+    inputPorts: [textPort, imagePort],
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    aspectRatioControl: "native",
+    promptMaxLength: 7000,
+    referenceLimits: { image: 2, video: 0, audio: 0 },
+  },
+  "minimax-ref2va-hkgai": {
+    id: "minimax-ref2va-hkgai",
+    label: "minimax_ref2va",
+    desc: "HKGAI MiniMax H3 multimodal reference video",
+    patch: { videoModelPreset: "minimax-ref2va-hkgai", videoProvider: "hkgai", model: "t2_minimax-h3_bf16_ref2va", videoInputMode: "image-to-video", duration: 4 },
+    inputPorts: [textPort, imagePort, videoPort, audioPort],
+    aspectRatios: ["16:9", "9:16", "1:1"],
+    aspectRatioControl: "source",
+    durationOptions: Array.from({ length: 12 }, (_, index) => index + 4),
+    referenceLimits: { image: 1, video: 3, audio: 1 },
+  },
   "sora-2": {
     id: "sora-2",
     label: "Sora 2",
@@ -175,10 +213,14 @@ export const videoReferenceLimitForPreset = (
   kind: Exclude<VideoInputPortKind, "text">,
 ) => videoModelPresets[id].referenceLimits?.[kind];
 
+export const videoPromptMaxLengthForPreset = (id: VideoModelPresetId) => videoModelPresets[id].promptMaxLength;
+
+export const videoDurationOptionsForPreset = (id: VideoModelPresetId) => videoModelPresets[id].durationOptions;
+
 export const videoInputKindForNodeType = (nodeType: string): VideoInputPortKind | undefined => {
-  if (nodeType === "image" || nodeType === "reference") return "image";
-  if (nodeType === "video" || nodeType === "videoEdit") return "video";
-  if (nodeType === "audio" || nodeType === "voiceTTS") return "audio";
+  if (nodeType === "image" || nodeType === "reference" || nodeType === "videoFrame") return "image";
+  if (nodeType === "video" || nodeType === "videoRegeneration" || nodeType === "videoEdit") return "video";
+  if (nodeType === "audio" || nodeType === "musicGeneration" || nodeType === "hkgaiTTS" || nodeType === "voiceTTS") return "audio";
   if (nodeType === "text" || nodeType === "prompt" || nodeType === "script" || nodeType === "storyboard") return "text";
   return undefined;
 };
@@ -207,6 +249,9 @@ export const videoModelPresetIdFromData = (data: {
 }): VideoModelPresetId => {
   if (data.videoModelPreset && data.videoModelPreset in videoModelPresets) return data.videoModelPreset as VideoModelPresetId;
   if (data.videoProvider === "302-sora2") return "sora-2";
+  if (data.videoProvider === "hkgai" && data.model === "t2_minimax-h3_bf16_ref2va") return "minimax-ref2va-hkgai";
+  if (data.videoProvider === "hkgai" && data.model === "t2_minimax-h3_bf16_7k2p") return "minimax-h3-hkgai";
+  if (data.videoProvider === "volcengine" && data.model === "jimeng_realman_avatar_picture_omni_v15") return "omnihuman-1.5-volcengine";
   if (data.videoProvider === "302ai" && data.model === "gen-4.5") return "gen-4.5";
   if (data.videoProvider === "kling") return "kling-v2.6";
   if (data.videoProvider === "tokenstar" && data.tokenstarMode === "asset-video" && ["seedance-asset-fast", "seedance-2.0-asset-fast"].includes(data.model || "")) return "seedance-asset-fast";

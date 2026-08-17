@@ -1,5 +1,7 @@
 import { Buffer } from "node:buffer";
 import { NextResponse } from "next/server";
+import { requireSession } from "@/server/auth/auth";
+import { queryPostgres } from "@/server/db/postgres";
 import { createClonedVoice } from "@/server/qwen/voiceCloning";
 import { qwenErrorPayload } from "@/server/qwen/errors";
 import { normalizeQwenAudioMime, normalizeTargetModel } from "@/server/qwen/validation";
@@ -11,6 +13,7 @@ const shouldSendTranscript = () => process.env.QWEN_VOICE_CLONE_SEND_TRANSCRIPT 
 
 export async function POST(request: Request) {
   try {
+    const session = await requireSession(request);
     const form = await request.formData();
     const consentConfirmed = form.get("consentConfirmed");
     if (consentConfirmed !== "true") {
@@ -35,6 +38,12 @@ export async function POST(request: Request) {
       text: includeTranscript ? String(form.get("text") || "").trim() || undefined : undefined,
       language: includeTranscript ? String(form.get("language") || "").trim() || undefined : undefined,
     });
+    await queryPostgres(
+      `INSERT INTO mindverse_voice_assets (workspace_id, provider, voice_id, display_name, metadata)
+       VALUES ($1, 'qwen', $2, $3, $4::jsonb)
+       ON CONFLICT (provider, voice_id) DO UPDATE SET workspace_id = EXCLUDED.workspace_id, display_name = EXCLUDED.display_name, metadata = EXCLUDED.metadata, deleted_at = NULL, updated_at = now()`,
+      [session.workspaceId, result.voice, preferredName, JSON.stringify({ targetModel: result.targetModel, voiceProvider: result.voiceProvider })],
+    );
     return NextResponse.json({ ok: true, data: result });
   } catch (error) {
     const normalized = qwenErrorPayload(error);

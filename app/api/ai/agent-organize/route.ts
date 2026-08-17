@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireSession } from "@/server/auth/auth";
 import { compileCanvasOrganizePlanToPatch } from "@/server/agent/compileCanvasOrganizePlan";
 import { summarizeCanvasForAgent } from "@/server/agent/summarizeCanvas";
 import { normalizeAIError } from "@/server/ai/errors";
@@ -20,6 +21,7 @@ const snapshotFrom = (value: unknown): { nodes: CanvasNode[]; edges: WorkflowEdg
 
 export async function POST(request: Request) {
   try {
+    await requireSession(request);
     const body = await request.json() as {
       userInstruction?: unknown;
       canvasSnapshot?: unknown;

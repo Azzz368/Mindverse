@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "tsc --noEmit",
+    "db:migrate": "node scripts/db-migrate.mjs",
+    "workspace:migrate-legacy": "node scripts/migrate-legacy-workspace.mjs",
     "rag:migrate": "node scripts/rag-migrate.mjs",
     "codex": "node node_modules/@openai/codex/bin/codex.js",
     "codex:doctor": "node node_modules/@openai/codex/bin/codex.js doctor",

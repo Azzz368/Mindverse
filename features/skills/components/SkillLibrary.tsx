@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ACCESS_KEY } from "@/features/workspace/services/workflowClient";
 import {
   ACTIVE_SKILL_KEY,
   PENDING_SKILL_KEY,
@@ -16,26 +15,19 @@ import { skillCategoryLabels, skillRoleLabels, type SkillSummary } from "@/share
 const safeReturnPath = (value: string | null) => value?.startsWith("/") && !value.startsWith("//") ? value : "";
 
 export function SkillLibrary() {
-  const [accessCode, setAccessCode] = useState("");
   const [skills, setSkills] = useState<SkillSummary[]>([]);
   const [returnTo, setReturnTo] = useState("");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    const code = window.localStorage.getItem(ACCESS_KEY) || "";
     const params = new URLSearchParams(window.location.search);
-    setAccessCode(code);
     setReturnTo(safeReturnPath(params.get("returnTo")));
     window.sessionStorage.removeItem(SKILL_DRAFT_SNAPSHOT_KEY);
     if (params.get("saved") === "1") setMessage("Skill 已保存。");
-    if (!code) {
-      setLoading(false);
-      return;
-    }
     void (async () => {
       try {
-        const payload = await listSkillsRemote(code);
+        const payload = await listSkillsRemote();
         setSkills(payload.output?.skills || []);
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "加载 Skills 失败。");
@@ -49,7 +41,7 @@ export function SkillLibrary() {
 
   const useSkill = async (skill: SkillSummary) => {
     try {
-      const payload = await getSkillRemote(skill.id, accessCode);
+      const payload = await getSkillRemote(skill.id);
       if (!payload.output) throw new Error("Skill not found.");
       window.localStorage.setItem(ACTIVE_SKILL_KEY, JSON.stringify({
         id: payload.output.id,
@@ -65,7 +57,7 @@ export function SkillLibrary() {
         priority: payload.output.priority,
       }));
       window.sessionStorage.setItem(PENDING_SKILL_KEY, JSON.stringify(payload.output));
-      window.location.href = returnTo || "/workspace/local";
+      window.location.href = returnTo || "/workspace";
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "使用 Skill 失败。");
     }
@@ -74,7 +66,7 @@ export function SkillLibrary() {
   const removeSkill = async (skill: SkillSummary) => {
     if (!window.confirm(`删除 Skill「${skill.name}」？`)) return;
     try {
-      await deleteSkillRemote(skill.id, accessCode);
+      await deleteSkillRemote(skill.id);
       setSkills((items) => items.filter((item) => item.id !== skill.id));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "删除 Skill 失败。");
@@ -102,13 +94,7 @@ export function SkillLibrary() {
 
         {message && <div role="status" className="mb-7 rounded-lg border border-[#454545] bg-[#1b1b1b] px-5 py-4 text-sm text-[#d4d4d4]">{message}</div>}
 
-        {!accessCode ? (
-          <section className="rounded-lg border border-[#343434] bg-[#181818] px-6 py-12 text-center">
-            <h2 className="text-lg font-semibold">需要工作区访问码</h2>
-            <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[#929292]">Skill 与当前工作区使用同一访问码。请先返回工作区完成验证。</p>
-            <Link href="/workspace" className="mt-6 inline-flex rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-black">返回工作区</Link>
-          </section>
-        ) : loading ? (
+        {loading ? (
           <p className="py-20 text-center text-[#929292]">正在加载 Skills...</p>
         ) : skills.length === 0 ? (
           <section className="rounded-lg border border-dashed border-[#454545] px-6 py-20 text-center">

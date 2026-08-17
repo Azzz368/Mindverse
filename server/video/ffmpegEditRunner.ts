@@ -20,6 +20,11 @@ type ClipSpec = {
   duration?: number;
   muted?: boolean;
   volume?: number;
+  fadeIn?: number;
+  fadeOut?: number;
+  speed: number;
+  rotate: 0 | 90 | 180 | 270;
+  fit: "contain" | "cover" | "stretch";
 };
 
 type AudioTrackSpec = {
@@ -118,6 +123,12 @@ const finiteNumber = (value: unknown) => {
 };
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const volumeFrom = (value: unknown, fallback: number) => clamp(finiteNumber(value) ?? fallback, 0, 3);
+const speedFrom = (value: unknown) => clamp(finiteNumber(value) ?? 1, 0.5, 2);
+const rotateFrom = (value: unknown): ClipSpec["rotate"] => {
+  const rotation = Number(value);
+  return rotation === 90 || rotation === 180 || rotation === 270 ? rotation : 0;
+};
+const fitFrom = (value: unknown): ClipSpec["fit"] => value === "cover" || value === "stretch" ? value : "contain";
 const boolFrom = (value: unknown) => {
   if (typeof value === "boolean") return value;
   if (typeof value !== "string") return undefined;
@@ -128,29 +139,40 @@ const boolFrom = (value: unknown) => {
 };
 
 const sourceIndexFrom = (value: unknown, max: number) => {
+  if (max <= 0) throw new Error("Video Edit plan references a media source, but no compatible source is connected.");
+  if (value === undefined || value === null || value === "") return 0;
   const raw = typeof value === "string" ? value.replace(/^@/, "") : value;
-  const index = Math.floor(Number(raw));
-  if (!Number.isFinite(index)) return 0;
-  return Math.max(0, Math.min(max - 1, index - 1));
+  const index = Number(raw);
+  if (!Number.isInteger(index) || index < 1 || index > max) {
+    throw new Error(`Video Edit source must be a 1-based number between 1 and ${max}.`);
+  }
+  return index - 1;
 };
 
 const extractJsonPlan = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
+  if (trimmed.length > 64_000) {
+    throw new Error("Video Edit plan is too large (maximum 64 KB).");
+  }
   try {
-    return JSON.parse(trimmed);
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Video Edit plan must be a JSON object.");
+    }
+    return parsed;
   } catch {
-    const start = trimmed.indexOf("{");
-    const end = trimmed.lastIndexOf("}");
-    if (start >= 0 && end > start) {
+    const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1];
+    if (fenced) {
       try {
-        return JSON.parse(trimmed.slice(start, end + 1));
+        const parsed = JSON.parse(fenced);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
       } catch {
-        return undefined;
+        // The descriptive error below is more useful than JSON.parse output.
       }
     }
+    throw new Error("Video Edit plan must be valid JSON. Put natural-language instructions in Notes or ask the Agent to regenerate the edit plan.");
   }
-  return undefined;
 };
 
 const fadeDurationFrom = (value: unknown) => {
@@ -192,7 +214,9 @@ const audioTrackFrom = (raw: Record<string, unknown>, input: FfmpegVideoEditInpu
 };
 
 const planFromInput = (input: FfmpegVideoEditInput, videoCount: number, audioCount: number): EditPlan => {
-  const parsed = extractJsonPlan(input.editPlan || input.prompt || "");
+  // Natural-language notes are intentionally not executed. The Agent must
+  // compile them into editPlan before this deterministic runtime is called.
+  const parsed = extractJsonPlan(input.editPlan || "");
   const raw = object(parsed);
   const output = object(raw.output);
   const clipsSource = array(raw.clips);
@@ -209,6 +233,11 @@ const planFromInput = (input: FfmpegVideoEditInput, videoCount: number, audioCou
         ...(duration !== undefined && duration > 0 ? { duration } : {}),
         ...(boolFrom(clip.muted ?? clip.mute) !== undefined ? { muted: boolFrom(clip.muted ?? clip.mute) } : {}),
         ...(clip.volume !== undefined ? { volume: volumeFrom(clip.volume, 1) } : {}),
+        fadeIn: fadeDurationFrom(clip.fadeIn),
+        fadeOut: fadeDurationFrom(clip.fadeOut),
+        speed: speedFrom(clip.speed),
+        rotate: rotateFrom(clip.rotate),
+        fit: fitFrom(clip.fit),
       };
     })
     .filter((clip) => clip.sourceIndex >= 0 && clip.sourceIndex < videoCount);
@@ -216,7 +245,7 @@ const planFromInput = (input: FfmpegVideoEditInput, videoCount: number, audioCou
   const preserveAudio = boolFrom(raw.preserveAudio) ?? (boolFrom(raw.muteOriginal) === true ? false : input.preserveAudio);
 
   return {
-    clips: clips.length ? clips : Array.from({ length: videoCount }, (_, sourceIndex) => ({ sourceIndex })),
+    clips: clips.length ? clips : Array.from({ length: videoCount }, (_, sourceIndex) => ({ sourceIndex, speed: 1, rotate: 0 as const, fit: "contain" as const })),
     preserveAudio,
     originalVolume: volumeFrom(raw.originalVolume ?? input.originalVolume, 1),
     backgroundAudio: audioTrackFrom(raw, input, audioCount),
@@ -317,10 +346,18 @@ const writeSrt = async (subtitles: SubtitleSpec[], filePath: string) => {
 };
 
 export async function createFfmpegVideoEdit(input: FfmpegVideoEditInput) {
-  const sourceUrls = (input.referenceVideoUrls || []).filter(Boolean);
-  const audioUrls = (input.referenceAudioUrls || []).filter(Boolean);
+  const sourceUrls = input.referenceVideoUrls || [];
+  const audioUrls = input.referenceAudioUrls || [];
   if (!sourceUrls.length) {
     throw new Error("Video Edit requires at least one connected video source.");
+  }
+  const missingVideoIndex = sourceUrls.findIndex((url) => !url);
+  if (missingVideoIndex >= 0) {
+    throw new Error(`Connected video @${missingVideoIndex + 1} has no generated output. Run that source node before Video Edit.`);
+  }
+  const missingAudioIndex = audioUrls.findIndex((url) => !url);
+  if (missingAudioIndex >= 0) {
+    throw new Error(`Connected audio @${missingAudioIndex + 1} has no generated output. Run that source node before Video Edit.`);
   }
 
   const tempRoot = await mkdtemp(path.join(tmpdir(), "mindverse-video-edit-"));
@@ -346,40 +383,83 @@ export async function createFfmpegVideoEdit(input: FfmpegVideoEditInput) {
     const { width, height } = targetSize(plan.resolution || input.resolution, plan.aspectRatio || input.aspectRatio);
     const fps = String(plan.fps || input.fps || "30");
     const segmentPaths: string[] = [];
+    const segmentDurations: number[] = [];
 
     for (const [index, clip] of plan.clips.entries()) {
       const segmentPath = path.join(segmentDir, `segment-${index + 1}.mp4`);
       const sourceDuration = await ffprobeDuration(sourcePaths[clip.sourceIndex]).catch(() => undefined);
-      const clipDuration = clip.duration ?? (sourceDuration !== undefined ? Math.max(0.1, sourceDuration - (clip.start || 0)) : undefined);
+      const clipStart = clip.start || 0;
+      if (sourceDuration !== undefined && clipStart >= sourceDuration - 0.02) {
+        throw new Error(`Clip ${index + 1} uses video @${clip.sourceIndex + 1} from ${secondsForFfmpeg(clipStart)}s, but that source is only ${secondsForFfmpeg(sourceDuration)}s long. Clip times are local to each source video and start at 0.`);
+      }
+      const availableDuration = sourceDuration !== undefined ? Math.max(0, sourceDuration - clipStart) : undefined;
+      if (clip.duration !== undefined && availableDuration !== undefined && clip.duration > availableDuration + 0.1) {
+        throw new Error(`Clip ${index + 1} requests ${secondsForFfmpeg(clip.duration)}s from video @${clip.sourceIndex + 1}, but only ${secondsForFfmpeg(availableDuration)}s remain after its source-local start time.`);
+      }
+      const clipDuration = clip.duration ?? availableDuration;
+      if (clipDuration !== undefined && clipDuration <= 0.02) {
+        throw new Error(`Clip ${index + 1} has no usable duration.`);
+      }
+      const renderedDuration = clipDuration !== undefined ? clipDuration / clip.speed : undefined;
+      const clipFadeIn = clip.fadeIn ?? (input.transition === "fade" ? 0.2 : 0);
+      const clipFadeOut = clip.fadeOut ?? (input.transition === "fade" ? 0.2 : 0);
+      const rotationFilters = clip.rotate === 90 ? ["transpose=clock"]
+        : clip.rotate === 180 ? ["hflip", "vflip"]
+          : clip.rotate === 270 ? ["transpose=cclock"]
+            : [];
+      const fitFilters = clip.fit === "cover"
+        ? [`scale=${width}:${height}:force_original_aspect_ratio=increase`, `crop=${width}:${height}`]
+        : clip.fit === "stretch"
+          ? [`scale=${width}:${height}`]
+          : [`scale=${width}:${height}:force_original_aspect_ratio=decrease`, `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`];
       const filters = [
-        `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
-        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
+        ...rotationFilters,
+        ...fitFilters,
         "setsar=1",
-        ...(input.transition === "fade"
-          ? [
-              "fade=t=in:st=0:d=0.2",
-              ...(clipDuration && clipDuration > 0.45 ? [`fade=t=out:st=${secondsForFfmpeg(Math.max(0, clipDuration - 0.2))}:d=0.2`] : []),
-            ]
+        ...(clip.speed !== 1 ? [`setpts=PTS/${secondsForFfmpeg(clip.speed)}`] : []),
+        ...(clipFadeIn > 0 ? [`fade=t=in:st=0:d=${secondsForFfmpeg(clipFadeIn)}`] : []),
+        ...(clipFadeOut > 0 && renderedDuration && renderedDuration > clipFadeOut
+          ? [`fade=t=out:st=${secondsForFfmpeg(Math.max(0, renderedDuration - clipFadeOut))}:d=${secondsForFfmpeg(clipFadeOut)}`]
           : []),
       ];
-      const clipPreservesAudio = preserveAudio && clip.muted !== true;
+      const sourceHasAudio = preserveAudio ? await hasAudioStream(sourcePaths[clip.sourceIndex]).catch(() => false) : false;
+      const clipPreservesAudio = preserveAudio && clip.muted !== true && sourceHasAudio;
+      const clipNeedsSilentAudio = preserveAudio && !clipPreservesAudio;
+      const audioFilters = [
+        `volume=${secondsForFfmpeg(clip.volume ?? 1)}`,
+        ...(clip.speed !== 1 ? [`atempo=${secondsForFfmpeg(clip.speed)}`] : []),
+        ...(clipFadeIn > 0 ? [`afade=t=in:st=0:d=${secondsForFfmpeg(clipFadeIn)}`] : []),
+        ...(clipFadeOut > 0 && renderedDuration && renderedDuration > clipFadeOut
+          ? [`afade=t=out:st=${secondsForFfmpeg(Math.max(0, renderedDuration - clipFadeOut))}:d=${secondsForFfmpeg(clipFadeOut)}`]
+          : []),
+      ];
       const trimArgs = [
         "-y",
         ...(clip.start !== undefined ? ["-ss", secondsForFfmpeg(clip.start)] : []),
-        "-i", sourcePaths[clip.sourceIndex],
         ...(clipDuration !== undefined ? ["-t", secondsForFfmpeg(clipDuration)] : []),
+        "-i", sourcePaths[clip.sourceIndex],
+        ...(clipNeedsSilentAudio ? ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"] : []),
         "-vf", filters.join(","),
         "-r", fps,
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-crf", "20",
         "-pix_fmt", "yuv420p",
-        ...(clipPreservesAudio ? ["-af", `volume=${secondsForFfmpeg(clip.volume ?? 1)}`, "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"] : ["-an"]),
+        ...(clipPreservesAudio
+          ? ["-af", audioFilters.join(","), "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"]
+          : clipNeedsSilentAudio
+            ? ["-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2", "-shortest"]
+            : ["-an"]),
         "-movflags", "+faststart",
         segmentPath,
       ];
       await runFfmpeg(trimArgs);
+      const actualSegmentDuration = await ffprobeDuration(segmentPath).catch(() => undefined);
+      if (actualSegmentDuration === undefined || actualSegmentDuration <= 0.02) {
+        throw new Error(`Clip ${index + 1} from video @${clip.sourceIndex + 1} produced no usable segment.`);
+      }
       segmentPaths.push(segmentPath);
+      segmentDurations.push(actualSegmentDuration);
     }
 
     const listPath = path.join(tempRoot, "concat.txt");
@@ -389,6 +469,11 @@ export async function createFfmpegVideoEdit(input: FfmpegVideoEditInput) {
     await runFfmpeg(["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", "-movflags", "+faststart", concatPath]);
 
     const totalDuration = await ffprobeDuration(concatPath).catch(() => undefined);
+    const expectedDuration = segmentDurations.reduce((sum, duration) => sum + duration, 0);
+    const durationTolerance = Math.max(0.35, expectedDuration * 0.05);
+    if (totalDuration === undefined || totalDuration < expectedDuration - durationTolerance) {
+      throw new Error(`Video Edit assembled ${secondsForFfmpeg(totalDuration || 0)}s, but the prepared clips total ${secondsForFfmpeg(expectedDuration)}s. The edit was stopped to avoid silently dropping a clip.`);
+    }
     const baseHasAudio = preserveAudio ? await hasAudioStream(concatPath).catch(() => false) : false;
     const videoFilters: string[] = [];
     if (plan.subtitles.length) {
@@ -455,6 +540,8 @@ export async function createFfmpegVideoEdit(input: FfmpegVideoEditInput) {
       videoUrl,
       resultUrl: videoUrl,
       clipCount: plan.clips.length,
+      sourceOrder: plan.clips.map((clip) => clip.sourceIndex + 1),
+      segmentDurations,
       sourceCount: sourceUrls.length,
       audioSourceCount: audioUrls.length,
       preserveAudio,

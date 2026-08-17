@@ -45,6 +45,8 @@ export type AgentRouterRequest = {
   userMessage: string;
   canvasSnapshot: CanvasSnapshotPayload;
   selectedNodeIds: string[];
+  /** Canvas nodes created from files attached in the Agent composer. */
+  attachmentNodeIds?: string[];
   conversation?: AgentDialogueMessage[];
   forceIntent?: AgentRouterIntent;
   customSkill?: ActiveSkillContext;

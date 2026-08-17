@@ -8,7 +8,7 @@ export const clampStoryboardSceneCount = (value: unknown, fallback = DEFAULT_STO
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" ? value as Record<string, unknown> : {};
 const text = (value: unknown, fallback = "") => typeof value === "string" ? value : fallback;
-const clean = (value: string) => value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+const clean = (value: string) => value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
 const hasChinese = (value: string) => /[\u3400-\u9fff]/.test(value);
 const singleFrameNegative = "拼贴图, 分屏, 双联画, 三联画, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, 前后对比图, 缩略图合集, 马赛克布局, collage, split screen, diptych, triptych, quadriptych, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, image sequence, thumbnails, mosaic, arrows, labels, UI, watermark, text overlay";
 
@@ -54,57 +54,78 @@ Brief: ${brief}
 Tone: ${tone}`;
 };
 
+/** Parse a JSON object/array even when a chat model wraps it in prose or Markdown. */
+export function parseJsonResponse(value: string): unknown {
+  const cleaned = clean(value);
+  try { return JSON.parse(cleaned) as unknown; } catch {}
+
+  let bestMatch: { value: unknown; length: number } | undefined;
+  for (let start = 0; start < cleaned.length; start += 1) {
+    const opening = cleaned[start];
+    if (opening !== "{" && opening !== "[") continue;
+    const closing = opening === "{" ? "}" : "]";
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let end = start; end < cleaned.length; end += 1) {
+      const character = cleaned[end];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') {
+        inString = true;
+        continue;
+      }
+      if (character === opening) depth += 1;
+      if (character === closing) depth -= 1;
+      if (depth !== 0) continue;
+      try {
+        const candidate = cleaned.slice(start, end + 1);
+        const parsed = JSON.parse(candidate) as unknown;
+        if (!bestMatch || candidate.length > bestMatch.length) bestMatch = { value: parsed, length: candidate.length };
+      } catch {}
+      break;
+    }
+  }
+
+  if (bestMatch) return bestMatch.value;
+
+  throw new Error("模型返回了内容，但其中没有可解析的 JSON。请重试；若持续失败，请检查服务端文本模型配置。");
+}
+
 export function parseScript(value: string, fallback: string, sceneCount: number): ScriptOutput {
   sceneCount = clampStoryboardSceneCount(sceneCount);
   const zh = hasChinese(fallback);
-  try {
-    const raw = record(JSON.parse(clean(value)));
-    const scenes = Array.isArray(raw.scenes) ? raw.scenes.map((scene, index) => {
-      const item = record(scene);
-      return {
-        sceneNumber: Number(item.sceneNumber) || index + 1,
-        location: text(item.location, zh ? "校园" : "Campus"),
-        timeOfDay: text(item.timeOfDay, zh ? "下午" : "Afternoon"),
-        action: text(item.action, fallback),
-        dialogue: Array.isArray(item.dialogue) ? item.dialogue.filter((line): line is string => typeof line === "string") : [],
-        visualDirection: text(item.visualDirection, zh ? "电影感自然光，清晰调度，镜头运动服务剧情。" : "Cinematic natural light"),
-      };
-    }).slice(0, sceneCount) : [];
+  const raw = record(parseJsonResponse(value));
+  const scenes = Array.isArray(raw.scenes) ? raw.scenes.map((scene, index) => {
+    const item = record(scene);
+    const action = text(item.action) || text(item.description) || text(item.summary);
+    if (!action) return undefined;
     return {
-      title: text(raw.title, zh ? "未命名虚构短片" : "Untitled fictional story"),
-      disclaimer: text(raw.disclaimer, zh ? "虚构创作场景，不是事实报道。" : "Fictional creative scenario. Not a factual report."),
-      logline: text(raw.logline, fallback),
-      tone: text(raw.tone, zh ? "电影感" : "Cinematic"),
-      characters: Array.isArray(raw.characters) ? raw.characters.map((character) => {
-        const item = record(character);
-        return { name: text(item.name, zh ? "角色" : "Character"), description: text(item.description), wardrobe: text(item.wardrobe) };
-      }) : [],
-      scenes: scenes.length ? scenes : fallbackScenes(fallback, sceneCount),
+      sceneNumber: Number(item.sceneNumber) || index + 1,
+      location: text(item.location),
+      timeOfDay: text(item.timeOfDay),
+      action,
+      dialogue: Array.isArray(item.dialogue) ? item.dialogue.filter((line): line is string => typeof line === "string") : [],
+      visualDirection: text(item.visualDirection) || text(item.cameraDirection),
     };
-  } catch {
-    return {
-      title: zh ? "未命名虚构短片" : "Untitled fictional story",
-      disclaimer: zh ? "虚构创作场景，不是事实报道。" : "Fictional creative scenario. Not a factual report.",
-      logline: fallback,
-      tone: zh ? "电影感" : "Cinematic",
-      characters: [],
-      scenes: fallbackScenes(fallback, sceneCount),
-    };
-  }
+  }).filter((scene): scene is NonNullable<typeof scene> => Boolean(scene)).slice(0, sceneCount) : [];
+  if (!scenes.length) throw new Error("模型返回的剧本 JSON 中没有有效 scenes。请重试或检查服务端文本模型是否支持结构化输出。");
+  return {
+    title: text(raw.title, zh ? "未命名虚构短片" : "Untitled fictional story"),
+    disclaimer: text(raw.disclaimer, zh ? "虚构创作场景，不是事实报道。" : "Fictional creative scenario. Not a factual report."),
+    logline: text(raw.logline, fallback),
+    tone: text(raw.tone, zh ? "电影感" : "Cinematic"),
+    characters: Array.isArray(raw.characters) ? raw.characters.map((character) => {
+      const item = record(character);
+      return { name: text(item.name, zh ? "角色" : "Character"), description: text(item.description), wardrobe: text(item.wardrobe) };
+    }) : [],
+    scenes,
+  };
 }
-
-const fallbackScenes = (brief: string, count: number) =>
-  Array.from({ length: clampStoryboardSceneCount(count) }, (_, index) => {
-    const zh = hasChinese(brief);
-    return {
-      sceneNumber: index + 1,
-      location: zh ? "校园场景" : "Campus setting",
-      timeOfDay: zh ? "下午" : "Afternoon",
-      action: zh ? `${brief} - 剧情节拍 ${index + 1}` : `${brief} - story beat ${index + 1}`,
-      dialogue: zh ? ["角色：我们得把这一刻拍出来。", "角色：那就让它变成一场真正的戏。"] : ["Character: We need to make this moment work.", "Character: Then let's turn it into a scene."],
-      visualDirection: zh ? "电影感自然光，清晰人物调度，镜头运动服务剧情动作。" : "Cinematic natural light, clear blocking, camera movement supports the action.",
-    };
-  });
 
 export const storyboardScenesFromValue = (value: unknown): Record<string, unknown>[] => {
   if (Array.isArray(value)) return value.map(record).slice(0, MAX_STORYBOARD_SCENE_COUNT);

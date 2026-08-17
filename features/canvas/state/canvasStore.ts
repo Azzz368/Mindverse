@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { topologicalSort } from "@/shared/workflow/topologicalSort";
 import { canvasStorage } from "@/features/canvas/services/canvasStorage";
 import { pollTaskRemote, requestImageRevision, runNodeRemote } from "@/features/canvas/services/nodeExecutionClient";
+import { extractVideoFrameRemote } from "@/features/canvas/services/videoFrameClient";
 import { requestAgentEdit, requestAgentOrganize, requestAgentPlan } from "@/features/agent/services/agentClient";
 import { buildTemplate, makeNode, type Template } from "@/shared/templates/templates";
 import { promptsFromStoryboard, storyboardSceneNumber, storyboardScenesFromValue, storyboardSceneTextFrom } from "@/shared/workflow/storyPipeline";
@@ -20,6 +21,10 @@ import { mergeAgentProjectMemory, type AgentProjectMemory } from "@/shared/agent
 import { buildFixedSceneVideoSkill, type AgentWorkflowSkillId } from "@/shared/agent/workflowSkills";
 
 const DEFAULT_AGENT_IMAGE_MODEL = "gpt-image-2(tokenstar)";
+export const BATCH_RUNNABLE_NODE_TYPES = new Set<NodeType>([
+  "prompt", "text", "script", "storyboard", "image", "video", "videoRegeneration", "videoEdit",
+  "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "output",
+]);
 const imageUrlFromOutput = (output: NodeOutput) => {
   const value = asRecord(output.value);
   return asText(value.imageUrl) || asText(value.revisedImageUrl) || asText(value.resultUrl);
@@ -34,6 +39,7 @@ export type PastedCanvasMedia = {
   mediaType: "image" | "video" | "audio";
   url: string;
   fileName?: string;
+  sourceProvider?: string;
 };
 const MAX_UNDO_ENTRIES = 50;
 const cloneHistoryEntry = (state: CanvasHistorySource): CanvasHistoryEntry => {
@@ -50,7 +56,7 @@ type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEd
   ghostMediaUrl: string | null; setGhostMedia(dataUrl: string): void; placeGhostMedia(position: { x: number; y: number }): void;
   pendingAgentPatch: CanvasPatch | null; setPendingAgentPatch(patch: CanvasPatch | null): void; placeAgentPatch(position: { x: number; y: number }): void;
   addMediaNode(dataUrl: string, position: { x: number; y: number }): void;
-  addPastedMediaNodes(items: PastedCanvasMedia[], position: { x: number; y: number }): void;
+  addPastedMediaNodes(items: PastedCanvasMedia[], position: { x: number; y: number }): string[];
   updateAgentMemory(patch: Partial<AgentProjectMemory>): void;
   clearAgentMemory(): void;
   normalizeVideoConnections(): void; materializeStoryboardBranch(storyboardId: string): void;
@@ -63,9 +69,10 @@ type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEd
   clearSelectedWorkflowMark(): void;
   arrangeWorkflows(): void;
   setGroupLockedByGroupId(groupId: string, locked: boolean): void;
-  setProjectName(name: string): void; setSelectionMode(enabled: boolean): void; setSelectedNode(id: string | null): void; toggleSelectedNode(id: string): void; onNodesChange(changes: NodeChange<CanvasNode>[]): void; onEdgesChange(changes: EdgeChange<WorkflowEdge>[]): void; onConnect(connection: Connection): void;
-  addNode(type: NodeType): void; updateNodeData(id: string, patch: Partial<CanvasNodeData>): void; removeNode(id: string): void; duplicateNode(id: string): void; createImageRevision(sourceId: string, annotations: ImageAnnotation[], instruction: string): Promise<void>; createKeyframeBatch(sourceId: string): void; setCanvas(nodes: CanvasNode[], edges: WorkflowEdge[], agentMemory?: AgentProjectMemory | null): void;
-  runNode(id: string): Promise<void>; pollNode(id: string): Promise<void>; runWorkflow(): Promise<void>; generateAgentPlan(userPrompt: string): Promise<{ plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }>; applyAgentPatch(patch: CanvasPatch): void; generateAgentEdit(userInstruction: string): Promise<{ editPlan: AgentCanvasEditPlan; patch: CanvasEditPatch; summary: string }>; applyAgentEditPatch(patch: CanvasEditPatch): void; generateAgentOrganize(userInstruction: string): Promise<{ organizePlan: AgentCanvasOrganizePlan; patch: CanvasEditPatch; summary: string }>; runAgentWorkflow(brief: string): Promise<void>; runAgentSkill(skillId: AgentWorkflowSkillId, brief: string): Promise<void>; saveCanvas(): void; loadCanvas(): void; clearCanvas(): void; exportCanvasJson(): string; importCanvasJson(raw: string): void; applyTemplate(template: Template): void; };
+  setProjectName(name: string): void; setSelectionMode(enabled: boolean): void; setSelectedNode(id: string | null): void; setSelectedNodes(ids: string[]): void; toggleSelectedNode(id: string): void; onNodesChange(changes: NodeChange<CanvasNode>[]): void; onEdgesChange(changes: EdgeChange<WorkflowEdge>[]): void; onConnect(connection: Connection): void;
+  addNode(type: NodeType): void; updateNodeData(id: string, patch: Partial<CanvasNodeData>): void; removeNode(id: string): void; removeNodes(ids: string[]): void; duplicateNode(id: string): void; createImageRevision(sourceId: string, annotations: ImageAnnotation[], instruction: string): Promise<void>; createKeyframeBatch(sourceId: string): void; setCanvas(nodes: CanvasNode[], edges: WorkflowEdge[], agentMemory?: AgentProjectMemory | null): void;
+  extractVideoFrame(extractorId: string, mode: "last" | "timestamp", timestampSeconds?: number): Promise<string>;
+  runNode(id: string): Promise<void>; runNodes(ids: string[]): Promise<void>; pollNode(id: string): Promise<void>; runWorkflow(): Promise<void>; generateAgentPlan(userPrompt: string): Promise<{ plan: AgentWorkflowPlan; patch: CanvasPatch; summary: string }>; applyAgentPatch(patch: CanvasPatch): void; generateAgentEdit(userInstruction: string): Promise<{ editPlan: AgentCanvasEditPlan; patch: CanvasEditPatch; summary: string }>; applyAgentEditPatch(patch: CanvasEditPatch): void; generateAgentOrganize(userInstruction: string): Promise<{ organizePlan: AgentCanvasOrganizePlan; patch: CanvasEditPatch; summary: string }>; runAgentWorkflow(brief: string): Promise<void>; runAgentSkill(skillId: AgentWorkflowSkillId, brief: string): Promise<void>; saveCanvas(): void; loadCanvas(): void; clearCanvas(): void; exportCanvasJson(): string; importCanvasJson(raw: string): void; applyTemplate(template: Template): void; };
 const initialNodes: CanvasNode[] = [];
 const isSnapshot = (value: unknown): value is CanvasSnapshot => Boolean(value && typeof value === "object" && Array.isArray((value as CanvasSnapshot).nodes) && Array.isArray((value as CanvasSnapshot).edges));
 const pollTimers = new Map<string, number>();
@@ -81,9 +88,9 @@ const withRunMetadata = (value: unknown, provider?: string, polling?: unknown) =
   return { ...(value as Record<string, unknown>), ...(provider ? { provider } : {}), ...(polling ? { polling } : {}) };
 };
 const pollProviderFor = (node: CanvasNode, value: Record<string, unknown>) =>
-  node.data.nodeType === "video" ? asText(value.provider) || node.data.videoProvider : undefined;
+  node.data.nodeType === "video" ? asText(value.provider) || node.data.videoProvider : node.data.nodeType === "videoRegeneration" ? "minimax" : undefined;
 const videoProviderFrom = (value: string | undefined): CanvasNodeData["videoProvider"] | undefined =>
-  value === "mock" || value === "302ai" || value === "302-sora2" || value === "tokenstar" || value === "kling" ? value : undefined;
+  value === "mock" || value === "302ai" || value === "302-sora2" || value === "tokenstar" || value === "kling" || value === "hkgai" || value === "volcengine" ? value : undefined;
 const restoreStatuses = (nodes: CanvasNode[]): CanvasNode[] => nodes.map((node) => { if (node.data.status !== "running") return node; const polling = ["pending", "running"].includes(asText(asRecord(node.data.output?.value).status)); const status: CanvasNodeData["status"] = polling ? "waiting" : "idle"; return { ...node, data: { ...node.data, status } }; });
 const targetHandleForConnection = (source: CanvasNode, target: CanvasNode, preferredHandle?: string | null) =>
   targetHandleForNodeConnection(source.data.nodeType, target.data, preferredHandle);
@@ -91,14 +98,23 @@ const edgeFor = (source: CanvasNode, target: CanvasNode): WorkflowEdge => {
   const targetHandle = targetHandleForConnection(source, target);
   return { id: `edge-${source.id}-${target.id}`, source: source.id, target: target.id, ...(targetHandle ? { targetHandle } : {}) };
 };
+const archivedVideoStorageKeyFrom = (node: CanvasNode) => {
+  const archivedMedia = asRecord(node.data.output?.value).archivedMedia;
+  if (!Array.isArray(archivedMedia)) return undefined;
+  const video = archivedMedia.map(asRecord).find((item) => asText(item.mediaType) === "video" && asText(item.storageKey));
+  return video ? asText(video.storageKey) : undefined;
+};
 const withVideoTargetHandles = (nodes: CanvasNode[], edges: WorkflowEdge[]): WorkflowEdge[] => {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   return edges.flatMap((edge) => {
     const source = byId.get(edge.source);
     const target = byId.get(edge.target);
-    if (!source || !target || !["text", "script", "image", "video", "videoEdit", "voiceTTS"].includes(target.data.nodeType)) return [edge];
-    const targetHandle = targetHandleForConnection(source, target, edge.targetHandle);
-    return targetHandle ? [{ ...edge, targetHandle }] : [];
+    const normalizedEdge = source && ["video", "videoRegeneration", "videoEdit", "motion"].includes(source.data.nodeType) && edge.sourceHandle === "frame-output"
+      ? { ...edge, sourceHandle: undefined }
+      : edge;
+    if (!source || !target || !["text", "script", "image", "video", "videoRegeneration", "videoFrame", "videoEdit", "voiceTTS"].includes(target.data.nodeType)) return [normalizedEdge];
+    const targetHandle = targetHandleForConnection(source, target, normalizedEdge.targetHandle);
+    return targetHandle ? [{ ...normalizedEdge, targetHandle }] : [];
   });
 };
 const hasRunnableSource = (node: CanvasNode) =>
@@ -178,7 +194,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   placeAgentPatch: (position) => { const { pendingAgentPatch } = get(); if (!pendingAgentPatch) return; const placed = offsetPatchTo(pendingAgentPatch, position); set((state) => { const clean = dedupePatch(placed, state.nodes, state.edges); return { nodes: [...state.nodes, ...clean.nodes], edges: [...state.edges, ...clean.edges], selectedNodeId: clean.nodes[0]?.id || state.selectedNodeId, pendingAgentPatch: null, agentStatus: "completed", agentMessage: "工作流已放置到画布。请检查节点参数后手动运行。", lastError: null }; }); },
   addMediaNode: (dataUrl, position) => { const node: CanvasNode = { id: `reference-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: "reference", title: "Reference* 图片素材", status: "idle", imageUrl: dataUrl, notes: "" } }; set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id })); },
   addPastedMediaNodes: (items, position) => {
-    if (!items.length) return;
+    if (!items.length) return [];
     const labelFor = (item: PastedCanvasMedia, fallback: string) =>
       item.fileName?.replace(/\.[^.]+$/, "").trim() || fallback;
     const nodes = items.map((item, index): CanvasNode => {
@@ -203,6 +219,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
       const node = makeNode(item.mediaType, offset);
       const isVideo = item.mediaType === "video";
+      const sourceProvider = item.sourceProvider || "clipboard-upload";
       node.data = {
         ...node.data,
         title: `${isVideo ? "Video" : "Audio"}* ${labelFor(item, isVideo ? "Uploaded Video" : "Uploaded Audio")}`,
@@ -210,24 +227,30 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         status: "success",
         output: {
           kind: item.mediaType,
-          summary: `${isVideo ? "Video" : "Audio"} pasted from clipboard`,
+          summary: `${isVideo ? "Video" : "Audio"} uploaded to the canvas`,
           value: isVideo
-            ? { videoUrl: item.url, resultUrl: item.url, originalFileName: item.fileName, sourceProvider: "clipboard-upload" }
-            : { audioUrl: item.url, originalFileName: item.fileName, sourceProvider: "clipboard-upload" },
+            ? { videoUrl: item.url, resultUrl: item.url, originalFileName: item.fileName, sourceProvider }
+            : { audioUrl: item.url, originalFileName: item.fileName, sourceProvider },
           createdAt: new Date().toISOString(),
         },
       };
       return node;
     });
     const selectedNodeId = nodes.at(-1)?.id || null;
+    const preserveExistingSelection = items.every((item) => item.sourceProvider === "agent-upload");
     set((state) => ({
-      nodes: [...state.nodes.map((node) => ({ ...node, selected: false })), ...nodes.map((node) => ({ ...node, selected: node.id === selectedNodeId }))],
-      selectedNodeId,
+      nodes: preserveExistingSelection
+        ? [...state.nodes, ...nodes.map((node) => ({ ...node, selected: false }))]
+        : [...state.nodes.map((node) => ({ ...node, selected: false })), ...nodes.map((node) => ({ ...node, selected: node.id === selectedNodeId }))],
+      selectedNodeId: preserveExistingSelection ? state.selectedNodeId : selectedNodeId,
       undoStack: appendUndoEntry(state.undoStack, state),
       canUndo: true,
       lastError: null,
-      agentMessage: `已粘贴 ${nodes.length} 个素材到画布。`,
+      agentMessage: preserveExistingSelection
+        ? `已上传 ${nodes.length} 个 Agent 素材并加入画布。`
+        : `已粘贴 ${nodes.length} 个素材到画布。`,
     }));
+    return nodes.map((node) => node.id);
   },
   normalizeVideoConnections: () => { const { nodes, edges } = get(); const next = withVideoTargetHandles(nodes, edges); if (next.length !== edges.length || next.some((edge, index) => edge.targetHandle !== edges[index]?.targetHandle)) set({ edges: next }); },
   materializeStoryboardBranch: (storyboardId) => {
@@ -420,24 +443,31 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     selectedNodeId,
     nodes: state.nodes.map((node) => ({ ...node, selected: selectedNodeId ? node.id === selectedNodeId : false })),
   })),
+  setSelectedNodes: (ids) => set((state) => {
+    const selectedIds = new Set(ids.filter((id) => state.nodes.some((node) => node.id === id)));
+    return {
+      nodes: state.nodes.map((node) => ({ ...node, selected: selectedIds.has(node.id) })),
+      selectedNodeId: selectedIds.size === 1 ? [...selectedIds][0] : null,
+    };
+  }),
   toggleSelectedNode: (id) => set((state) => {
     const isSelected = state.nodes.find((node) => node.id === id)?.selected || state.selectedNodeId === id;
     const nodes = state.nodes.map((node) => node.id === id ? { ...node, selected: !isSelected } : node);
     const selectedIds = nodes.filter((node) => node.selected).map((node) => node.id);
     return {
       nodes,
-      selectedNodeId: isSelected
-        ? state.selectedNodeId === id ? selectedIds[0] || null : state.selectedNodeId
-        : id,
+      selectedNodeId: selectedIds.length === 1 ? selectedIds[0] : null,
     };
   }),
   onNodesChange: (changes) => set((state) => {
-    const nextChanges = changes.filter((change) => change.type !== "select");
-    if (!nextChanges.length) return {};
-    const isStructuralChange = nextChanges.some((change) => change.type === "add" || change.type === "remove" || change.type === "replace");
+    if (!changes.length) return {};
+    const isStructuralChange = changes.some((change) => change.type === "add" || change.type === "remove" || change.type === "replace");
     const undoStack = isStructuralChange ? appendUndoEntry(state.undoStack, state) : state.undoStack;
+    const nodes = applyNodeChanges(changes, state.nodes) as CanvasNode[];
+    const selectedIds = nodes.filter((node) => node.selected).map((node) => node.id);
     return {
-      nodes: applyNodeChanges(nextChanges, state.nodes) as CanvasNode[],
+      nodes,
+      selectedNodeId: selectedIds.length === 1 ? selectedIds[0] : null,
       ...(isStructuralChange ? { undoStack, canUndo: true } : {}),
     };
   }), onEdgesChange: (changes) => set((state) => ({ edges: applyEdgeChanges(changes, state.edges) })),
@@ -445,7 +475,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const source = state.nodes.find((node) => node.id === connection.source);
     let target = state.nodes.find((node) => node.id === connection.target);
     let nodes = state.nodes;
+    let edges = state.edges;
     let switchedVideoInput = false;
+
+    if (source && target?.data.nodeType === "videoFrame" && !targetHandleForConnection(source, target, connection.targetHandle)) {
+      return { lastError: "视频抽帧节点只接受 Video、Video Edit 或 Motion 节点。" };
+    }
 
     if (
       source
@@ -465,9 +500,28 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const targetHandle = source && target
       ? targetHandleForConnection(source, target, connection.targetHandle)
       : connection.targetHandle || undefined;
+    if (target?.data.nodeType === "videoFrame" && targetHandle === "video") {
+      edges = edges.filter((edge) => edge.target !== target?.id || (edge.targetHandle !== "video" && edge.targetHandle));
+      nodes = nodes.map((node) => node.id === target?.id ? {
+        ...node,
+        data: {
+          ...node.data,
+          status: "idle",
+          output: undefined,
+          error: undefined,
+          imageUrl: undefined,
+          frameSourceVideoNodeId: source?.id,
+          frameTimestampSeconds: 0,
+        },
+      } : node);
+    }
+    if (target?.data.nodeType === "videoRegeneration" && targetHandle && ["text", "base-video", "first-frame", "last-frame"].includes(targetHandle)) {
+      edges = edges.filter((edge) => edge.target !== target?.id || edge.targetHandle !== targetHandle);
+    }
     return {
       nodes,
-      edges: addEdge({ ...connection, targetHandle, id: `edge-${crypto.randomUUID()}` }, state.edges),
+      edges: addEdge({ ...connection, targetHandle, id: `edge-${crypto.randomUUID()}` }, edges),
+      lastError: null,
       ...(switchedVideoInput ? { agentMessage: "视频节点已切换为支持图片素材的 Seedance Assets 模式。" } : {}),
     };
   }),
@@ -477,7 +531,113 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return { nodes, edges: withVideoTargetHandles(nodes, state.edges) };
   }),
   removeNode: (id) => set((state) => { const undoStack = appendUndoEntry(state.undoStack, state); return { nodes: state.nodes.filter((node) => node.id !== id), edges: state.edges.filter((edge) => edge.source !== id && edge.target !== id), selectedNodeId: state.selectedNodeId === id ? null : state.selectedNodeId, undoStack, canUndo: true }; }),
-  duplicateNode: (id) => { const original = get().nodes.find((node) => node.id === id); if (!original) return; const clone: CanvasNode = { ...original, id: `${original.data.nodeType}-${crypto.randomUUID()}`, position: { x: original.position.x + 36, y: original.position.y + 36 }, selected: true, data: { ...original.data, title: `${original.data.title} copy`, status: "idle", output: undefined, error: undefined } }; set((state) => { const undoStack = appendUndoEntry(state.undoStack, state); return { nodes: [...state.nodes.map((node) => ({ ...node, selected: false })), clone], selectedNodeId: clone.id, undoStack, canUndo: true }; }); },
+  removeNodes: (ids) => set((state) => {
+    const removedIds = new Set(ids.filter((id) => state.nodes.some((node) => node.id === id)));
+    if (!removedIds.size) return {};
+    const undoStack = appendUndoEntry(state.undoStack, state);
+    return {
+      nodes: state.nodes.filter((node) => !removedIds.has(node.id)),
+      edges: state.edges.filter((edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target)),
+      selectedNodeId: null,
+      undoStack,
+      canUndo: true,
+      lastError: null,
+      agentMessage: `已删除 ${removedIds.size} 个节点。`,
+    };
+  }),
+  duplicateNode: (id) => { const original = get().nodes.find((node) => node.id === id); if (!original) return; const clone: CanvasNode = { ...original, id: `${original.data.nodeType}-${crypto.randomUUID()}`, position: { x: original.position.x + 36, y: original.position.y + 36 }, selected: true, data: { ...original.data, title: `${original.data.title} copy`, status: "idle", output: undefined, error: undefined, ...(original.data.nodeType === "videoFrame" ? { imageUrl: undefined, frameSourceVideoNodeId: undefined, frameTimestampSeconds: 0 } : {}) } }; set((state) => { const undoStack = appendUndoEntry(state.undoStack, state); return { nodes: [...state.nodes.map((node) => ({ ...node, selected: false })), clone], selectedNodeId: clone.id, undoStack, canUndo: true }; }); },
+  extractVideoFrame: async (extractorId, mode, timestampSeconds) => {
+    const current = get();
+    const extractor = current.nodes.find((node) => node.id === extractorId && node.data.nodeType === "videoFrame");
+    const sourceEdge = current.edges.find((edge) => edge.target === extractorId && (edge.targetHandle === "video" || !edge.targetHandle));
+    const source = current.nodes.find((node) => node.id === sourceEdge?.source);
+    const videoUrl = source ? videoUrlFrom(source) : "";
+    if (!extractor || !source || !["video", "videoEdit", "motion"].includes(source.data.nodeType) || !videoUrl) {
+      const message = source ? "源视频尚未生成，暂时无法抽帧。" : "请先把一个 VideoNode 连接到视频抽帧节点。";
+      set({ lastError: message });
+      throw new Error(message);
+    }
+    set((state) => ({
+      lastError: null,
+      nodes: state.nodes.map((node) => node.id === extractorId ? { ...node, data: { ...node.data, status: "running", error: undefined } } : node),
+    }));
+    try {
+      const output = await extractVideoFrameRemote({
+        videoUrl,
+        sourceStorageKey: archivedVideoStorageKeyFrom(source),
+        mode,
+        timestampSeconds: mode === "timestamp" ? timestampSeconds : undefined,
+        sourceNodeId: source.id,
+        projectId: extractor.data.workflowId || source.data.workflowId,
+      });
+      const derivedCount = get().edges.filter((edge) => edge.source === extractor.id && edge.sourceHandle === "image").length;
+      const frame = makeNode("reference", {
+        x: extractor.position.x + 470,
+        y: extractor.position.y + derivedCount * 300,
+      });
+      const timestampLabel = `${output.timestampSeconds.toFixed(2)}s`;
+      frame.data = {
+        ...frame.data,
+        title: mode === "last" ? "Reference* 视频尾帧" : `Reference* 当前画面 ${timestampLabel}`,
+        status: "success",
+        imageUrl: output.imageUrl,
+        notes: mode === "last"
+          ? `由「${source.data.title}」的最后有效画面抽取。`
+          : `由「${source.data.title}」在 ${timestampLabel} 抽取。`,
+        frameSourceVideoNodeId: source.id,
+        frameMode: mode,
+        frameTimestampSeconds: output.timestampSeconds,
+        output: {
+          kind: "reference",
+          summary: mode === "last" ? "Video tail frame extracted" : `Video frame extracted at ${timestampLabel}`,
+          value: output,
+          createdAt: new Date().toISOString(),
+        },
+      };
+      const derivationEdge: WorkflowEdge = {
+        id: `edge-${extractor.id}-${frame.id}`,
+        source: extractor.id,
+        sourceHandle: "image",
+        target: frame.id,
+        style: { stroke: "#84cc16", strokeWidth: 2 },
+      };
+      set((state) => ({
+        nodes: [...state.nodes.map((node) => node.id === extractor.id ? {
+          ...node,
+          selected: false,
+          data: {
+            ...node.data,
+            status: "success" as const,
+            error: undefined,
+            imageUrl: output.imageUrl,
+            frameSourceVideoNodeId: source.id,
+            frameMode: mode,
+            frameTimestampSeconds: output.timestampSeconds,
+            output: {
+              kind: "image",
+              summary: mode === "last" ? "Video tail frame extracted" : `Video frame extracted at ${timestampLabel}`,
+              value: output,
+              createdAt: new Date().toISOString(),
+            },
+          },
+        } : { ...node, selected: false }), { ...frame, selected: true }],
+        edges: [...state.edges, derivationEdge],
+        selectedNodeId: frame.id,
+        undoStack: appendUndoEntry(state.undoStack, state),
+        canUndo: true,
+        lastError: null,
+        agentMessage: mode === "last" ? "已抽取视频尾帧并创建 Reference 节点。" : "已抽取当前画面并创建 Reference 节点。",
+      }));
+      return frame.id;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "视频抽帧失败。";
+      set((state) => ({
+        lastError: message,
+        nodes: state.nodes.map((node) => node.id === extractorId ? { ...node, data: { ...node.data, status: "error", error: message } } : node),
+      }));
+      throw error;
+    }
+  },
   createImageRevision: async (sourceId, annotations, instruction) => { const source = get().nodes.find((node) => node.id === sourceId); const sourceImageUrl = source ? imageUrlFrom(source) : ""; if (!source || !sourceImageUrl) { set({ lastError: "The source image is unavailable for revision." }); return; } const revisionPrompt = revisionPromptFrom(source.data.prompt, annotations, instruction); const revision: CanvasNode = { id: `image-${crypto.randomUUID()}`, type: "creative", position: { x: source.position.x + 340, y: source.position.y + 40 }, data: { ...source.data, title: `${source.data.title} — Revision`, status: "running", output: undefined, error: undefined, annotations, revisionOf: source.id, sourceImageUrl, revisionInstruction: instruction } }; set((state) => ({ nodes: [...state.nodes.map((node) => node.id === sourceId ? { ...node, data: { ...node.data, annotations, revisionInstruction: instruction } } : { ...node, selected: false }), revision], selectedNodeId: revision.id, lastError: null })); try { const payload = await requestImageRevision({ sourceImageUrl, prompt: revisionPrompt, size: source.data.size }); const providerOutput = asRecord(payload.output); const output = outputFromProvider("image", { ...providerOutput, imageUrl: asText(providerOutput.revisedImageUrl) }); set((state) => ({ nodes: state.nodes.map((node) => node.id === revision.id ? { ...node, data: { ...node.data, status: "success", output } } : node) })); } catch (error) { const message = error instanceof Error ? error.message : "Image revision failed."; set((state) => ({ lastError: message, nodes: state.nodes.map((node) => node.id === revision.id ? { ...node, data: { ...node.data, status: "error", error: message } } : node) })); } },
   createKeyframeBatch: (sourceId) => {
     const state = get();
@@ -629,23 +789,47 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       set((current) => ({ lastError: message, nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "error", error: message } } : item) }));
     }
   },
+  runNodes: async (ids) => {
+    const state = get();
+    const requestedIds = new Set(ids);
+    const selected = state.nodes.filter((node) => requestedIds.has(node.id)
+      && BATCH_RUNNABLE_NODE_TYPES.has(node.data.nodeType)
+      && node.data.status !== "running"
+      && node.data.status !== "waiting");
+    if (!selected.length) {
+      set({ lastError: "选中的节点中没有可运行节点。" });
+      return;
+    }
+    const selectedIds = new Set(selected.map((node) => node.id));
+    const selectedEdges = state.edges.filter((edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target));
+    try {
+      const ordered = topologicalSort(selected, selectedEdges);
+      set({ lastError: null, agentMessage: `正在依次运行 ${ordered.length} 个选中节点…` });
+      for (const node of ordered) await get().runNode(node.id);
+      set({ agentMessage: `已运行 ${ordered.length} 个选中节点。` });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "批量运行失败。";
+      set({ lastError: message, agentMessage: null });
+    }
+  },
   pollNode: async (id) => {
     const node = get().nodes.find((item) => item.id === id);
     const value = asRecord(node?.data.output?.value);
     const taskId = asText(value.taskId);
-    if (!node || !taskId || !["image", "video", "audio", "motion"].includes(node.data.nodeType)) return;
+    if (!node || !taskId || !["image", "video", "videoRegeneration", "audio", "motion"].includes(node.data.nodeType)) return;
     set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, status: "running", error: undefined } } : item) }));
     try {
-      const payload = await pollTaskRemote({ type: node.data.nodeType, taskId, provider: pollProviderFor(node, value), pollUrl: asText(value.pollUrl) || undefined, pollAction: node.data.nodeType === "video" ? (asText(value.pollAction) || undefined) : undefined, expectedAspectRatio: node.data.nodeType === "video" ? asText(value.expectedAspectRatio) || node.data.aspectRatio : undefined });
+      const skipAspectRatioValidation = value.skipAspectRatioValidation === true || node.data.videoModelPreset === "minimax-ref2va-hkgai";
+      const payload = await pollTaskRemote({ type: node.data.nodeType, taskId, provider: pollProviderFor(node, value), pollUrl: asText(value.pollUrl) || undefined, pollAction: node.data.nodeType === "video" ? (asText(value.pollAction) || undefined) : undefined, expectedAspectRatio: node.data.nodeType === "video" && !skipAspectRatioValidation ? asText(value.expectedAspectRatio) || node.data.aspectRatio : undefined });
       const rawOutput = asRecord(payload.output);
       const providerFromPoll = typeof payload.provider === "string" ? payload.provider : pollProviderFor(node, value);
       const pollVideoProvider = videoProviderFrom(providerFromPoll);
-      const result = outputFromProvider(node.data.nodeType, node.data.nodeType === "video" || node.data.nodeType === "motion" ? { ...rawOutput, provider: providerFromPoll, videoUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl) } : payload.output);
+      const result = outputFromProvider(node.data.nodeType, node.data.nodeType === "video" || node.data.nodeType === "videoRegeneration" || node.data.nodeType === "motion" ? { ...rawOutput, provider: providerFromPoll, videoUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl) } : payload.output);
       const state = asText(rawOutput.status);
       const intervalMs = Number(payload.polling?.intervalMs) || 3000;
       if (state === "pending" || state === "running") schedulePoll(id, () => void get().pollNode(id), intervalMs);
       const generatedImageUrl = node.data.nodeType === "image" ? imageUrlFromOutput(result) : "";
-      set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, ...(node.data.nodeType === "video" && pollVideoProvider ? { videoProvider: pollVideoProvider } : {}), ...(generatedImageUrl ? { imageHistory: appendImageHistory(item.data.imageHistory, generatedImageUrl), activeImageUrl: generatedImageUrl } : {}), status: state === "failed" ? "error" : state === "completed" ? "success" : state === "running" ? "running" : "waiting", error: state === "failed" ? asText(rawOutput.errorMessage) || "Generated media failed validation." : undefined, output: result, taskId, resultUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl), rawStatus: asText(rawOutput.rawStatus) || state, lastPollAt: new Date().toISOString() } } : item) }));
+      set((current) => ({ nodes: current.nodes.map((item) => item.id === id ? { ...item, data: { ...item.data, ...(node.data.nodeType === "video" && pollVideoProvider ? { videoProvider: pollVideoProvider } : {}), ...(node.data.nodeType === "motion" && asText(rawOutput.hyperframesProjectId) ? { hyperframesProjectId: asText(rawOutput.hyperframesProjectId), hyperframesProjectDir: asText(rawOutput.hyperframesProjectDir) || item.data.hyperframesProjectDir } : {}), ...(generatedImageUrl ? { imageHistory: appendImageHistory(item.data.imageHistory, generatedImageUrl), activeImageUrl: generatedImageUrl } : {}), status: state === "failed" ? "error" : state === "completed" ? "success" : state === "running" ? "running" : "waiting", error: state === "failed" ? asText(rawOutput.errorMessage) || "Generated media failed validation." : undefined, output: result, taskId, resultUrl: asText(rawOutput.resultUrl) || asText(rawOutput.videoUrl), rawStatus: asText(rawOutput.rawStatus) || state, lastPollAt: new Date().toISOString() } } : item) }));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Task polling failed";
       const retryStatus = asText(value.status);

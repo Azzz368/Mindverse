@@ -15,6 +15,7 @@ import type {
 
 type AgentRunIndexEntry = {
   id: string;
+  workspaceId?: string;
   status: AgentRunStatus;
   executionMode: AgentRunExecutionMode;
   updatedAt: string;
@@ -23,6 +24,7 @@ type AgentRunIndexEntry = {
 type AgentRunIndex = { runs: AgentRunIndexEntry[] };
 
 type PersistTraceOptions = {
+  workspaceId?: string;
   executionMode?: AgentRunExecutionMode;
   request?: AgentRunRecord["request"];
   checkpoint?: AgentRunCheckpoint;
@@ -130,6 +132,7 @@ async function updateIndex(record: AgentRunRecord) {
     const current = await readJson<AgentRunIndex>(INDEX_PATH);
     const next: AgentRunIndexEntry = {
       id: record.id,
+      workspaceId: record.workspaceId,
       status: record.status,
       executionMode: record.executionMode,
       updatedAt: record.updatedAt,
@@ -148,15 +151,16 @@ async function saveRecord(record: AgentRunRecord) {
   return bounded;
 }
 
-export async function getAgentRun(runIdValue: string): Promise<AgentRunRecord | null> {
+export async function getAgentRun(runIdValue: string, workspaceId?: string): Promise<AgentRunRecord | null> {
   const runId = requireRunId(runIdValue);
-  return readJson<AgentRunRecord>(runPath(runId));
+  const record = await readJson<AgentRunRecord>(runPath(runId));
+  return record && (!workspaceId || record.workspaceId === workspaceId) ? record : null;
 }
 
-export async function listAgentRuns(limitValue = 20): Promise<AgentRunIndexEntry[]> {
+export async function listAgentRuns(limitValue = 20, workspaceId?: string): Promise<AgentRunIndexEntry[]> {
   const limit = Math.max(1, Math.min(100, Math.round(limitValue)));
   const index = await readJson<AgentRunIndex>(INDEX_PATH);
-  return (index?.runs || []).slice(0, limit);
+  return (index?.runs || []).filter((run) => !workspaceId || run.workspaceId === workspaceId).slice(0, limit);
 }
 
 export async function persistAgentRunTrace(trace: AgentRunTrace, options: PersistTraceOptions = {}) {
@@ -165,6 +169,7 @@ export async function persistAgentRunTrace(trace: AgentRunTrace, options: Persis
     const existing = await getAgentRun(trace.id);
     const record: AgentRunRecord = {
       schemaVersion: 1,
+      workspaceId: options.workspaceId || existing?.workspaceId,
       revision: (existing?.revision || 0) + 1,
       executionMode: options.executionMode || existing?.executionMode || "browser",
       ...trace,
@@ -185,10 +190,10 @@ export async function persistAgentRunTrace(trace: AgentRunTrace, options: Persis
   });
 }
 
-export async function updateAgentRun(runIdValue: string, update: AgentRunUpdate) {
+export async function updateAgentRun(runIdValue: string, update: AgentRunUpdate, workspaceId?: string) {
   const runId = requireRunId(runIdValue);
   return withLock(runId, async () => {
-    const existing = await getAgentRun(runId);
+    const existing = await getAgentRun(runId, workspaceId);
     if (!existing) throw new Error("Agent run not found.");
     const updatedAt = new Date().toISOString();
     const record: AgentRunRecord = {
@@ -210,10 +215,10 @@ export async function updateAgentRun(runIdValue: string, update: AgentRunUpdate)
   });
 }
 
-export async function requestAgentRunCancellation(runIdValue: string) {
+export async function requestAgentRunCancellation(runIdValue: string, workspaceId?: string) {
   const runId = requireRunId(runIdValue);
   return withLock(runId, async () => {
-    const existing = await getAgentRun(runId);
+    const existing = await getAgentRun(runId, workspaceId);
     if (!existing) throw new Error("Agent run not found.");
     const now = new Date().toISOString();
     return saveRecord({
@@ -228,10 +233,10 @@ export async function requestAgentRunCancellation(runIdValue: string) {
   });
 }
 
-export async function requestAgentRunResume(runIdValue: string) {
+export async function requestAgentRunResume(runIdValue: string, workspaceId?: string) {
   const runId = requireRunId(runIdValue);
   return withLock(runId, async () => {
-    const existing = await getAgentRun(runId);
+    const existing = await getAgentRun(runId, workspaceId);
     if (!existing) throw new Error("Agent run not found.");
     if (!existing.checkpoint?.planResponse) throw new Error("This Agent run has no resumable plan checkpoint.");
     const now = new Date().toISOString();

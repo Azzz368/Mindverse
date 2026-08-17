@@ -1,3 +1,5 @@
+import { AuthError } from "@/server/auth/auth";
+
 export class AIProviderError extends Error { constructor(message: string, public readonly code = "AI_PROVIDER_ERROR", public readonly status = 500) { super(message); this.name = "AIProviderError"; } }
 export class AIProviderConfigError extends AIProviderError { constructor(message = "302.AI API key is missing. Please set AI_302_API_KEY in your server environment.") { super(message, "AI_PROVIDER_CONFIG_ERROR", 500); this.name = "AIProviderConfigError"; } }
 export class AIProviderHTTPError extends AIProviderError { constructor(message: string, status: number, public readonly body?: unknown) { super(message, "AI_PROVIDER_HTTP_ERROR", status); this.name = "AIProviderHTTPError"; } }
@@ -21,6 +23,7 @@ const TOKENSTAR_CODE_MESSAGES: Record<string, string> = {
   network_error: "Network connection to TokenStar failed before a response was received. Please retry.",
 };
 export function normalizeAIError(error: unknown) {
+  if (error instanceof AuthError) return { message: error.message, code: error.code, status: error.status };
   if (error instanceof TokenStarError) {
     const detail = safeProviderDetail(error.message);
     const codeMsg = error.errorCode ? (TOKENSTAR_CODE_MESSAGES[error.errorCode] ?? `Error code: ${error.errorCode}`) : "";

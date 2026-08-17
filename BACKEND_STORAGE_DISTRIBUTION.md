@@ -1,5 +1,7 @@
 # Unlimited Map 后端文件存储与分发现状说明
 
+> **历史文档（2026-08-13 标记）：** 本文记录 Bunny Storage 接入前的架构分析，不再代表当前 Mindverse 实现。当前工作流保存采用 Postgres 元数据与 workspace-scoped Bunny 快照，最新状态请参阅 [`WORKSPACE_HANDOFF.md`](WORKSPACE_HANDOFF.md)。
+
 ## 1. 文档目的
 
 这份文档聚焦项目当前后端在媒体文件处理上的真实现状，尤其是图片、视频、音频在生成后的存储位置、在画布中的引用方式、以及如何继续分发给后续模型 API。本文也会给出后续接入 Bunny 的建议改造方向，方便后面把画布中产出的媒体统一沉淀为稳定 URL。

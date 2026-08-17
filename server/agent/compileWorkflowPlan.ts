@@ -68,11 +68,12 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
     const selectedTokenstarMode = provider === "tokenstar"
       ? hasAssetInput && !requestedModeAcceptsAssets ? "asset-video" : requestedTokenstarMode || (hasAssetInput ? "asset-video" : "text-to-video")
       : requestedTokenstarMode;
-    const fallbackModel = selectedTokenstarMode === "asset-video" ? "seedance-2.0-asset-fast"
+    const fallbackModel = provider === "hkgai" ? "t2_minimax-h3_bf16_7k2p"
+      : selectedTokenstarMode === "asset-video" ? "seedance-2.0-asset-fast"
       : selectedTokenstarMode === "kling-omni" ? "kling-v3-omni"
       : selectedTokenstarMode === "kling-image" || selectedTokenstarMode === "kling-text" ? "kling-v3"
       : "";
-    const videoProvider = provider === "kling" || provider === "302ai" || provider === "302-sora2" ? provider : "tokenstar";
+    const videoProvider = provider === "kling" || provider === "302ai" || provider === "302-sora2" || provider === "hkgai" ? provider : "tokenstar";
     const model = text(params.model) || fallbackModel;
     const normalizedTokenstarMode = selectedTokenstarMode === "asset-video" || selectedTokenstarMode === "kling-image" || selectedTokenstarMode === "kling-text" || selectedTokenstarMode === "kling-omni" ? selectedTokenstarMode : "text-to-video";
     const klingMode = selectedTokenstarMode === "kling-omni" ? "omni" : selectedTokenstarMode === "kling-text" ? "text-to-video" : "image-to-video";
@@ -103,8 +104,8 @@ const patchForStep = (plan: AgentWorkflowPlan, step: AgentWorkflowPlan["steps"][
   }
   if (step.kind === "videoEdit") return {
     title: step.label,
-    prompt: step.purpose || "",
-    editPlan: text(params.editPlan) || step.prompt || plan.userPrompt,
+    prompt: step.prompt || step.purpose || plan.userPrompt,
+    editPlan: jsonText(params.editPlan),
     preserveAudio: bool(params.preserveAudio) ?? true,
     originalVolume: number(params.originalVolume) ?? 1,
     backgroundVolume: number(params.backgroundVolume) ?? 0.2,

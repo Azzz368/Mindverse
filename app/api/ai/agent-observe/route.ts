@@ -10,6 +10,7 @@ import { retrieveCapabilities } from "@/server/agent/capabilities/capabilityRetr
 import type { AgentObserveRequest } from "@/shared/api/aiContracts";
 import type { CanvasNode, WorkflowEdge } from "@/shared/canvas";
 import { DEFAULT_AGENT_EXECUTION_MODEL, isAgentExecutionModelId } from "@/shared/agent/executionModels";
+import { requireSession } from "@/server/auth/auth";
 
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const stringArray = (value: unknown) => Array.isArray(value)
@@ -24,6 +25,7 @@ const patchHasChanges = (patch: ReturnType<typeof compileCanvasEditPlanToPatch>)
 
 export async function POST(request: Request) {
   try {
+    const session = await requireSession(request);
     const body = await request.json() as Partial<AgentObserveRequest>;
     const userMessage = text(body.userMessage);
     if (!userMessage) return NextResponse.json({ ok: false, error: { message: "userMessage is required." } }, { status: 400 });
@@ -60,7 +62,7 @@ export async function POST(request: Request) {
           await indexSuccessfulRepair({
             repairId: `agent-repair-${crypto.randomUUID()}`,
             provider: "mindverse-agent",
-            tenantId: "shared",
+            tenantId: session.workspaceId,
             errorSummary: [...observation.issues, ...observation.warnings].join("; ") || `An earlier verification failed before repair attempt ${attempt}.`,
             repairSummary: decision.summary,
           });
@@ -80,7 +82,7 @@ export async function POST(request: Request) {
       query: [repairInstruction, ...observation.issues, ...observation.warnings].join("\n"),
       domains: ["repair", "capability"],
       requiredCapabilities: [],
-      filters: { tenantId: "shared", availability: ["available"] },
+      filters: { tenantId: session.workspaceId, availability: ["available"] },
       limit: 6,
     });
     const repairEvidence = repairEvidenceBundle.evidence

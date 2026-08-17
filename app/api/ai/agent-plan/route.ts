@@ -6,6 +6,7 @@ import { runAgentPlannerLLM, runAgentRouterLLM } from "@/server/ai/302aiLLMProvi
 import { retrieveCapabilities } from "@/server/agent/capabilities/capabilityRetriever";
 import { approvalRequiredStepIds, bindPlanCapabilities, capabilityPlanGraphIssues, capabilityPlanIssues } from "@/server/agent/capabilities/capabilityValidator";
 import { optionalAgentExecutionModelFrom } from "@/shared/agent/executionModels";
+import { requireSession } from "@/server/auth/auth";
 
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 
@@ -19,6 +20,7 @@ function summarizeCanvas(value: unknown) {
 
 export async function POST(request: Request) {
   try {
+    const session = await requireSession(request);
     const body = await request.json() as { userPrompt?: unknown; canvasSnapshot?: unknown; mode?: unknown; executionModel?: unknown };
     const userPrompt = text(body.userPrompt);
     if (!userPrompt) return NextResponse.json({ ok: false, error: { message: "userPrompt is required." } }, { status: 400 });
@@ -33,7 +35,7 @@ export async function POST(request: Request) {
       filters: {
         duration: Number.isFinite(Number(semanticRoute.constraints.duration)) ? Number(semanticRoute.constraints.duration) : undefined,
         aspectRatio: typeof semanticRoute.constraints.aspectRatio === "string" ? semanticRoute.constraints.aspectRatio : undefined,
-        tenantId: "shared",
+        tenantId: session.workspaceId,
         availability: ["available"],
       },
       limit: 10,

@@ -1,4 +1,5 @@
 import "server-only";
+import { AuthError } from "@/server/auth/auth";
 
 export class QwenCloudError extends Error {
   code: string;
@@ -24,6 +25,7 @@ const friendlyMessage = (message: string) => {
 };
 
 export const qwenErrorPayload = (error: unknown) => {
+  if (error instanceof AuthError) return { message: error.message, code: error.code, status: error.status };
   if (error instanceof QwenCloudError) {
     return {
       message: friendlyMessage(error.message),

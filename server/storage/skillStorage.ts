@@ -4,7 +4,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { deleteBunnyFile, getJsonFromBunny, uploadJsonToBunny } from "./bunnyClient";
-import { isValidAccessCode } from "./workflowStorage";
+import { queryPostgres } from "@/server/db/postgres";
 import { deactivateSkillDocument, indexSkillDocument } from "@/server/rag/sources/skillSource";
 import type { CanvasNode, CanvasSnapshot } from "@/shared/canvas";
 import {
@@ -19,9 +19,10 @@ import {
   type StoredSkill,
 } from "@/shared/skills/skillTypes";
 
-const accountPath = (accessCode: string) => `skills/access-${accessCode}`;
-const indexPath = (accessCode: string) => `${accountPath(accessCode)}/index.json`;
-const skillPath = (accessCode: string, skillId: string) => `${accountPath(accessCode)}/${skillId}.json`;
+type SkillOwner = { workspaceId: string; userId: string };
+const accountPath = (workspaceId: string) => `workspaces/${workspaceId}/skills`;
+const indexPath = (workspaceId: string) => `${accountPath(workspaceId)}/index.json`;
+const skillPath = (workspaceId: string, skillId: string) => `${accountPath(workspaceId)}/${skillId}.json`;
 const localStorageRoot = () =>
   process.env.MINDVERSE_LOCAL_STORAGE_ROOT ||
   path.join(process.env.LOCALAPPDATA || process.env.XDG_DATA_HOME || os.homedir(), "Mindverse", "workflow-storage");
@@ -29,9 +30,9 @@ const localPath = (remotePath: string) => path.join(localStorageRoot(), ...remot
 const storageProvider = () => process.env.SKILL_STORAGE_PROVIDER || process.env.WORKFLOW_STORAGE_PROVIDER;
 const canUseLocalFallback = () => storageProvider() === "local" || process.env.NODE_ENV !== "production";
 
-const requireAccessCode = (value: unknown) => {
-  if (!isValidAccessCode(value)) throw new Error("Invalid access code.");
-  return String(value).trim();
+const requireWorkspaceId = (value: unknown) => {
+  if (typeof value !== "string" || !/^[0-9a-f-]{36}$/i.test(value)) throw new Error("Invalid workspace.");
+  return value;
 };
 
 const asText = (value: unknown, field: string, maxLength: number) => {
@@ -174,13 +175,13 @@ async function deleteLocalJson(remotePath: string) {
   await rm(localPath(remotePath), { force: true });
 }
 
-const readRemoteIndex = async (accessCode: string) => {
-  const index = await getJsonFromBunny<{ skills: SkillSummary[] }>(indexPath(accessCode));
+const readRemoteIndex = async (workspaceId: string) => {
+  const index = await getJsonFromBunny<{ skills: SkillSummary[] }>(indexPath(workspaceId));
   return { skills: Array.isArray(index?.skills) ? index.skills : [] };
 };
 
-const readLocalIndex = async (accessCode: string) => {
-  const index = await getLocalJson<{ skills: SkillSummary[] }>(indexPath(accessCode));
+const readLocalIndex = async (workspaceId: string) => {
+  const index = await getLocalJson<{ skills: SkillSummary[] }>(indexPath(workspaceId));
   return { skills: Array.isArray(index?.skills) ? index.skills : [] };
 };
 
@@ -195,13 +196,13 @@ async function withLocalFallback<T>(operation: () => Promise<T>, fallback: () =>
   }
 }
 
-export async function listSkills(accessCodeValue: unknown) {
-  const accessCode = requireAccessCode(accessCodeValue);
-  return withLocalFallback(() => readRemoteIndex(accessCode), () => readLocalIndex(accessCode));
+export async function listSkills(workspaceIdValue: unknown) {
+  const workspaceId = requireWorkspaceId(workspaceIdValue);
+  return withLocalFallback(() => readRemoteIndex(workspaceId), () => readLocalIndex(workspaceId));
 }
 
-export async function createSkill(accessCodeValue: unknown, draftValue: unknown) {
-  const accessCode = requireAccessCode(accessCodeValue);
+export async function createSkill(owner: SkillOwner, draftValue: unknown) {
+  const workspaceId = requireWorkspaceId(owner.workspaceId);
   const draft = normalizeDraft(draftValue);
   const now = new Date().toISOString();
   const skill: StoredSkill = {
@@ -221,57 +222,71 @@ export async function createSkill(accessCodeValue: unknown, draftValue: unknown)
   const summary = summaryFrom(skill);
   const stored = await withLocalFallback(
     async () => {
-      const index = await readRemoteIndex(accessCode);
-      await uploadJsonToBunny(skillPath(accessCode, skill.id), skill);
-      await uploadJsonToBunny(indexPath(accessCode), { skills: [summary, ...index.skills] });
+      const index = await readRemoteIndex(workspaceId);
+      await uploadJsonToBunny(skillPath(workspaceId, skill.id), skill);
+      await uploadJsonToBunny(indexPath(workspaceId), { skills: [summary, ...index.skills] });
       return skill;
     },
     async () => {
-      const index = await readLocalIndex(accessCode);
-      await uploadLocalJson(skillPath(accessCode, skill.id), skill);
-      await uploadLocalJson(indexPath(accessCode), { skills: [summary, ...index.skills] });
+      const index = await readLocalIndex(workspaceId);
+      await uploadLocalJson(skillPath(workspaceId, skill.id), skill);
+      await uploadLocalJson(indexPath(workspaceId), { skills: [summary, ...index.skills] });
       return skill;
     },
   );
+  await queryPostgres(
+    `INSERT INTO mindverse_skills (id, workspace_id, created_by, name, storage_key, version, visibility, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
+    [stored.id, workspaceId, owner.userId, stored.name, skillPath(workspaceId, stored.id), stored.version, stored.visibility, stored.createdAt],
+  );
   try {
-    await indexSkillDocument(stored, "shared");
+    await indexSkillDocument(stored, workspaceId);
   } catch (error) {
     console.warn("Skill was saved but RAG indexing failed.", error instanceof Error ? error.message : error);
   }
   return stored;
 }
 
-export async function getSkill(accessCodeValue: unknown, skillId: string) {
-  const accessCode = requireAccessCode(accessCodeValue);
-  if (storageProvider() === "local") return getLocalJson<StoredSkill>(skillPath(accessCode, skillId));
+export async function getSkill(workspaceIdValue: unknown, skillId: string) {
+  const workspaceId = requireWorkspaceId(workspaceIdValue);
+  const owned = await queryPostgres(`SELECT 1 FROM mindverse_skills WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL LIMIT 1`, [skillId, workspaceId]);
+  if (!owned.rowCount) return null;
+  if (storageProvider() === "local") return getLocalJson<StoredSkill>(skillPath(workspaceId, skillId));
   try {
-    const remote = await getJsonFromBunny<StoredSkill>(skillPath(accessCode, skillId));
+    const remote = await getJsonFromBunny<StoredSkill>(skillPath(workspaceId, skillId));
     if (remote || !canUseLocalFallback()) return remote;
-    return getLocalJson<StoredSkill>(skillPath(accessCode, skillId));
+    return getLocalJson<StoredSkill>(skillPath(workspaceId, skillId));
   } catch (error) {
     if (!canUseLocalFallback()) throw error;
     console.warn("Bunny skill storage unavailable; using local skill storage.", error instanceof Error ? error.message : error);
-    return getLocalJson<StoredSkill>(skillPath(accessCode, skillId));
+    return getLocalJson<StoredSkill>(skillPath(workspaceId, skillId));
   }
 }
 
-export async function updateSkill(accessCodeValue: unknown, skillId: string, draftValue: unknown) {
-  const accessCode = requireAccessCode(accessCodeValue);
+export async function updateSkill(owner: SkillOwner, skillId: string, draftValue: unknown) {
+  const workspaceId = requireWorkspaceId(owner.workspaceId);
+  const owned = await queryPostgres(`SELECT 1 FROM mindverse_skills WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL LIMIT 1`, [skillId, workspaceId]);
+  if (!owned.rowCount) throw new Error("Skill not found.");
   const draft = normalizeDraft(draftValue);
   const stored = await withLocalFallback(
-    async () => updateSkillIn("bunny", accessCode, skillId, draft),
-    async () => updateSkillIn("local", accessCode, skillId, draft),
+    async () => updateSkillIn("bunny", workspaceId, skillId, draft),
+    async () => updateSkillIn("local", workspaceId, skillId, draft),
+  );
+  await queryPostgres(
+    `UPDATE mindverse_skills SET name = $1, version = $2, visibility = $3, updated_at = now()
+      WHERE id = $4 AND workspace_id = $5 AND deleted_at IS NULL`,
+    [stored.name, stored.version, stored.visibility, skillId, workspaceId],
   );
   try {
-    await indexSkillDocument(stored, "shared");
+    await indexSkillDocument(stored, workspaceId);
   } catch (error) {
     console.warn("Skill was updated but RAG indexing failed.", error instanceof Error ? error.message : error);
   }
   return stored;
 }
 
-async function updateSkillIn(storage: "bunny" | "local", accessCode: string, skillId: string, draft: SkillDraft) {
-  const storedPath = skillPath(accessCode, skillId);
+async function updateSkillIn(storage: "bunny" | "local", workspaceId: string, skillId: string, draft: SkillDraft) {
+  const storedPath = skillPath(workspaceId, skillId);
   const existing = storage === "bunny" ? await getJsonFromBunny<StoredSkill>(storedPath) : await getLocalJson<StoredSkill>(storedPath);
   if (!existing) throw new Error("Skill not found.");
   const skill: StoredSkill = {
@@ -288,48 +303,51 @@ async function updateSkillIn(storage: "bunny" | "local", accessCode: string, ski
     nodeCount: draft.canvasTemplate?.nodes.length || 0,
     updatedAt: new Date().toISOString(),
   };
-  const index = storage === "bunny" ? await readRemoteIndex(accessCode) : await readLocalIndex(accessCode);
+  const index = storage === "bunny" ? await readRemoteIndex(workspaceId) : await readLocalIndex(workspaceId);
   const nextIndex = index.skills.map((item) => item.id === skillId ? summaryFrom(skill) : item);
   if (storage === "bunny") {
     await uploadJsonToBunny(storedPath, skill);
-    await uploadJsonToBunny(indexPath(accessCode), { skills: nextIndex });
+    await uploadJsonToBunny(indexPath(workspaceId), { skills: nextIndex });
   } else {
     await uploadLocalJson(storedPath, skill);
-    await uploadLocalJson(indexPath(accessCode), { skills: nextIndex });
+    await uploadLocalJson(indexPath(workspaceId), { skills: nextIndex });
   }
   return skill;
 }
 
-export async function deleteSkill(accessCodeValue: unknown, skillId: string) {
-  const accessCode = requireAccessCode(accessCodeValue);
+export async function deleteSkill(owner: SkillOwner, skillId: string) {
+  const workspaceId = requireWorkspaceId(owner.workspaceId);
+  const owned = await queryPostgres(`SELECT 1 FROM mindverse_skills WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL LIMIT 1`, [skillId, workspaceId]);
+  if (!owned.rowCount) throw new Error("Skill not found.");
   await withLocalFallback(
     async () => {
-      const index = await readRemoteIndex(accessCode);
-      await deleteBunnyFile(skillPath(accessCode, skillId));
-      await uploadJsonToBunny(indexPath(accessCode), { skills: index.skills.filter((item) => item.id !== skillId) });
+      const index = await readRemoteIndex(workspaceId);
+      await deleteBunnyFile(skillPath(workspaceId, skillId));
+      await uploadJsonToBunny(indexPath(workspaceId), { skills: index.skills.filter((item) => item.id !== skillId) });
     },
     async () => {
-      const index = await readLocalIndex(accessCode);
-      await deleteLocalJson(skillPath(accessCode, skillId));
-      await uploadLocalJson(indexPath(accessCode), { skills: index.skills.filter((item) => item.id !== skillId) });
+      const index = await readLocalIndex(workspaceId);
+      await deleteLocalJson(skillPath(workspaceId, skillId));
+      await uploadLocalJson(indexPath(workspaceId), { skills: index.skills.filter((item) => item.id !== skillId) });
     },
   );
+  await queryPostgres(`UPDATE mindverse_skills SET deleted_at = now(), updated_at = now() WHERE id = $1 AND workspace_id = $2`, [skillId, workspaceId]);
   try {
-    await deactivateSkillDocument(skillId, "shared");
+    await deactivateSkillDocument(skillId, workspaceId);
   } catch (error) {
     console.warn("Skill was deleted but its RAG document could not be deactivated.", error instanceof Error ? error.message : error);
   }
 }
 
-export async function backfillSkillRagDocuments(accessCodeValue: unknown) {
-  const accessCode = requireAccessCode(accessCodeValue);
-  const { skills } = await listSkills(accessCode);
+export async function backfillSkillRagDocuments(workspaceIdValue: unknown) {
+  const workspaceId = requireWorkspaceId(workspaceIdValue);
+  const { skills } = await listSkills(workspaceId);
   let cursor = 0;
   const workers = Array.from({ length: Math.min(4, skills.length) }, async () => {
     while (cursor < skills.length) {
       const summary = skills[cursor++];
-      const skill = await getSkill(accessCode, summary.id);
-      if (skill) await indexSkillDocument(skill, "shared");
+      const skill = await getSkill(workspaceId, summary.id);
+      if (skill) await indexSkillDocument(skill, workspaceId);
     }
   });
   await Promise.all(workers);

@@ -1,422 +1,406 @@
-# Mindverse 项目现状与工作区迁移交接
+# Mindverse 项目交接文档
 
-> 更新日期：2026-08-05
+> 更新时间：2026-08-14
+>
 > 项目目录：`D:\HKGAI\V2-map\Mindverse`
-> Git 远端：`https://github.com/Azzz368/Mindverse.git`
+>
 > 当前分支：`agent-improve`
-> 当前基线提交：`13c890746deefbc26ed549cb83a25bcba54c68a2`（`improve VideoNode media references`）
-> 当前产品阶段：内部测试；当前开发重点是 Agent 使用体验和执行可靠性，不以公众开放为近期目标
-> 本文依据当前代码、Git 历史、现有文档、TypeScript 检查和生产构建整理；外部 AI/Bunny/Postgres 服务未做真实付费调用。
-
-## 1. 一句话定位
-
-Mindverse（README 中仍使用 Lumen Flow 名称）是一个基于 Next.js App Router、React Flow 和 Zustand 的 AI 创作无限画布。用户可以把文本、剧本、分镜、图像、视频、音频、声音克隆、FFmpeg 剪辑和 HyperFrames 动效组织成有向工作流，也可以让 Agent 通过能力检索、计划校验和自主执行来创建或修改工作流。
-
-项目已经达到“可构建、核心链路齐全、适合继续迭代”的阶段。当前是可信内部测试环境，近期主线应放在 Agent 的意图准确率、计划质量、编辑语义、审批后执行、恢复幂等和调试评测闭环。正式鉴权、后台任务系统、并发一致性和公网安全仍需保留在上线前清单中，但不必先于本阶段的 Agent 优化。
-
-Agent 专项架构分析和建议见 `AGENT_ARCHITECTURE_OPTIMIZATION.md`。
-
-## 2. 当前工作区状态
-
-### 2.1 已验证
-
-| 检查项 | 结果 | 说明 |
-| --- | --- | --- |
-| `npm.cmd run lint` | 通过 | 脚本实际执行 `tsc --noEmit`，不是 ESLint |
-| `npm.cmd run build` | 通过 | Next.js 15.5.19 成功构建，静态页面生成阶段完成 33/33 |
-| TypeScript | `strict: true` | 同时启用了 `skipLibCheck: true` |
-| 本地 Node | `v24.14.1` | Docker 生产镜像使用 Node 22，迁移后应优先用 Node 22 再复验 |
-| npm | `11.11.0` | 使用 `package-lock.json` 和 `npm ci` 可复现依赖 |
-| 自动化测试 | 未配置 | 仓库内没有单元、集成或 E2E 测试文件和 test 脚本 |
-
-### 2.2 未提交改动
-
-当前 `git status` 标记以下文件为修改状态，切换工作区前必须保留：
-
-- `features/agent/components/AgentWorkflowPanel.tsx`：Agent 面板 UI 调整，包括移除引导建议/项目记忆卡片、Agent Run 详情折叠、清空记忆入口和发送按钮样式。
-- `shared/skills/skillTemplate.ts`：Git 标记为修改；当前普通文本 diff 未显示内容差异，可能只是行尾或索引状态，迁移前仍应重新确认。
-
-不要使用 `git reset --hard` 或覆盖式 checkout。本轮只新增/更新交接分析 Markdown，不修改上述业务文件。
-
-### 2.3 本机忽略目录
-
-| 路径 | 当前大小 | 是否应迁移 |
-| --- | ---: | --- |
-| `.mindverse/` | 约 391 MiB | 通常不迁移；主要是 Codex/HyperFrames 作业和诊断文件 |
-| `.mindverse-local/` | 极小 | 当前只有空工作流索引，没有实际本地工作流 |
-| `.next/` | 约 197 MiB | 不迁移，重新构建 |
-| `node_modules/` | 约 1.5 GiB | 不迁移，运行 `npm ci` |
-| `.env.local` | 已存在 | 不提交、不放入交接文档；在新环境通过安全渠道重建 |
-
-`.mindverse/codex-home-letaicode` 可能包含本地 Codex 状态或凭据，严禁复制进仓库、压缩包或公共存储。新工作区应重新登录，或通过 Render Secret File 配置 `MINDVERSE_CODEX_AUTH_FILE`。
-
-## 3. 技术栈与目录边界
-
-| 层 | 主要技术/目录 | 职责 |
-| --- | --- | --- |
-| Web | Next.js 15 App Router、React 19、Tailwind 3 | 页面、API Route、SSR/构建 |
-| 画布 | `@xyflow/react`、Zustand | 节点、边、选择、运行状态、撤销、布局 |
-| 前端功能 | `features/*` | Canvas、Agent、Workspace、Skill UI 和 client service |
-| 共享契约 | `shared/*`、`types/*` | API 类型、节点类型、Agent schema、纯函数 |
-| 服务端 | `server/*` | AI provider、Agent、RAG、存储、FFmpeg、HyperFrames、Qwen |
-| 持久化 | Bunny Storage、本地 JSON、Render Postgres + pgvector | 工作流、Skill、媒体、Agent Run、RAG 文档 |
-| 媒体运行时 | FFmpeg/ffprobe、HyperFrames、GSAP、Chromium Headless Shell、Codex CLI | 视频剪辑、动效工程生成和渲染 |
-| 部署 | Docker / Render | Node 22、FFmpeg、Chromium、CJK 字体、Codex secret 注入 |
-
-当前目录分层已经比旧版清晰，但 `canvasStore.ts`、`AgentWorkflowPanel.tsx`、`AnnotatedCustomNode.tsx`、`agent-router/route.ts` 和 `motionCompositionRunner.ts` 仍然过大，是后续拆分重点。
-
-## 4. 页面与 API 入口
-
-### 4.1 页面
-
-- `/`：入口页。
-- `/workspace`：访问码验证和工作流仪表盘。
-- `/workspace/[workflowId]`：远程持久化工作流画布。
-- `/workspace/local`：仅浏览器/本机画布。
-- `/skills`、`/skills/new`、`/skills/[skillId]`：Skill 列表、创建和编辑。
-
-### 4.2 API 分类
-
-| 分类 | 入口 | 用途 |
-| --- | --- | --- |
-| 节点执行 | `/api/ai/run-node`、`/api/ai/poll-task` | 统一运行节点和轮询异步任务 |
-| Agent | `/api/ai/agent-router`、`agent-plan`、`agent-edit`、`agent-organize`、`agent-dialogue`、`agent-observe` | 路由、规划、编辑、整理、对话、观察修复 |
-| Agent Run | `/api/ai/agent-runs*` | checkpoint、取消、恢复、worker claim/lease |
-| 图像/模型 | `/api/ai/edit-image`、`/api/ai/list-models` | 图像修订、供应商模型列表 |
-| 工作流 | `/api/workflows*` | 工作流 CRUD 和快照保存 |
-| Skill | `/api/skills*` | Skill CRUD、模板保存和 RAG 索引 |
-| 媒体归档 | `/api/storage/archive` | 上传文件或归档远程 URL 到 Bunny |
-| Qwen | `/api/qwen/voices*`、`/api/qwen/tts` | 声音克隆管理和 TTS |
-| TokenStar | `/api/video/tokenstar/*` | 资产组、资产上传、视频创建与轮询 |
-| Kling | `/api/video/kling/element` | Kling 元素/参考主体能力 |
-
-## 5. 核心 Pipeline
-
-### 5.1 工作流加载与保存
-
-```text
-/workspace
-  -> 输入访问码并读取工作流索引
-  -> 创建/打开 workflowId
-  -> Workspace 从 Bunny 或本地 JSON 加载快照
-  -> 与 localStorage 恢复草稿比较 updatedAt
-  -> 选择较新的可恢复版本并写入 Zustand
-  -> 节点/边/项目记忆变动
-  -> 300 ms 防抖生成持久化快照
-  -> 去除 data URI、压缩大型 provider 字段
-  -> 保存本地恢复草稿 + PUT /api/workflows/[workflowId]
-  -> Bunny/local JSON
-  -> 成功工作流和项目记忆以 best-effort 方式进入 RAG
-```
-
-页面隐藏、离开和组件卸载时会尝试 flush 最新快照。无 `workflowId` 的 `/workspace/local` 使用 `lumen-flow-canvas-v1` 保存在浏览器 localStorage。
-
-### 5.2 节点执行
-
-```text
-画布节点 + 上游边
-  -> nodeInputCompiler 汇总 prompt、文本和媒体引用
-  -> canvasStore.runNode
-  -> POST /api/ai/run-node
-  -> runNodeUseCase 按 nodeType/provider 分派
-  -> 外部模型、FFmpeg、Qwen 或 Motion job
-  -> archiveResultMedia 尝试归档到 Bunny
-  -> 同步结果直接完成，异步结果返回 taskId
-  -> canvasStore.pollNode -> POST /api/ai/poll-task
-  -> 供应商轮询 + 比例验证 + 媒体归档
-  -> 标记 success/error，保存 output 和历史
-  -> Workspace 自动保存
-```
-
-`runWorkflow()` 会先拓扑排序再顺序执行；检测到环会拒绝运行。刷新页面后，`PendingTaskRecovery` 会恢复仍处于 pending/running 的任务轮询。
-
-### 5.3 Agent 规划与自主执行
-
-```text
-AgentWorkflowPanel
-  -> POST /api/ai/agent-router（附画布摘要、选中节点、对话、项目记忆、Skill）
-  -> 语义 Router LLM；失败时使用启发式 fallback
-  -> Capability Retriever
-       -> 确定性能力目录
-       -> 可选 Postgres vector + full-text 混合检索
-       -> Skill / Tool / Model / Runtime evidence bundle
-  -> Requirement LLM 检查阻塞信息
-  -> Planner 只能引用检索返回的 capability/evidence ID
-  -> 确定性 graph/capability validator
-  -> 最多一次计划修复
-  -> Canvas compiler 生成 CanvasPatch / CanvasEditPatch
-  -> 有费用/审批要求：只展示 preview，等待用户应用
-  -> 无审批且开启自主模式：浏览器 runAutonomousAgent
-  -> 拓扑运行受影响节点
-  -> agent-observe + ffprobe 检查状态、比例、时长、Codex 结果
-  -> 最多 2 次 repair patch
-  -> AgentRun checkpoint 持久化，可取消和恢复
-```
-
-重要边界：自主节点执行目前仍由浏览器和 Zustand 驱动。服务端虽已有 run record、claim 和 lease API，但没有真正的后台 Worker 进程。
-
-### 5.4 Motion / Codex + HyperFrames
-
-```text
-MotionNode
-  -> enqueueMotionJob
-  -> 本地或 Bunny 保存 job JSON
-  -> 当前 Next.js 进程内的串行 Promise 队列
-  -> 下载并本地化素材
-  -> Codex CLI 生成/修改 HyperFrames composition
-  -> 禁止远程脚本和 CDN 依赖
-  -> HyperFrames 检查与 Chromium 渲染
-  -> FFmpeg/音轨处理
-  -> 上传 Bunny
-  -> /api/ai/poll-task 返回进度和结果
-```
-
-进程重启时排队或执行中的 Motion job 不会被另一个 worker 自动接管；超时后会被标记失败并要求重新运行。
-
-### 5.5 媒体和知识存储
-
-- 媒体：供应商 HTTPS/data URL -> 服务端下载/解码 -> Bunny -> CDN URL 回写节点。
-- 工作流：Bunny JSON；开发模式可回退 `.mindverse-local`。
-- Skill：Bunny/local JSON；包含 `SKILL.md`、角色、触发语、prompt profile 和可选画布模板。
-- Agent Run：本地原子 JSON或 Bunny JSON；过滤 data URI，单记录上限约 5 MB。
-- RAG：Postgres + pgvector，可选 HNSW；能力、项目记忆、修复记录、成功工作流、Skill 和 prompt profile 都可索引。
-
-## 6. 已完成功能
-
-这里的“完成”表示代码链路已实现并通过当前类型检查/构建，不表示所有第三方供应商已用真实 Key 做过端到端验收。
-
-### 6.1 画布和交互
-
-- 14 种节点：Prompt、Text、Script、Storyboard、Storyboard Image、Image、Video、Video Edit、Motion、Audio、Voice Clone、Voice TTS、Reference、Output。
-- React Flow 节点/边编辑、专用连接 handle、视频多媒体输入端口和循环检测。
-- 节点添加、复制、删除、锁定、选择、多选、分组、工作流编号、自动整理和模板画廊。
-- 单步撤销、画布 JSON 导入/导出、本地保存/读取。
-- 从剪贴板粘贴图片、视频、音频或远程图片 URL，并在进入画布前归档媒体。
-- 图像生成历史画廊、活动版本切换。
-- Storyboard 成功后自动物化文本、剧本和分镜图分支。
-- 图片标注（箭头、矩形、圆形、文字）和非破坏式 revision 节点。
-
-### 6.2 AI 与媒体能力
-
-- HKGAI MaaS：文本、剧本、分镜、Agent LLM 的 OpenAI-compatible 路径。
-- 302.AI：文本、GPT Image/Gemini 图像、图像编辑、通用视频、音频和任务轮询。
-- TokenStar：GPT Image、Seedance 文生视频、Seedance asset-video、Kling v3 text/image/omni、素材组与素材上传。
-- Kling 官方：图片到视频。
-- 302 Sora-2：图片到视频。
-- QwenCloud/DashScope：声音克隆、声音列表/删除和克隆声音 TTS；包含用户授权确认。
-- FFmpeg：多视频/音频输入、裁剪/拼接、音量、淡入淡出、简单转场、比例/分辨率/FPS。
-- HyperFrames：模板模式和 Codex 生成模式、GSAP、本地 Chromium 渲染、音轨保留、进度轮询。
-- 视频输入源比例检查和生成结果比例验证。
-
-### 6.3 Agent 与 Skill
-
-- 统一 Agent 路由：dialogue、create、edit、organize、tool、skill。
-- 缺失需求澄清、多轮 pending request 和项目记忆。
-- Google/Bing（SerpAPI）、Google CSE、Wikimedia 图片搜索及来源信息保留。
-- 可执行能力目录、结构化约束、evidence ID、provider capability ID 和确定性校验。
-- Postgres hybrid retrieval、RRF、词法 rerank、可选 LLM rerank 和 catalog fallback。
-- 自主执行、观察、失败跳过、repair patch、取消、checkpoint 和浏览器恢复。
-- Skill Library CRUD、`SKILL.md` 校验、画布模板、模板 ID 重映射、Skill RAG 索引。
-- Prompt profile Skill 解析、检索和视觉节点 prompt composer。
-
-### 6.4 持久化与部署
-
-- 工作流 dashboard、远程 CRUD、Bunny 持久化、本地恢复草稿、pagehide flush。
-- 大画布快照去 data URI 和 provider 大字段压缩，3 MB 请求限制可配置。
-- 旧内联媒体迁移脚本：`npm run workflow:migrate-inline-media -- <workflow-id>`。
-- Bunny 媒体归档和 CDN URL 分发。
-- Render Postgres RAG migration 和可选 HNSW migration。
-- Docker 生产镜像包含 Node 22、FFmpeg、Chromium Headless Shell、CJK 字体、Codex CLI 和 secret-file entrypoint。
-
-## 7. 需要修复的问题
-
-本节保留完整技术债。P0 表示“对公众上线前必须解决”，不代表当前内部测试阶段应先于 Agent 优化实施；内部阶段的实际顺序以第 8 节和 `AGENT_ARCHITECTURE_OPTIMIZATION.md` 为准。
-
-### P0：上线前必须解决
-
-1. **没有正式鉴权和租户隔离。** `server/storage/workflowStorage.ts` 将访问码硬编码为 `666666`，Skill/RAG 也复用该账号；访问码存放于 localStorage，并在部分 GET/DELETE URL query 中传输。任何知道代码的人都能访问同一数据空间。应改为正式身份系统、服务端 session、tenant/user ID 和逐资源授权。
-
-2. **付费 AI/API 路由没有统一鉴权、限流和配额。** 除 worker claim/lease 外，大多数 `/api/ai/*`、归档、Qwen 和视频端点可被直接调用，存在密钥额度被滥用和成本失控风险。应加入 middleware/API gateway、用户配额、并发限制、幂等键和审计日志。
-
-3. **服务端远程媒体下载存在 SSRF 和资源耗尽面。** `/api/storage/archive` 接受用户提供的任意 HTTPS URL并跟随重定向；多个 provider/ffmpeg/probe 路径也会服务端 fetch。需要阻止私网、回环、metadata IP、DNS rebinding 和不安全重定向，并对远程内容设置 Content-Length、流式硬上限、MIME 嗅探和解压/解析限制。
-
-4. **TokenStar asset-video 尚未完成真实契约验收。** 旧 `TOKENSTAR_ASSET_VIDEO_HANDOFF.md` 明确记录过 `material group id is required`。当前代码已增强 GroupId 解析、ListAssets、OSS 等待和重试，但仓库没有真实成功样例或自动回归，不能宣称链路稳定。需用测试账号保存脱敏的 CreateAssetGroup/ListAssets/CreateAsset/video create 契约 fixture，并完成一次 image -> asset -> video -> poll -> Bunny 的 E2E。
-
-5. **后台执行还未真正后台化。** Agent 自主执行由浏览器完成；Motion 使用单个 Web 进程内串行队列。刷新、关闭浏览器、部署或进程崩溃都会影响执行。应实现独立 worker + durable queue，把节点执行和 provider polling 提取为幂等 server activity。
-
-### P1：近期应修复
-
-1. **Mock 模式与 README 声明不一致。** README 说 `AI_PROVIDER=mock` 时全部节点可无 Key 运行，但 `getTextAIProvider()` 始终返回真实 provider，`AI_TEXT_PROVIDER` 默认又落到 HKGAI；复制当前 `.env.example` 还会把图片 provider 指向 302.AI。需要让 text/image/storyboard 明确遵守 mock 配置，或修正文档和 UI。
-
-2. **没有自动化测试。** 当前“lint”只是 TypeScript。至少应补：纯函数单测、provider 响应 fixture、API Route 集成测试、持久化并发测试、Agent plan/patch golden test、Playwright 画布 E2E、Docker smoke test。
-
-3. **Bunny JSON 并发一致性不足。** 工作流/Skill 的对象和 index 是分步读改写，没有事务、revision compare-and-swap 或跨进程锁；多标签页/多人/多实例可 last-write-wins、丢失索引更新或留下孤立对象。Agent Run 的锁也只在单进程内有效。正式协作前迁移 Postgres 或加入版本号和条件写。
-
-4. **媒体归档超时会留下弱一致状态。** 非 data URL 默认只等待约 8 秒；超时后节点继续使用第三方临时 URL，而后台上传 Promise 即使成功也不会把 CDN URL写回节点，可能产生 Bunny 孤儿文件。应改为持久归档 job、回调/轮询状态和引用计数清理。
-
-5. **Agent/Media 记录缺少统一生命周期管理。** `.mindverse` 作业、Bunny 媒体、Motion job、Agent Run 和 RAG 文档没有完整 TTL、引用计数、垃圾回收和管理 UI。长时间运行会持续占空间。
-
-6. **外部 provider 健康度不可见。** 缺少启动期配置校验、provider health page、余额/限流提示、契约版本监控和生产 synthetic test。现在主要依赖用户运行节点后看错误。
-
-7. **状态恢复仍有浏览器耦合。** localStorage 草稿、Agent last run ID、pending task timer 和 Zustand 执行状态分散；跨设备迁移无法恢复浏览器本地画布/对话上下文。
-
-### P2：工程质量与体验优化
-
-1. 拆分 `CanvasNodeData` 大型可选字段联合，改为按 nodeType 的 discriminated union，并对 API 入参使用运行时 schema（如 Zod）。
-2. 拆分大文件：`AnnotatedCustomNode.tsx`、`AgentWorkflowPanel.tsx`、`canvasStore.ts`、`agent-router/route.ts`、`motionCompositionRunner.ts`。
-3. 将 Zustand store 拆为 node/edge/execution/agent/persistence slices，轮询和 autosave 改为可测试 service/hook。
-4. 增加真正的 ESLint/format/check 脚本、pre-commit 和 CI；`lint` 命名应与实际行为一致。
-5. 统一项目命名：目录叫 Mindverse、README 标题叫 Lumen Flow、package 名叫 `unlimited-map`，旧文档还引用 `Unlimited_Map` 和过期分支。
-6. 统一中英文错误、API 状态码、错误 code 和客户端提示；避免 route 各自拼装不同 error shape。
-7. 增加结构化日志、request/run/task correlation ID、OpenTelemetry、指标和告警，避免只靠 `console.warn/error`。
-8. 优化首屏和大画布性能：节点组件拆包、selector 精细订阅、虚拟化/LOD、历史输出缩略图懒加载、避免大型 raw provider 数据留在前端状态。
-9. 增加 workflow schema migration/version upgrade，而不是只检查 `version: 1` 和 nodes/edges 数组。
-10. 统一清理旧 API：`/api/ai`、专用 TokenStar route 和统一 `/api/ai/run-node` 有一定功能重叠，应定义公共/内部接口边界。
-
-## 8. 建议的实施顺序
-
-### 里程碑 A：Agent Eval 和调试基线
-
-- 建立 30-50 条固定 Agent 测试场景，覆盖 dialogue/create/edit/organize/tool/clarify/approval/resume/repair。
-- 保存输入画布 fixture、期望 route/target/capability/graph shape 和禁止操作。
-- Run trace 补充模型、耗时、token、retrieval 候选、validator 修正和 Patch 摘要。
-- 增加内部 Debug Drawer 和正确/部分正确/错误评分。
-- 修复 mock 模式，建立无外部 Key 的确定性回归入口。
-
-### 里程碑 B：Agent 核心闭环
-
-- 统一 `/agent-router` 与旧 plan/edit/organize/dialogue 入口，收敛为一个 orchestrator。
-- 将 edit 明确拆成 in-place、revision、expand 三种模式。
-- 将“仅应用到画布”和“批准并运行”分开，使付费步骤审批后能继续同一个自主 Run。
-- 区分 plan ready、patch applied 和 deliverable completed。
-- 修复 resume 重复应用 Patch，保存 step -> node ID、canvas revision 和 execution idempotency key。
-- 最近 Agent Run 和对话按 workflowId 隔离。
-
-### 里程碑 C：Agent 质量、延迟和执行可靠性
-
-- Router/Requirement 条件调用，RAG 预热，编辑任务只摘要选中节点和邻居。
-- 项目记忆增加可见、可编辑的角色/场景/风格抽取。
-- success criteria 结构化，并接入 FFprobe、抽帧、OCR/ASR 和多模态验证。
-- Repair 统一使用 capability/evidence/validator 协议。
-- 统一 polling deadline、attempt、backoff、取消和超时状态。
-- 先抽象 ExecutionAdapter，再按内部测试结果决定何时迁移独立 Worker。
-
-### 里程碑 D：公众开放前安全与产品扩展
-
-- 正式登录/session/tenant，移除硬编码访问码，并给付费 API 加鉴权、限流和配额。
-- 给远程媒体下载加 SSRF 防护和流式大小上限。
-- Postgres 保存协作 metadata，建立 durable queue、worker 和媒体生命周期管理。
-- 多用户项目、邀请、角色权限、评论、版本历史、差异比较和恢复。
-- 素材库、标签/搜索、版权/授权字段、跨项目复用和用量统计。
-- 真正的视频时间线、关键帧、字幕、配音轨、批量变体和渲染预设。
-- RAG 管理台、重建索引、检索评估集、命中解释和知识失效策略。
-
-## 9. 更换工作区操作清单
-
-### 9.1 旧工作区先做
-
-1. 运行 `git status --short --branch`，确认上述未提交文件以及两份交接分析文档。
-2. 将业务改动提交到临时分支或生成 patch；不要只复制整个目录后覆盖新仓库。
-3. 确认远程 Bunny/Postgres 数据是否继续使用同一套服务。
-4. 如果需要迁移 `/workspace/local`，在 UI 中导出 Canvas JSON；Git 不会带走浏览器 localStorage。
-5. 如需保留未保存的远程工作流草稿，先等待 autosave 成功或手动导出 JSON。
-6. 安全记录新环境需要的变量名，但不要把 Key 写入 Markdown、Git commit 或聊天记录。
-
-### 9.2 新工作区恢复
+>
+> 功能基线提交：`ff9d300 Add MiniMax ref2va video model`
+
+## 1. 项目概况
+
+Mindverse 是一个基于无限画布和节点连接的多模态创作平台。用户可以在私有工作区中组织文本、图片、视频、音频、分镜、Agent 和后期处理流程，并把上游节点的结果作为下游模型的输入。
+
+目前项目已经具备第一版可用的多用户产品框架：
+
+- 用户注册、登录、退出与服务端会话。
+- 用户私有工作区和项目隔离。
+- Postgres 保存用户、会话、工作区、项目索引和能力检索数据。
+- Bunny Storage 保存工作流快照和归档媒体。
+- 浏览器草稿作为远程保存失败时的恢复副本。
+- 文本、图片、视频、音频、分镜、视频剪辑和 Agent 节点。
+- 多家外部模型供应商的服务端接口适配。
+
+当前版本适合受控内测。生产高并发、任务队列、配额计费、完整审计和自动化回归测试仍需继续建设。
+
+## 2. 当前技术架构
+
+| 层级 | 当前实现 |
+| --- | --- |
+| Web 框架 | Next.js 15 App Router、React 19、TypeScript |
+| 画布 | React Flow、Zustand |
+| 身份认证 | 邮箱/密码、HttpOnly 会话 Cookie、Postgres Session |
+| 权限隔离 | `users`、`workspaces`、`workspace_members`、`workflows` 等 Postgres 表 |
+| 工作流保存 | Postgres 元数据与 revision；Bunny Storage 工作流 JSON 快照 |
+| 媒体归档 | Bunny Storage workspace-scoped 路径与 CDN URL |
+| AI 接口 | 服务端 `/api/ai/*` 路由；API Key 不下发浏览器 |
+| 异步任务 | 浏览器轮询为主；支持页面恢复后继续轮询部分任务 |
+| Agent | Semantic Router → Capability Retriever → Planner → Validator → Canvas Compiler → Executor → Observe/Repair |
+| Agent 运行记录 | 本地 JSON 或 Bunny；已有 checkpoint、取消、恢复和 worker lease 协议 |
+| 能力检索 | 确定性能力目录；可选 Postgres + pgvector 混合检索 |
+| 视频后处理 | FFmpeg、ffprobe、HyperFrames、Codex |
+
+### 2.1 工作区隔离
+
+浏览器不会提交一个可信的 workspace ID 来决定数据归属。服务端从登录会话解析用户和工作区，并在读取、保存、删除项目或 Skill 时进行成员权限检查。A 用户默认无法查看 B 用户的项目。
+
+### 2.2 保存策略
+
+远程项目采用以下策略：
+
+1. 用户修改画布后触发延迟自动保存。
+2. Postgres 记录项目元数据与 revision。
+3. Bunny Storage 保存 workspace-scoped JSON 快照。
+4. 保存请求在真正发送时携带最新已确认 revision，降低连续保存造成的 409 冲突。
+5. 当前浏览器同时保存一份不超过 3 MB、且不包含内嵌媒体的恢复草稿。
+6. 页面隐藏、离开或卸载时尝试刷新最后一次修改。
+
+生产环境不要使用 `WORKFLOW_STORAGE_PROVIDER=local`。Render 本地文件系统是临时的，部署或实例重启后可能丢失文件。
+
+## 3. 已完成功能
+
+### 3.1 用户、登录和项目
+
+- 注册、登录、退出登录。
+- `invite` 和 `open` 两种注册策略。
+- 用户私有工作区。
+- 项目新建、重命名、删除、打开。
+- 旧访问码工作区向指定管理员账号迁移。
+- 项目自动保存、revision 冲突处理和浏览器草稿恢复。
+- JSON 导入、导出。
+- Skill 创建、保存和复用入口。
+
+### 3.2 画布基础能力
+
+- 节点创建、拖动、连接、删除、复制和撤销。
+- 图片、视频、音频本地上传并归档到 Bunny。
+- 从剪贴板粘贴图片、视频或音频到画布。
+- 节点单独运行和整条工作流按依赖顺序运行。
+- `Shift + 鼠标左键拖动` 框选多个节点。
+- 松开鼠标后保留选择框。
+- 拖动选择框统一移动节点。
+- 批量运行、批量删除、清除选择。
+- 选择节点后设置颜色分组和锁定分组的基础能力。
+
+### 3.3 文本、分镜和图片
+
+- Prompt、Text、Script、Storyboard、Storyboard Image 节点。
+- Storyboard 结果可物化为后续场景节点。
+- GPT Image 2（TokenStar）图片生成。
+- Nano Banana（TokenStar）图片生成/编辑入口。
+- 角色转面、九宫格、俯视场景等图片提示词预设。
+- 图片参考节点连接和参考素材选择。
+- 图片标注：箭头、矩形、圆形和文字。
+- 根据标注创建新的图片修订节点，保留原图。
+- 长提示词输入框限制最大显示高度，避免节点被无限撑大。
+
+### 3.4 视频模型与工具
+
+VideoNode 当前包含以下模型预设或能力：
+
+- TokenStar Seedance 2.0 文生视频。
+- TokenStar Seedance 2.0 Asset / Asset Fast 多素材视频。
+- 数字人视频：人物图片 + 音频。
+- Volcengine OmniHuman 1.5：单图 + 音频数字人。
+- 302.AI Gen-4.5。
+- Kling v2.6 官方接口。
+- TokenStar Kling v3 图片、文本和 Omni 模式。
+- HKGAI `minimax_h3`：`t2_minimax-h3_bf16_7k2p`。
+- HKGAI `minimax_ref2va`：`t2_minimax-h3_bf16_ref2va`。
+- Sora 2 图片转视频。
+
+已完成的视频辅助节点：
+
+- 视频抽帧节点：从 VideoNode 抽取“当前画面”或“最后一帧”。
+- 当前画面时间会在关闭放大预览后保留，不会自动回到 0 秒。
+- 抽帧结果创建 Reference 节点，并显示视频到图片的连接。
+- Video Edit 节点：排序、裁剪、淡入淡出、配乐、字幕和转码基础流程。
+- Codex + HyperFrames 节点：自然语言描述后期需求，生成和渲染 HTML 视频工程。
+- MiniMax H3 2K 再生成节点：支持 `base_video` 和 `source_task_id` 两种模式。
+
+### 3.5 MiniMax 专项能力
+
+#### minimax_h3
+
+- 前端名称：`minimax_h3`。
+- 服务端模型：`t2_minimax-h3_bf16_7k2p`。
+- 提示词最长 7,000 字符。
+- 最多 2 张参考图片。
+- 5–15 秒。
+- 支持 16:9、9:16、1:1。
+- Context IR 提示词增强任务已接入。
+
+#### minimax_ref2va
+
+- 前端名称：`minimax_ref2va`。
+- 服务端模型：`t2_minimax-h3_bf16_ref2va`。
+- 模式一：固定 1 张图片 + 1 段音频。
+- 模式二：1–3 段自带音轨的视频，总时长不超过 15 秒。
+- 图片和视频不能混用。
+- 视频模式不能再单独传入音频。
+- 输出时长支持 4–15 秒，默认 4 秒。
+- `audio_flow_shift` 默认 3.0，可在节点设置中调整。
+- 图片使用 multipart 单数字段 `input_reference`。
+- 视频无论一段或多段都使用重复字段 `input_references`。
+- 音频通过 `audio_reference.audio_url` Data URI 提交。
+- 提交前使用 ffprobe 验证视频含音轨并统计总时长。
+- 输出比例由参考图片或视频决定，不做错误的固定比例验证。
+
+#### MiniMax H3 2K 再生成
+
+- `base-video`：必须连接一个符合 H3 768P 规格的原视频。
+- `source-task`：使用同账号、成功且仍可查询的官方 MiniMax 任务 ID。
+- 原视频模式下，原始提示词可从连接的 VideoNode 自动继承。
+- 原视频使用过的参考图片、视频或音频不会自动从历史请求恢复，需要重新连接。
+- 固定输出 2K；依赖 `MINIMAX_API_KEY`。
+
+### 3.6 音频能力
+
+- 普通 Audio 节点和本地音频上传。
+- HKGAI Music Generation。
+- HKGAI TTS 内置音色。
+- HKGAI TTS 参考音色创建流程。
+- QwenCloud 人声克隆。
+- 使用已克隆 Voice ID 进行 TTS。
+- 参考声音操作包含授权确认，禁止上传无授权录音。
+
+### 3.7 Agent 与 Skill
+
+- Agent 可创建、编辑、整理和运行画布工作流。
+- 支持语义路由、能力检索、确定性校验和工作流编译。
+- 支持 Agent Run Trace、checkpoint、取消和恢复协议。
+- 支持 full-web 图片搜索工具及版权来源提示。
+- Skill 可保存画布模板，并从 Skill 页面重新放置到画布。
+- Agent 可选不同执行模型；服务端仅接受 allowlist ID。
+- Codex + HyperFrames 已作为视频后期专项执行器接入。
+
+## 4. 关键代码位置
+
+| 模块 | 主要位置 |
+| --- | --- |
+| 画布节点和交互 | `features/canvas/components/` |
+| 画布状态和运行 | `features/canvas/state/canvasStore.ts` |
+| 节点输入编译 | `features/canvas/domain/nodeInputCompiler.ts` |
+| 节点输出标准化 | `features/canvas/domain/nodeOutputNormalizer.ts` |
+| 视频模型预设 | `shared/workflow/videoModelPresets.ts` |
+| 节点连接 Handle | `shared/workflow/connectionHandles.ts` |
+| 通用节点执行入口 | `server/ai/application/runNodeUseCase.ts` |
+| 异步任务轮询 | `server/ai/application/pollTaskUseCase.ts` |
+| HKGAI MiniMax H3 | `server/ai/hkgaiVideoProvider.ts` |
+| HKGAI MiniMax ref2va | `server/ai/hkgaiMinimaxRef2vaProvider.ts` |
+| MiniMax 2K 再生成 | `server/ai/minimaxH3VideoRegeneration.ts` |
+| Volcengine OmniHuman | `server/ai/volcengineOmniHumanProvider.ts` |
+| TokenStar 视频 | `server/ai/tokenstar/` |
+| FFmpeg 视频编辑 | `server/video/ffmpegEditRunner.ts` |
+| 视频抽帧 | `server/video/videoFrameExtractor.ts` |
+| 工作流存储 | `server/storage/workflowStorage.ts` |
+| 媒体归档 | `server/storage/mediaArchive.ts` |
+| 登录与权限 | `server/auth/`、`app/api/auth/` |
+| 数据库迁移 | `server/db/migrations/`、`scripts/db-migrate.mjs` |
+| Agent Router | `app/api/ai/agent-router/route.ts` |
+| Agent Runtime | `docs/AGENT_RUNTIME.md` |
+| Capability RAG | `docs/CAPABILITY_RAG.md` |
+
+## 5. 本地开发
+
+### 5.1 基本命令
 
 ```powershell
-git clone https://github.com/Azzz368/Mindverse.git
-cd Mindverse
-git checkout agent-improve
-npm ci
-Copy-Item .env.example .env.local
-# 仅在本机安全地填写 .env.local；不要提交
-npm run lint
-npm run build
+npm install
+npm run db:migrate
 npm run dev
 ```
 
-Windows PowerShell 如果因为执行策略拒绝 `npm.ps1`，使用 `npm.cmd run lint`、`npm.cmd run build` 和 `npm.cmd run dev`。
+打开：
 
-生产一致性建议使用 Node 22；本次虽然在 Node 24.14.1 构建通过，仍应在 Node 22 或 Docker 中再跑一遍。
+- 注册：`http://localhost:3000/register`
+- 登录：`http://localhost:3000/login`
+- 项目列表：`http://localhost:3000/workspace`
 
-### 9.3 环境变量按能力恢复
+`npm run db:migrate` 用于把数据库 schema 升级到当前代码需要的版本。迁移可重复执行，不需要用户每次登录时执行；只有新环境首次部署或代码包含数据库结构变化时需要运行。
 
-| 能力 | 关键变量 |
+### 5.2 最低配置
+
+```dotenv
+DATABASE_URL=postgresql://...
+DATABASE_SSL=true
+MINDVERSE_AUTH_SECRET=至少32字符且长期保持不变的随机值
+MINDVERSE_REGISTRATION_MODE=invite
+MINDVERSE_REGISTRATION_INVITE_CODE=你的邀请码
+
+WORKFLOW_STORAGE_PROVIDER=bunny
+BUNNY_STORAGE_ZONE=...
+BUNNY_ACCESS_KEY=...
+BUNNY_STORAGE_REGION=sg
+BUNNY_PULL_ZONE_URL=...
+```
+
+生成 Auth Secret：
+
+```powershell
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
+
+修改 `MINDVERSE_AUTH_SECRET` 会使已有登录会话失效，用户需要重新登录，但不会删除用户、工作区或项目数据。
+
+### 5.3 外部模型配置
+
+按实际启用的能力配置，不需要把所有 Key 都填写：
+
+| 能力 | 主要变量 |
 | --- | --- |
-| 302.AI | `AI_302_API_KEY`、`AI_302_*` |
-| HKGAI MaaS | `HKGAI_MAAS_API_KEY`、`HKGAI_MAAS_BASE_URL`、`HKGAI_*_MODEL` |
-| TokenStar | `TOKENSTAR_API_KEY`、`TOKENSTAR_*` |
-| Kling 官方 | `KLING_API_KEY`、`KLING_*` |
-| Qwen 声音 | `DASHSCOPE_API_KEY`、`QWEN_*` |
-| 图片搜索 | `SERPAPI_API_KEY` 或 Google CSE 变量 |
-| Bunny | `BUNNY_STORAGE_ZONE`、`BUNNY_ACCESS_KEY`、`BUNNY_PULL_ZONE_URL` |
-| 工作流/Skill | `WORKFLOW_STORAGE_PROVIDER`、可选 `SKILL_STORAGE_PROVIDER` |
-| Agent Run | `AGENT_RUN_STORAGE_PROVIDER`、`AGENT_WORKER_TOKEN` |
-| RAG | `DATABASE_URL`、`RAG_EMBEDDING_*`、可选 rerank |
-| Codex/HyperFrames | `MINDVERSE_CODEX_HOME` 或 `MINDVERSE_CODEX_AUTH_FILE`、`MINDVERSE_CODEX_*` |
-| Motion job | `MINDVERSE_MOTION_JOB_STORAGE_PROVIDER`、相关 root/stale/timeout 变量 |
+| 302.AI | `AI_302_API_KEY`、`AI_302_BASE_URL` |
+| HKGAI 文本/MiniMax H3/ref2va | `HKGAI_MAAS_API_KEY`、`HKGAI_MAAS_BASE_URL` |
+| HKGAI Music/TTS | `HKGAI_SPEECH_API_KEY` 或对应 Music/TTS 覆盖变量 |
+| MiniMax Context IR/2K 再生成 | `MINIMAX_API_KEY`、`MINIMAX_API_BASE_URL` |
+| TokenStar | `TOKENSTAR_API_KEY`、`TOKENSTAR_API_ORIGIN` |
+| Kling 官方 | `KLING_API_KEY`、`KLING_API_ORIGIN` |
+| Volcengine OmniHuman | `VOLCENGINE_OMNIHUMAN_ACCESS_KEY_ID`、`VOLCENGINE_OMNIHUMAN_SECRET_ACCESS_KEY` |
+| Qwen 人声克隆/TTS | `DASHSCOPE_API_KEY` |
+| Agent 图片搜索 | `SERPAPI_API_KEY` 或 Google CSE 配置 |
+| Codex + HyperFrames | `MINDVERSE_CODEX_HOME` 或 Render Secret File 配置 |
 
-如果复用相同 Bunny 和 Postgres，远程工作流、Skill、媒体和 RAG 不需要复制文件；只需安全恢复相同凭据。若更换后端账号，需要单独设计数据导出/导入，当前仓库没有完整的一键迁移器。
+所有 Key 只能放在 `.env.local` 或 Render Environment 中。不要使用 `NEXT_PUBLIC_` 前缀，不要提交到 Git。
 
-### 9.4 不会随 Git 迁移的数据
+## 6. Render 部署交接
 
-- `.env.local` 和所有服务密钥。
-- 浏览器 localStorage：本地画布、远程草稿、访问码、最近 Agent Run ID。
-- 浏览器 sessionStorage：待放置 Skill 和新 Skill 的临时画布模板。
-- `.mindverse/` 下的 HyperFrames job、诊断文件和 Codex 本地状态。
-- `.mindverse-local/` 下的本地工作流/Skill（当前工作区基本为空）。
-- 外部 Bunny、Postgres 和供应商账户中的数据。
+### 6.1 必须确认
 
-## 10. 迁移后 Smoke Test
+1. Web Service 使用稳定的 `DATABASE_URL`。
+2. `MINDVERSE_AUTH_SECRET` 在各次部署间保持不变。
+3. 生产注册建议使用 `MINDVERSE_REGISTRATION_MODE=invite`。
+4. 工作流存储使用 Bunny，而不是 Render 临时磁盘。
+5. 新数据库首次上线时执行 `npm run db:migrate`。
+6. 需要 RAG 时执行 `npm run rag:migrate`。
+7. 迁移旧访问码项目时设置 `MINDVERSE_LEGACY_OWNER_EMAIL`，然后只运行一次 `npm run workspace:migrate-legacy`。
+8. 部署后验证注册、登录、退出、项目隔离、自动保存和至少一个真实模型任务。
 
-按以下顺序验证，能快速定位是基础环境、存储还是 provider 问题：
+本地注册用户只有在本地与 Render 使用同一套 Postgres 和 Bunny Storage 时，才会在 Render 中出现。使用不同数据库时不会自动同步。
 
-1. 打开 `/workspace`，验证工作流列表读取、创建、改名、删除。
-2. 打开一个 workflow，添加两个简单节点，刷新页面确认远程 autosave 恢复。
-3. 在 mock 配置下运行 Text/Image；如果仍要求 HKGAI/302 Key，命中本文 P1 的 mock 配置问题。
-4. 导入本地图片，确认归档后节点保存的是 Bunny HTTPS URL，而不是 data/blob URL。
-5. 创建一个 Text -> Image -> Video 流程，检查 handle、拓扑执行和异步轮询。
-6. 运行一次 Agent create，检查 route、evidence、preview、apply 和 Agent Run checkpoint。
-7. 配置 Postgres 后运行 `npm run rag:migrate`，验证 Agent trace 的 retrieval mode 是 `postgres-hybrid`；未配置时应回退 `catalog`。
-8. 运行一个小型 FFmpeg Video Edit。
-9. 在具备 Codex/Chromium/Bunny 的环境中运行最小 Motion job，检查进度、渲染和上传。
-10. 最后才用测试额度验证 TokenStar asset-video、Kling、Sora、Qwen 等真实外部链路。
+### 6.2 当前容量边界
 
-## 11. 关键文件索引
+当前 Render Standard 2 GB RAM / 1 CPU 更适合小规模受控内测，而不是公开高并发。Web 服务同时负责页面、API、媒体下载、ffprobe/FFmpeg 和部分长任务协调；真实可承载人数取决于任务类型，不能只按登录人数估算。
 
-| 主题 | 文件 |
-| --- | --- |
-| 画布状态/执行 | `features/canvas/state/canvasStore.ts` |
-| 节点输入编译 | `features/canvas/domain/nodeInputCompiler.ts` |
-| 画布页面/持久化 | `features/canvas/components/Workspace.tsx` |
-| 节点 UI | `features/canvas/components/AnnotatedCustomNode.tsx` |
-| 共享节点 schema | `shared/canvas/nodeData.ts`、`shared/canvas/nodeTypes.ts` |
-| 统一执行 use case | `server/ai/application/runNodeUseCase.ts` |
-| 统一轮询 use case | `server/ai/application/pollTaskUseCase.ts` |
-| Provider 选择 | `server/ai/provider.ts`、`server/ai/textLLMClient.ts` |
-| Agent UI/自主循环 | `features/agent/components/AgentWorkflowPanel.tsx`、`features/agent/services/autonomousAgent.ts` |
-| Agent Router | `app/api/ai/agent-router/route.ts` |
-| 能力检索/校验 | `server/agent/capabilities/*` |
-| Agent Run | `server/storage/agentRunStorage.ts`、`docs/AGENT_RUNTIME.md` |
-| RAG | `server/rag/*`、`server/db/migrations/*`、`docs/CAPABILITY_RAG.md` |
-| 工作流/Skill 存储 | `server/storage/workflowStorage.ts`、`server/storage/skillStorage.ts` |
-| 媒体归档 | `server/storage/mediaArchive.ts`、`server/storage/bunnyClient.ts` |
-| TokenStar | `server/ai/tokenstar/*`、`TOKENSTAR_ASSET_VIDEO_HANDOFF.md` |
-| FFmpeg | `server/video/ffmpegEditRunner.ts` |
-| Motion | `server/motion/*`、`shared/motion/*` |
-| 环境变量 | `.env.example` |
-| Docker | `Dockerfile`、`docker-entrypoint.sh`、`docker/codex/config.toml` |
+在迁移到独立 worker 前，应保守限制同时提交的大型视频、音频和 HyperFrames 任务数量。
 
-## 12. 现有文档使用建议
+## 7. 当前验证状态
 
-- `README.md`：保留安装和 provider 配置入口，但 mock 声明、旧 `lib/ai` 路径等内容需要更新。
-- `docs/AGENT_RUNTIME.md`：Agent checkpoint 和未来 worker 边界仍有参考价值。
-- `docs/CAPABILITY_RAG.md`：RAG schema、ingestion 和 retrieval 设计较新，可继续使用。
-- `AGENT_ARCHITECTURE_OPTIMIZATION.md`：当前内部测试阶段的主开发路线，Agent 相关决策优先参考此文档。
-- `TOKENSTAR_ASSET_VIDEO_HANDOFF.md`：只作为历史故障记录。它仍写着旧目录、旧分支和旧构建结论，不可当作当前项目总状态。
-- `PROJECT_ARCHITECTURE_STANDARDIZATION_GUIDE.md`、`BACKEND_STORAGE_DISTRIBUTION.md`：部分建议已经落地，部分路径和现状过时；后续应标注 archived 或重写，避免与本文冲突。
+截至 `ff9d300`：
 
-## 13. 接手者的最短结论
+- `npm run lint`：通过，当前实际执行 `tsc --noEmit`。
+- `npm run build`：通过，Next.js 生产构建成功。
+- `minimax_ref2va` 编译、multipart 字段构造和本地 ffprobe 预检已完成。
+- 没有为了验证而自动发起付费 `minimax_ref2va` 生成任务。
+- 项目当前缺少覆盖主要流程的单元测试、集成测试和端到端测试套件。
 
-当前代码可以通过类型检查和生产构建，主要创作、Agent、媒体和存储 pipeline 都已存在。内部测试阶段不要重写整套 Agent，应优先建立 Eval/Trace，统一入口，修复 edit 语义、审批继续执行和 resume 幂等，再优化记忆、检索、验证和 Worker 边界。公众鉴权、限流和 SSRF 等事项继续保留为上线前要求。迁移工作区时最容易丢的是未提交 UI 改动、浏览器本地草稿和密钥配置；最不应该复制的是 `node_modules`、`.next`、`.mindverse` 中的生成缓存与 Codex 凭据。
+## 8. 已知问题和风险
+
+### 8.1 前端中文乱码
+
+部分历史源码字符串存在编码损坏，表现为中文按钮或错误信息乱码。README 和本交接文档已经使用正常 UTF-8，但 UI 源码仍需系统性清理。不要继续复制乱码字符串到新组件。
+
+### 8.2 TokenStar 参考音频容器
+
+曾出现文件名和 HTTP `Content-Type` 声明为 MP3，但实际容器为 M4A/MP4、编码为 AAC 的情况。TokenStar 会把这类资产标记为 `Failed`。建议上传前统一用 FFmpeg 转为真实 MP3，并让扩展名、MIME 和容器一致。
+
+### 8.3 浏览器承担异步执行
+
+当前很多异步任务仍由浏览器启动轮询。关闭页面、实例重启、部署或网络切换会影响用户体验。虽然部分任务可在重新打开页面后恢复轮询，但还不是完整的后台任务系统。
+
+### 8.4 Bunny JSON 并发
+
+工作流和 Agent Run 使用 Bunny JSON 时，应用进程内锁不能解决多实例同时写入的全部竞争问题。高并发或多 worker 场景应迁移到 Postgres 乐观锁或队列支持的事件存储。
+
+### 8.5 外部供应商变化
+
+模型字段、权限、白名单、时长、比例和价格可能变化。每个 provider 都需要定期真实冒烟测试和错误响应记录，不能只依赖 TypeScript 构建通过。
+
+### 8.6 缺少产品级治理
+
+当前尚未完整实现：
+
+- 用户配额与并发限制。
+- 费用预算和付费任务二次确认。
+- 管理员后台。
+- 操作审计和供应商费用对账。
+- 邮箱验证、找回密码和账号冻结。
+- 媒体删除、保留期限和用户导出策略。
+
+## 9. 未来优化路线
+
+### P0：生产稳定性
+
+1. 增加真实端到端回归：注册/登录、项目隔离、自动保存、Shift 框选、各核心模型创建与轮询。
+2. 把视频、音频、Agent 和 HyperFrames 长任务迁移到持久队列和独立 worker。
+3. 为任务创建增加幂等键，避免网络重试产生重复计费任务。
+4. 增加按用户和供应商的并发限制、每日额度、超时和取消。
+5. 对 TokenStar 音频上传增加 FFmpeg 规范化。
+6. 修复全部用户可见中文乱码。
+7. 增加 Sentry/结构化日志、任务 ID、provider request ID 和失败原因仪表盘。
+
+### P1：数据与媒体治理
+
+1. 建立统一 media asset 表，记录 workspace、node、provider、task ID、MIME、大小、hash、Bunny key 和生命周期。
+2. 相同素材按 hash 去重，避免重复上传和重复创建供应商资产。
+3. 增加媒体删除、回收站、保留期限和孤儿文件清理。
+4. 将 Agent Run 与高并发工作流状态从 Bunny JSON 迁移到 Postgres。
+5. 增加版本历史、手动保存点和可视化冲突恢复。
+
+### P1：Agent 架构
+
+1. 建立 30–50 个真实 Agent Eval，用于规划正确性、节点连接和修复能力回归。
+2. 拆分体积较大的 Agent Router，用独立 use case 管理路由、计划、校验、工具和观察。
+3. 保留 Mindverse 的确定性能力校验和 Canvas Compiler。
+4. 增加统一 `AgentExecutor` 接口。
+5. 优先让 Codex 作为 HyperFrames、复杂 FFmpeg、Skill 编写和疑难修复的专项执行器，而不是直接替换整个领域编排层。
+6. 增加图片帧、视频内容和音频语义的多模态结果验证。
+
+### P2：用户体验
+
+1. 显示明确的“已保存/保存中/仅本地草稿/保存失败”状态。
+2. 增加任务中心，允许离开画布后查看生成状态。
+3. 增加模型费用、预计耗时、输入约束和失败前检查。
+4. 把临时框选分组升级为可命名、可折叠、可嵌套的持久分组。
+5. 增加素材库、搜索、标签和跨项目复用。
+6. 增加节点模板、常用工作流市场和更完整的新手引导。
+
+## 10. 发布前检查清单
+
+```text
+[ ] npm run lint
+[ ] npm run build
+[ ] 数据库迁移已在目标环境执行
+[ ] Render 环境变量没有缺失或泄露
+[ ] 注册、登录、退出正常
+[ ] 两个测试账号无法互相访问项目
+[ ] 新建、重命名、删除项目正常
+[ ] 连续编辑后远程保存 revision 正常
+[ ] 刷新页面后画布恢复正常
+[ ] 图片、视频、音频上传能得到 Bunny URL
+[ ] 至少一个文本、图片、视频和音频任务真实成功
+[ ] 异步任务刷新页面后能继续观察状态
+[ ] 供应商失败信息不会包含 API Key
+[ ] 未创建不必要的付费测试任务
+```
+
+## 11. 常用命令
+
+```powershell
+npm run dev
+npm run lint
+npm run build
+npm run db:migrate
+npm run workspace:migrate-legacy
+npm run rag:migrate
+npm run hyperframes:doctor
+```
+
+## 12. 交接原则
+
+- 不要把 API Key、数据库密码、Bunny Access Key、Auth Secret 或 Codex 凭据提交到 Git。
+- 修改 provider 前先保存原始任务 ID、HTTP 状态、request ID 和不含秘密的错误正文。
+- 新模型必须同时声明输入端口、数量限制、时长/比例约束、服务端校验和轮询方式。
+- 外部接口示例中的字段和值不能默认等于完整能力范围；需要以明确文档或真实测试确认。
+- 任何可能计费的自动化测试都应有显式开关和预算上限。
+- 数据库迁移应保持幂等；旧数据迁移脚本必须可审计且避免破坏原始备份。

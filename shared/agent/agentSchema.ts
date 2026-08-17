@@ -28,7 +28,7 @@ export type AgentWorkflowPlan = {
   aspectRatio?: "16:9" | "9:16" | "1:1";
   sceneCount?: number;
   includeAudio?: boolean;
-  videoProvider?: "tokenstar" | "kling" | "302ai" | "302-sora2";
+  videoProvider?: "tokenstar" | "kling" | "302ai" | "302-sora2" | "hkgai";
   steps: AgentWorkflowStep[];
   successCriteria?: string[] | Record<string, unknown>;
   warnings?: string[];
@@ -173,7 +173,7 @@ export type AgentDialogueResponse = {
 const goals: AgentWorkflowGoal[] = ["story_to_video", "image_to_video", "storyboard_only", "ad_package", "custom"];
 const kinds: AgentStepKind[] = ["prompt", "text", "script", "storyboard", "image", "video", "videoEdit", "motion", "audio", "voiceClone", "voiceTTS", "reference", "output"];
 const aspectRatios = ["16:9", "9:16", "1:1"] as const;
-const videoProviders = ["tokenstar", "kling", "302ai", "302-sora2"] as const;
+const videoProviders = ["tokenstar", "kling", "302ai", "302-sora2", "hkgai"] as const;
 const editOperationTypes: AgentEditOperationType[] = ["createNode", "updateNodeData", "deleteNode", "connectNodes", "disconnectNodes", "replaceNodeType", "moveNode", "duplicateNode", "createBranch", "updateEdge", "noop"];
 const editIntents: AgentCanvasEditIntent[] = ["add_nodes", "modify_nodes", "delete_nodes", "reconnect", "change_style", "change_provider", "expand_workflow", "cleanup", "custom"];
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
