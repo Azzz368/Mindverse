@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash, createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { queryPostgres, withPostgresTransaction } from "@/server/db/postgres";
+import { postgresConfigured, queryPostgres, withPostgresTransaction } from "@/server/db/postgres";
 
 const scrypt = promisify(scryptCallback);
 export const SESSION_COOKIE = "mindverse_session";
@@ -50,6 +50,9 @@ const authSecret = () => {
   const value = process.env.MINDVERSE_AUTH_SECRET?.trim() || (process.env.NODE_ENV !== "production" ? developmentAuthSecret : "");
   if (value.length < 32) throw new AuthError("Authentication is not configured.", 503, "AUTH_NOT_CONFIGURED");
   return value;
+};
+const authStorage = () => {
+  if (!postgresConfigured()) throw new AuthError("数据库尚未配置。请设置 DATABASE_URL 并执行数据库迁移。", 503, "DATABASE_NOT_CONFIGURED");
 };
 const sessionSignature = (value: string) => createHmac("sha256", authSecret()).update(value).digest("base64url");
 const encodeSessionToken = (rawToken: string, expires: Date) => {
@@ -106,6 +109,7 @@ async function newSession(userId: string) {
 
 export async function registerUser(input: { email?: unknown; name?: unknown; password?: unknown; inviteCode?: unknown }) {
   authSecret();
+  authStorage();
   const email = normalizeEmail(input.email);
   const name = cleanName(input.name);
   const password = typeof input.password === "string" ? input.password : "";
@@ -113,7 +117,7 @@ export async function registerUser(input: { email?: unknown; name?: unknown; pas
   if (name.length < 2) throw new AuthError("姓名至少需要 2 个字符。", 400, "INVALID_NAME");
   if (password.length < PASSWORD_MIN_LENGTH || password.length > 128) throw new AuthError(`密码需要 ${PASSWORD_MIN_LENGTH}–128 个字符。`, 400, "INVALID_PASSWORD");
 
-  const registrationMode = (process.env.MINDVERSE_REGISTRATION_MODE || "invite").trim();
+  const registrationMode = (process.env.MINDVERSE_REGISTRATION_MODE || (process.env.NODE_ENV === "production" ? "invite" : "open")).trim();
   const configuredInvite = process.env.MINDVERSE_REGISTRATION_INVITE_CODE?.trim() || "";
   if (registrationMode !== "open") {
     if (!configuredInvite) throw new AuthError("服务器尚未配置注册邀请码。", 503, "REGISTRATION_NOT_CONFIGURED");
@@ -147,6 +151,7 @@ export async function registerUser(input: { email?: unknown; name?: unknown; pas
 
 export async function loginUser(input: { email?: unknown; password?: unknown }) {
   authSecret();
+  authStorage();
   const email = normalizeEmail(input.email);
   const password = typeof input.password === "string" ? input.password : "";
   const result = await queryPostgres<{ id: string; password_hash: string; disabled_at: Date | null }>(
@@ -161,6 +166,7 @@ export async function loginUser(input: { email?: unknown; password?: unknown }) 
 }
 
 export async function sessionFromHeaders(headers: Headers): Promise<AuthContext | null> {
+  if (!postgresConfigured()) return null;
   let token = "";
   try { token = cookieToken(headers); } catch { return null; }
   if (!token) return null;
