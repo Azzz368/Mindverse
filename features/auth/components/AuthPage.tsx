@@ -93,7 +93,7 @@ export function AuthPage({ mode: initialMode }: { mode: Mode }) {
   };
 
   return <main className={`auth-shell auth-shell--${mode}${switching ? " auth-shell--switching" : ""}`}>
-    <section className="auth-art">
+    <section className="auth-art noise">
       <div className="auth-art__base" />
       {artOrbs.map((orb) => <span key={orb} className={`auth-orb ${orb}${animatedArtOrbs.has(orb) ? " auth-orb--animated" : ""}`} style={orbAnimation[orb]} />)}
       <Link href="/" className="auth-back" aria-label="Back to home">
@@ -104,24 +104,24 @@ export function AuthPage({ mode: initialMode }: { mode: Mode }) {
       </Link>
     </section>
     <section className="auth-panel">
+      <div className="auth-heading">
+        <p className="auth-kicker"><span>Welcome to</span><em>MINDVERSE</em></p>
+        <p className="auth-subtitle">Generate. Direct. Edit-in One Click</p>
+      </div>
+      <div className="auth-socials">
+        <button type="button" aria-label="Continue with Google" className="auth-social"><GoogleIcon /></button>
+        <button type="button" aria-label="Continue with GitHub" className="auth-social"><GithubIcon /></button>
+        <button type="button" aria-label="Continue with Apple" className="auth-social"><AppleIcon /></button>
+        <button type="button" aria-label="Continue with Instagram" className="auth-social"><InstagramIcon /></button>
+      </div>
       <div key={mode} className="auth-form-wrap">
-        <div className="auth-heading">
-          <p className="auth-kicker"><span>Welcome to</span><em>MINDVERSE</em></p>
-          <p className="auth-subtitle">Generate. Direct. Edit-in One Click</p>
-        </div>
-        <div className="auth-socials">
-          <button type="button" aria-label="Continue with Google" className="auth-social"><GoogleIcon /></button>
-          <button type="button" aria-label="Continue with GitHub" className="auth-social"><GithubIcon /></button>
-          <button type="button" aria-label="Continue with Apple" className="auth-social"><AppleIcon /></button>
-          <button type="button" aria-label="Continue with Instagram" className="auth-social"><InstagramIcon /></button>
-        </div>
         <form onSubmit={submit} className="auth-form">
           {registering && <div className="auth-field-row"><label className="auth-field"><span>User name</span><input className="auth-input" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" placeholder="Your user name" required minLength={2} maxLength={80} /></label><label className="auth-field"><span>Invite code</span><input className="auth-input" value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} autoComplete="off" placeholder="Your invite code" /></label></div>}
           <label className="auth-field"><span>Email</span><input className="auth-input" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="Your email address" required /></label>
           {registering && <label className="auth-field"><span>Password</span><input className="auth-input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" placeholder="At least 10 characters" required minLength={10} maxLength={128} /></label>}
           {!registering && <label className="auth-field"><span>Password</span><input className="auth-input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" placeholder="Your password" required minLength={10} maxLength={128} /></label>}
           {message && <div role="alert" className="auth-error">{message}</div>}
-          <button disabled={busy} className="auth-submit">{busy ? "Please wait..." : registering ? "Continue" : "LOG IN"}</button>
+          <button disabled={busy} className="auth-submit">{busy ? "Please wait..." : registering ? "Continue" : "SIGN IN"}</button>
         </form>
         <p className="auth-switch">{registering ? "Already have an account?" : "Don’t have an account?"}<button type="button" onClick={() => switchMode(registering ? "login" : "register")}>{registering ? "Sign in" : "Sign up"}</button></p>
       </div>
