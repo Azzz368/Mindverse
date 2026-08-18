@@ -9,6 +9,17 @@ export const SESSION_COOKIE = "mindverse_session";
 const SESSION_DAYS = Math.max(1, Number(process.env.MINDVERSE_SESSION_MAX_AGE_DAYS || 30));
 const PASSWORD_MIN_LENGTH = 10;
 const developmentAuthSecret = "mindverse-local-development-secret-change-before-deploy";
+const localAuthBypassEnabled = () =>
+  process.env.NODE_ENV !== "production" && process.env.MINDVERSE_LOCAL_AUTH_BYPASS === "true";
+const localAuthContext = (): AuthContext => ({
+  userId: "local-test-user",
+  email: "local@example.test",
+  name: "Local Tester",
+  workspaceId: "local-test-workspace",
+  workspaceName: "Local test workspace",
+  role: "owner",
+  sessionExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+});
 
 export type AuthContext = {
   userId: string;
@@ -166,6 +177,7 @@ export async function loginUser(input: { email?: unknown; password?: unknown }) 
 }
 
 export async function sessionFromHeaders(headers: Headers): Promise<AuthContext | null> {
+  if (localAuthBypassEnabled()) return localAuthContext();
   if (!postgresConfigured()) return null;
   let token = "";
   try { token = cookieToken(headers); } catch { return null; }
@@ -199,6 +211,7 @@ export async function sessionFromHeaders(headers: Headers): Promise<AuthContext 
 }
 
 export async function requireSession(request: Request) {
+  if (localAuthBypassEnabled()) return localAuthContext();
   const session = await sessionFromHeaders(request.headers);
   if (!session) throw new AuthError("请先登录。", 401, "UNAUTHORIZED");
   return session;
