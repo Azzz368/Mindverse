@@ -6,6 +6,7 @@ import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { ThinkingOrb } from "thinking-orbs";
 import { baskervvilleRegular } from "@/app/fonts";
+import type { LandingStrings } from "@/shared/i18n/landing";
 
 // The package creates browser-only visual resources. Do not evaluate it while
 // Next.js renders the page on the server; load it after this client component hydrates.
@@ -18,17 +19,10 @@ if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger);
 }
 
-const STEPS = [
-  "prompt (video prompt words)",
-  "script (storyline and custom-style script)",
-  "video (generate skateboard video)",
-];
-
 const CAPTION_TEXT_STYLE = "1930s rubber hose cartoon style, exaggerated squash and stretch proportions, thick wobbly outlines, flat saturated primary colors, vintage animation cel texture, comedic slapstick energy, bouncy......";
 const CAPTION_TEXT_SKATE = "A young boy skateboards on a retro-style track through a city street, gliding along a main road surrounded by vehicles.";
 const CAPTION_TEXT_CHASSIS = "Generating at the next intersection, the protagonist in black lies face up on the skateboard, hands behind his head, a relaxed expression on his face. He closes his eyes, preparing to enter the chassis. The......";
 const CAPTION_TEXT_BUS = "As he crosses an intersection, a school bus suddenly appears on his right, and the boy skillfully changes his posture to get across.";
-const PROMPT_LINES = ["Generate a 10s cartoon-style", "video of a child playing on a skateboard. |"];
 
 // Manual prompt layout controls: edit these values to reposition or resize the
 // large prompt bubble/wording, or its compact panel state after motion2.
@@ -71,7 +65,7 @@ const CAPTION_CLASS = "font-epilogue pointer-events-none absolute font-light lea
  * Note: motion5-motion8 referenced Figma-exported thumbnail images (e.g. "66131566-....png") that
  * were not provided as local asset files, so those nodes use gradient placeholders instead of <img>.
  */
-export function DirectorAgentPanel() {
+export function DirectorAgentPanel({ copy }: { copy: LandingStrings }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const backgroundGlowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const pillRef = useRef<HTMLDivElement>(null);
@@ -268,7 +262,7 @@ export function DirectorAgentPanel() {
         className={`${baskervvilleRegular.className} pointer-events-none absolute z-10 text-center font-normal text-white`}
         style={{ width: 420, height: 39, left: 350, top: 36, fontSize: 30, lineHeight: "39px" }}
       >
-        Your Custom Director Agent
+        {copy.directorTitle}
       </h3>
       <div
         ref={directorOrbRef}
@@ -333,7 +327,7 @@ export function DirectorAgentPanel() {
         className="font-epilogue pointer-events-none absolute z-10 font-normal leading-[150%] text-[#C0C0C0] opacity-0"
         style={PROMPT_TEXT_INITIAL}
       >
-        {PROMPT_LINES.map((line, lineIndex) => (
+        {copy.promptLines.map((line, lineIndex) => (
           <span key={lineIndex} className="block">
             {Array.from(line).map((character, characterIndex) => (
               <span
@@ -367,25 +361,25 @@ export function DirectorAgentPanel() {
           className="font-epilogue absolute font-light leading-[150%] text-white opacity-0"
           style={{ left: 703, top: 180, width: 110, height: 15, fontSize: 10 }}
         >
-          Thinking for 3 seconds
+          {copy.thinking}
         </p>
         <p
           ref={buildingTextRef}
           className="font-epilogue absolute font-light leading-[150%] text-[#8F8F8F] opacity-0"
           style={{ left: 662, top: 218, width: 109, height: 15, fontSize: 10 }}
         >
-          Building storyboard......
+          {copy.building}
         </p>
         <p
           ref={detailTextRef}
           className="font-epilogue absolute font-light leading-[150%] text-[#8F8F8F] opacity-0"
           style={{ left: 662, top: 233, width: 335, height: 30, fontSize: 10 }}
         >
-          3 editable steps prepared. Cost-bearing capabilities require preview approval before execution.
+          {copy.approval}
         </p>
 
         {/* Steps */}
-        {STEPS.map((step, index) => {
+        {copy.steps.map((step, index) => {
           const top = 282 + index * 25;
           return (
             <div
@@ -432,7 +426,7 @@ export function DirectorAgentPanel() {
             <span aria-hidden="true" className="block h-full w-full" />
           </LiquidGlass>
           <p className="font-epilogue absolute z-10 font-normal leading-[250%] text-white" style={{ left: 12, top: 4, width: 74, height: 25, fontSize: 10 }}>
-            Custom modify
+            {copy.customModify}
           </p>
         </div>
         <div
@@ -456,7 +450,7 @@ export function DirectorAgentPanel() {
             <span aria-hidden="true" className="block h-full w-full" />
           </LiquidGlass>
           <p className="font-epilogue absolute z-10 font-normal leading-[250%] text-white" style={{ left: 35, top: 4, width: 27, height: 25, fontSize: 10 }}>
-            Apply
+            {copy.apply}
           </p>
         </div>
       </div>
@@ -464,9 +458,9 @@ export function DirectorAgentPanel() {
       {/* Frame 5: columns reveal in workflow order. Frame 6 keeps them on-screen and slides the set left. */}
       <div ref={stage1Ref} className="pointer-events-none absolute inset-0 opacity-0">
         <div ref={briefStageRef} className="absolute inset-0 opacity-0">
-          <p className={LABEL_CLASS} style={{ left: 23, top: 163, width: 23, height: 15, fontSize: 10 }}>brief</p>
+          <p className={LABEL_CLASS} style={{ left: 23, top: 163, width: 40, height: 15, fontSize: 10 }}>{copy.brief}</p>
           <div className={NODE_CARD_CLASS} style={{ left: 23, top: 181, width: 114, height: 73 }} />
-          <p className={CAPTION_CLASS} style={{ left: 34, top: 193, width: 92, height: 47, fontSize: 5 }}>A little boy skateboards through city streets, weaving through vehicles and skillfully navigating large trucks.</p>
+          <p className={CAPTION_CLASS} style={{ left: 34, top: 193, width: 92, height: 47, fontSize: 5 }}>{copy.briefDescription}</p>
           <svg className="pointer-events-none absolute" style={{ left: 140, top: 167, width: 22, height: 103 }} viewBox="0 0 22 103" fill="none" aria-hidden="true">
             <path d="M21 0.928915C17.046 -0.536425 9.13796 0.782381 9.13796 17.7803C9.13796 39.0278 9.76716 51.4832 0 51.4832" stroke="#606060" strokeDasharray="2 2" />
             <path d="M21 102.037C17.046 103.503 9.13796 102.184 9.13796 85.186C9.13796 63.9385 9.76716 51.4832 0 51.4832" stroke="#606060" strokeDasharray="2 2" />
@@ -474,17 +468,17 @@ export function DirectorAgentPanel() {
         </div>
 
         <div ref={scriptStageRef} className="absolute inset-0 opacity-0">
-          <p className={LABEL_CLASS} style={{ left: 166, top: 112, width: 29, height: 15, fontSize: 10 }}>Script</p>
+          <p className={LABEL_CLASS} style={{ left: 166, top: 112, width: 40, height: 15, fontSize: 10 }}>{copy.script}</p>
           <div className={NODE_CARD_CLASS} style={{ left: 166, top: 130, width: 114, height: 73 }} />
           <div className={NODE_CARD_CLASS} style={{ left: 166, top: 230, width: 114, height: 73 }} />
-          <p className={CAPTION_CLASS} style={{ left: 177, top: 143, width: 92, height: 47, fontSize: 5 }}>The first shot: introduces the characters and establishes the scene&apos;s style and camera angles.</p>
-          <p className={CAPTION_CLASS} style={{ left: 177, top: 243, width: 92, height: 47, fontSize: 5 }}>The second shot: creates a minor climax, establishes the protagonist&apos;s character, and explores various camera techniques.</p>
+          <p className={CAPTION_CLASS} style={{ left: 177, top: 143, width: 92, height: 47, fontSize: 5 }}>{copy.scriptDescriptions[0]}</p>
+          <p className={CAPTION_CLASS} style={{ left: 177, top: 243, width: 92, height: 47, fontSize: 5 }}>{copy.scriptDescriptions[1]}</p>
           <div className={DASHED_H_CLASS} style={{ left: 283, top: 167, width: 15.5 }} />
           <div className={DASHED_H_CLASS} style={{ left: 283, top: 269, width: 15.5 }} />
         </div>
 
         <div ref={storyboardStageRef} className="absolute inset-0 opacity-0">
-          <p className={LABEL_CLASS} style={{ left: 301, top: 112, width: 55, height: 15, fontSize: 10 }}>Storyboard</p>
+          <p className={LABEL_CLASS} style={{ left: 301, top: 112, width: 65, height: 15, fontSize: 10 }}>{copy.storyboard}</p>
           <div className={NODE_CARD_CLASS} style={{ left: 301, top: 130, width: 114, height: 73 }} />
           <div className={NODE_CARD_CLASS} style={{ left: 301, top: 230, width: 114, height: 73 }} />
           <p className={CAPTION_CLASS} style={{ left: 312, top: 143, width: 92, height: 47, fontSize: 5 }}>{CAPTION_TEXT_SKATE}</p>
@@ -499,7 +493,7 @@ export function DirectorAgentPanel() {
           additional offset during the transition, matching the original motion6
           clipped card position (label -9px; cards -26px). */}
       <div ref={textStageRef} className="pointer-events-none absolute inset-0 opacity-0">
-        <p className={LABEL_CLASS} style={{ left: 436, top: 112, width: 21, height: 15, fontSize: 10 }}>Text</p>
+        <p className={LABEL_CLASS} style={{ left: 436, top: 112, width: 40, height: 15, fontSize: 10 }}>{copy.text}</p>
         <div ref={textContentRef} className="absolute inset-0">
           <div className={NODE_CARD_CLASS} style={{ left: 436, top: 130, width: 114, height: 73 }} />
           <div className={NODE_CARD_CLASS} style={{ left: 436, top: 230, width: 114, height: 73 }} />
@@ -513,7 +507,7 @@ export function DirectorAgentPanel() {
           so only the track itself needs to move between frame 6, frame 7 and frame 8. */}
       <div ref={pipelineTrackRef} className="pointer-events-none absolute inset-0">
         <div ref={imageStageRef} className="absolute inset-0 opacity-0">
-          <p className={LABEL_CLASS} style={{ left: 108, top: 112, width: 30, height: 15, fontSize: 10 }}>Image</p>
+          <p className={LABEL_CLASS} style={{ left: 108, top: 112, width: 40, height: 15, fontSize: 10 }}>{copy.image}</p>
           <div className={`${NODE_THUMB_TOP_CLASS} overflow-hidden`} style={{ left: 108, top: 130, width: 114, height: 73 }}>
             <img src="/website/agent/imagetop.png" alt="Generated top scene" className="h-full w-full object-cover" />
           </div>
@@ -525,7 +519,7 @@ export function DirectorAgentPanel() {
         </div>
 
         <div ref={videoStageRef} className="absolute inset-0 opacity-0">
-          <p className={LABEL_CLASS} style={{ left: 242, top: 112, width: 28, height: 15, fontSize: 10 }}>Video</p>
+          <p className={LABEL_CLASS} style={{ left: 242, top: 112, width: 40, height: 15, fontSize: 10 }}>{copy.video}</p>
           <div className={`${NODE_THUMB_TOP_CLASS} overflow-hidden`} style={{ left: 242, top: 130, width: 114, height: 73 }}>
             <video src="/website/agent/videotop.mp4" muted playsInline preload="auto" className="h-full w-full scale-105 object-cover blur-[2px]" />
           </div>
@@ -537,7 +531,7 @@ export function DirectorAgentPanel() {
         </div>
 
         <div ref={mergeStageRef} className="absolute inset-0 opacity-0">
-          <p className={LABEL_CLASS} style={{ left: 381, top: 164, width: 62, height: 15, fontSize: 10 }}>Video merge</p>
+          <p className={LABEL_CLASS} style={{ left: 381, top: 164, width: 70, height: 15, fontSize: 10 }}>{copy.videoMerge}</p>
           <div className={`${NODE_CARD_CLASS} overflow-hidden`} style={{ left: 381, top: 182, width: 114, height: 73 }}>
             <video src="/website/agent/full1.mp4" muted playsInline preload="auto" className="h-full w-full object-cover" />
           </div>

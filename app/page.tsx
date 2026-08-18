@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
 import { DirectorAgentPanel } from "@/components/DirectorAgentPanel";
 import { LensRefraction } from "@/components/LensRefraction";
+import { useLang } from "@/components/providers/LangProvider";
+import { landingStrings, languageOptions } from "@/shared/i18n/landing";
 
 const TOPLIST_IMAGES = [
   "/website/flowvideo/toplist/1.png",
@@ -22,6 +24,11 @@ const DOWNLIST_IMAGES = Array.from(
 );
 
 export default function Home() {
+  const { lang, setLang } = useLang();
+  const copy = landingStrings[lang];
+  const [openLanguageMenu, setOpenLanguageMenu] = useState<"top" | "bottom" | null>(null);
+  const topLanguageMenuRef = useRef<HTMLDivElement>(null);
+  const bottomLanguageMenuRef = useRef<HTMLDivElement>(null);
   const [heroStage, setHeroStage] = useState<"black" | "video">("black");
   const [activeHeroVideo, setActiveHeroVideo] = useState<"fullCowboy" | "partCowboy" | "daduhuidog" | "basketball">("fullCowboy");
   const [heroMediaReady, setHeroMediaReady] = useState(false);
@@ -40,6 +47,23 @@ export default function Home() {
       window.cancelAnimationFrame(revealFrame);
     };
   }, []);
+
+  useEffect(() => {
+    if (!openLanguageMenu) return;
+    const closeMenu = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!topLanguageMenuRef.current?.contains(target) && !bottomLanguageMenuRef.current?.contains(target)) setOpenLanguageMenu(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenLanguageMenu(null);
+    };
+    window.addEventListener("pointerdown", closeMenu);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", closeMenu);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [openLanguageMenu]);
 
   useEffect(() => {
     setHeroMediaReady(true);
@@ -338,29 +362,52 @@ export default function Home() {
             {/* Menu Items */}
             <div className="absolute top-[21px] left-[241px] w-[699px] h-[14px]">
               <Link href="#" className="absolute left-[16.5px] w-[141px] h-[14px] text-center font-normal text-[13px] leading-[14px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
-                Document
+                {copy.document}
               </Link>
               <Link href="#" className="absolute left-[202.5px] w-[141px] h-[14px] text-center font-normal text-[13px] leading-[14px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
-                Community
+                {copy.community}
               </Link>
               <Link href="#" className="absolute left-[388.5px] w-[141px] h-[14px] text-center font-normal text-[13px] leading-[14px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
-                Studio
+                {copy.studio}
               </Link>
               <Link href="#" className="absolute left-[574.5px] w-[141px] h-[14px] text-center font-normal text-[13px] leading-[14px] text-white hover:opacity-70 mix-blend-difference drop-shadow-sm">
-                Contact
+                {copy.contact}
               </Link>
             </div>
 
-            {/* English */}
-            <div className="absolute top-[20px] left-[1097.5px] w-[141px] h-[14px]">
-              <span className="block text-center font-normal text-[13px] leading-[14px] text-white cursor-pointer hover:opacity-70 mix-blend-difference drop-shadow-sm">
-                English
-              </span>
-            </div>
-
-            {/* Vector 1 (Arrow/Line beside English) */}
-            <div className="absolute top-[23px] left-[1208px] w-[13px] h-[8px] flex items-center justify-center rotate-90">
-               <div className="w-full h-[0.5px] bg-white mix-blend-difference"></div>
+            {/* Language switcher: immediately to the left of Start Now. */}
+            <div ref={topLanguageMenuRef} className="absolute left-[1100px] top-[11px] z-20 w-[156px] text-[13px] font-normal leading-[14px] text-white mix-blend-difference drop-shadow-sm">
+              <div className="relative">
+                <div
+                  className={`absolute right-0 top-[39px] w-[174px] origin-top overflow-hidden rounded-[14px] border border-white/20 bg-black/70 p-1.5 text-[14px] leading-[18px] text-white shadow-2xl backdrop-blur-xl transition-all duration-300 ease-out ${openLanguageMenu === "top" ? "pointer-events-auto translate-y-0 scale-100 opacity-100" : "pointer-events-none -translate-y-2 scale-95 opacity-0"}`}
+                  role="menu"
+                  aria-hidden={openLanguageMenu !== "top"}
+                >
+                  {languageOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={lang === option.value}
+                      className={`flex w-full items-center justify-between rounded-[10px] px-3 py-2.5 text-left transition-colors duration-200 hover:bg-white/15 focus-visible:bg-white/15 focus-visible:outline-none ${lang === option.value ? "text-white" : "text-white/65"}`}
+                      onClick={() => { setLang(option.value); setOpenLanguageMenu(null); }}
+                    >
+                      <span>{option.label}</span>
+                      {lang === option.value && <span aria-hidden="true">✓</span>}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={openLanguageMenu === "top"}
+                  onClick={() => setOpenLanguageMenu((open) => open === "top" ? null : "top")}
+                  className="flex h-[32px] w-full items-center justify-end gap-2 rounded-md px-2 transition-opacity duration-200 hover:opacity-70 focus-visible:outline focus-visible:outline-1 focus-visible:outline-white"
+                >
+                  {copy.languageName}
+                  <svg aria-hidden="true" className={`h-[5px] w-[10px] transition-transform duration-300 ${openLanguageMenu === "top" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 10 5"><path d="m1 1 4 3 4-3" stroke="currentColor" /></svg>
+                </button>
+              </div>
             </div>
 
             {/* Start Now / Rectangle 1: center-out black fill on interaction */}
@@ -370,7 +417,7 @@ export default function Home() {
                 href="/workspace"
                 className="absolute inset-0 flex items-center justify-center font-normal text-[13px] leading-[14px] text-white mix-blend-difference drop-shadow-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-white"
               >
-                Start Now
+                {copy.startNow}
               </Link>
             </div>
           </div>
@@ -399,12 +446,12 @@ export default function Home() {
           {/* Group 1: Get Started */}
           <Link
             href="/workspace"
-            aria-label="Get Started"
+            aria-label={copy.getStarted}
             className="get-started-link font-baskervville-bold absolute top-[500px] left-[565px] flex h-[71px] w-[334px] items-start justify-center text-[40px] font-bold leading-[41px] text-white transition-colors duration-[350ms] ease-out hover:text-black focus-visible:text-black active:text-black z-20 pointer-events-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
             style={{ fontFamily: "var(--font-baskervville-bold)" }}
           >
             <span className="flex items-start justify-center gap-5 pt-[2px]">
-              <span>Get Started</span>
+              <span>{copy.getStarted}</span>
               <svg aria-hidden="true" className="mt-[-1px] h-[37px] w-[42px] shrink-0" fill="none" viewBox="0 0 42 37">
                 <path d="M2 1L20 18.5L2 36" stroke="currentColor" strokeWidth="3" />
                 <path d="M12 1L30 18.5L12 36" stroke="currentColor" strokeWidth="3" />
@@ -464,12 +511,12 @@ export default function Home() {
           {/* Title: All IN ONE... */}
           <div className="absolute top-[700px] left-[357px] w-[726px] h-[69px]">
             <h2 className="font-baskervville text-center font-semibold italic text-[56px] leading-[72px] text-white drop-shadow-md">
-              All IN ONE, All IN ONCE.
+              {copy.allInOne}
             </h2>
           </div>
 
           {/* Rectangle 20: 单个深色展示面板，GSAP + ScrollTrigger 驱动的 frame1-frame4 滚轮动画 */}
-          <DirectorAgentPanel />
+          <DirectorAgentPanel copy={copy} />
         </div>
       </section>
 
@@ -488,61 +535,35 @@ export default function Home() {
 
         <div className="relative mx-auto h-full w-full max-w-[1440px]">
           <div className="absolute left-[73px] top-[666px] w-[162px]">
-            <h3 className="font-baskervville text-[15px] font-bold leading-[19px]">AI Video Generator</h3>
+            <h3 className="font-baskervville text-[15px] font-bold leading-[19px]">{copy.footerHeadings[0]}</h3>
             <nav className="footer-nav mt-[17px] flex flex-col gap-[1px] text-[13px] leading-[25px] text-[#A3A3A3]">
-              <Link href="#">Text to Video</Link>
-              <Link href="#">Image to Video</Link>
-              <Link href="#">One-Click Agent Video</Link>
-              <Link href="#">Auto Video Editor</Link>
-              <Link href="#">Frame Interpolation</Link>
-              <Link href="#">Cartoon Video Generator</Link>
-              <Link href="#">Music Video Generator</Link>
+              {copy.footerLinks[0].map((label) => <Link href="#" key={label}>{label}</Link>)}
             </nav>
           </div>
 
           <div className="absolute left-[298px] top-[666px] w-[162px]">
-            <h3 className="font-baskervville text-[15px] font-bold leading-[19px]">AI Canvas &amp; Workflow</h3>
+            <h3 className="font-baskervville text-[15px] font-bold leading-[19px]">{copy.footerHeadings[1]}</h3>
             <nav className="footer-nav mt-[17px] flex flex-col gap-[1px] text-[13px] leading-[25px] text-[#A3A3A3]">
-              <Link href="#">Storyboard Generator</Link>
-              <Link href="#">Scene Library</Link>
-              <Link href="#">Character Lock</Link>
-              <Link href="#">Script to Storyboard</Link>
-              <Link href="#">Clip Sequencer</Link>
-              <Link href="#">Batch Video Production</Link>
-              <Link href="#">Node Workflow</Link>
+              {copy.footerLinks[1].map((label) => <Link href="#" key={label}>{label}</Link>)}
             </nav>
           </div>
 
           <div className="absolute left-[544px] top-[666px] w-[162px]">
-            <h3 className="font-baskervville text-[15px] font-bold leading-[19px]">AI Digital Human</h3>
+            <h3 className="font-baskervville text-[15px] font-bold leading-[19px]">{copy.footerHeadings[2]}</h3>
             <nav className="footer-nav mt-[17px] flex flex-col gap-[1px] text-[13px] leading-[25px] text-[#A3A3A3]">
-              <Link href="#">Digital Human Maker</Link>
-              <Link href="#">Talking Avatar Generator</Link>
-              <Link href="#">Photo to Avatar</Link>
-              <Link href="#">Face Consistency Lock</Link>
-              <Link href="#">Lip-Sync Generator</Link>
-              <Link href="#">Voice Cloning</Link>
-              <Link href="#">Virtual Presenter</Link>
-              <Link href="#">Multi-Language Avatar</Link>
+              {copy.footerLinks[2].map((label) => <Link href="#" key={label}>{label}</Link>)}
             </nav>
           </div>
 
           <div className="absolute left-[755px] top-[666px] w-[162px]">
-            <h3 className="font-baskervville text-[15px] font-bold leading-[19px]">Resource</h3>
+            <h3 className="font-baskervville text-[15px] font-bold leading-[19px]">{copy.footerHeadings[3]}</h3>
             <nav className="footer-nav mt-[17px] flex flex-col gap-[1px] text-[13px] leading-[25px] text-[#A3A3A3]">
-              <Link href="#">Help Center</Link>
-              <Link href="#">API Documentation</Link>
-              <Link href="#">Templates</Link>
-              <Link href="#">Pricing</Link>
-              <Link href="#">Blog</Link>
-              <Link href="#">Case Studies</Link>
-              <Link href="#">Community</Link>
-              <Link href="#">Contact Us</Link>
+              {copy.footerLinks[3].map((label) => <Link href="#" key={label}>{label}</Link>)}
             </nav>
           </div>
 
           <div className="absolute left-[1034px] top-[702px] w-[335px] text-right text-[15px] font-normal leading-[18px]">
-            A dreamland that fulfills all your imaginations.
+            {copy.dreamland}
           </div>
 
           <div className="absolute left-[1191px] top-[661px] w-[226px] text-center">
@@ -578,14 +599,49 @@ export default function Home() {
               2026 MNDVERSE Ltd.
             </span>
             <span className="absolute left-[187px] top-0 h-[17px] w-px bg-white/50" />
-            <Link href="#" className="footer-bottom-link absolute left-[207px] top-0">Terms of Service</Link>
+            <Link href="#" className="footer-bottom-link absolute left-[207px] top-0">{copy.terms}</Link>
             <svg aria-hidden="true" className="pointer-events-none absolute left-[341px] top-[3px] h-[13px] w-[192px]" fill="none" viewBox="0 0 192 13"><path d="M0.180298 12.6731L12.1803 0.173096" stroke="white" strokeWidth="0.5" /><path d="M179.18 12.6731L191.18 0.173096" stroke="white" strokeWidth="0.5" /></svg>
-            <Link href="#" className="footer-bottom-link absolute left-[366px] top-0">Cookie preferences</Link>
-            <Link href="#" className="footer-bottom-link absolute left-[545px] top-0">Privacy Policy</Link>
+            <Link href="#" className="footer-bottom-link absolute left-[366px] top-0">{copy.cookies}</Link>
+            <Link href="#" className="footer-bottom-link absolute left-[545px] top-0">{copy.privacy}</Link>
           </div>
-          <div className="absolute left-[1265px] top-[1035px] flex items-center gap-3 text-[15px] font-normal leading-[18px]">
-            <svg aria-hidden="true" className="h-[21px] w-[21px]" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke="currentColor" /><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" stroke="currentColor" /></svg>
-            <button type="button" className="flex items-center gap-2">English<svg aria-hidden="true" className="h-[5px] w-[10px]" fill="none" viewBox="0 0 10 5"><path d="m1 1 4 3 4-3" stroke="currentColor" /></svg></button>
+          {/* Footer language switcher: same global selection as the top navigation. */}
+          <div ref={bottomLanguageMenuRef} className="absolute left-[1232px] top-[1035px] flex items-center gap-3 text-[15px] font-normal leading-[18px]">
+            <svg aria-hidden="true" className="h-[14px] w-[14px]" fill="none" viewBox="0 0 14 14">
+              <path d="M7 13.5C10.5899 13.5 13.5 10.5899 13.5 7C13.5 3.41015 10.5899 0.5 7 0.5C3.41015 0.5 0.5 3.41015 0.5 7C0.5 10.5899 3.41015 13.5 7 13.5Z" stroke="white" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M0.5 7H13.5" stroke="white" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M9.5 7C9.3772 9.37699 8.50168 11.6533 7 13.5C5.49832 11.6533 4.6228 9.37699 4.5 7C4.6228 4.62301 5.49832 2.34665 7 0.5C8.50168 2.34665 9.3772 4.62301 9.5 7V7Z" stroke="white" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <div className="relative">
+              <div
+                className={`absolute bottom-[34px] right-0 w-[174px] origin-bottom overflow-hidden rounded-[14px] border border-white/20 bg-black/70 p-1.5 shadow-2xl backdrop-blur-xl transition-all duration-300 ease-out ${openLanguageMenu === "bottom" ? "pointer-events-auto translate-y-0 scale-100 opacity-100" : "pointer-events-none translate-y-2 scale-95 opacity-0"}`}
+                role="menu"
+                aria-hidden={openLanguageMenu !== "bottom"}
+              >
+                {languageOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={lang === option.value}
+                    className={`flex w-full items-center justify-between rounded-[10px] px-3 py-2.5 text-left transition-colors duration-200 hover:bg-white/15 focus-visible:bg-white/15 focus-visible:outline-none ${lang === option.value ? "text-white" : "text-white/65"}`}
+                    onClick={() => { setLang(option.value); setOpenLanguageMenu(null); }}
+                  >
+                    <span>{option.label}</span>
+                    {lang === option.value && <span aria-hidden="true">✓</span>}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={openLanguageMenu === "bottom"}
+                onClick={() => setOpenLanguageMenu((open) => open === "bottom" ? null : "bottom")}
+                className="flex min-w-[116px] items-center justify-end gap-2 rounded-md py-1 transition-opacity duration-200 hover:opacity-70 focus-visible:outline focus-visible:outline-1 focus-visible:outline-white"
+              >
+                {copy.languageName}
+                <svg aria-hidden="true" className={`h-[5px] w-[10px] transition-transform duration-300 ${openLanguageMenu === "bottom" ? "rotate-180" : ""}`} fill="none" viewBox="0 0 10 5"><path d="m1 1 4 3 4-3" stroke="currentColor" /></svg>
+              </button>
+            </div>
           </div>
         </div>
       </footer>
