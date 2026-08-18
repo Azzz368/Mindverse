@@ -1,4 +1,4 @@
-export type Lang = "zh" | "en";
+export type Lang = "zh-Hant" | "zh-Hans" | "ko" | "th" | "km" | "en";
 
 export interface Strings {
   // TopBar
@@ -363,4 +363,11 @@ const en: Strings = {
   serverDefault: "Server default",
 };
 
-export const strings: Record<Lang, Strings> = { zh, en };
+export const strings: Record<Lang, Strings> = {
+  "zh-Hant": zh,
+  "zh-Hans": zh,
+  ko: en,
+  th: en,
+  km: en,
+  en,
+};

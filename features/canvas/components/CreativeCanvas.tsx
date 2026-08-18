@@ -422,7 +422,7 @@ export function CreativeCanvas() {
 
   const handleBatchDelete = useCallback(() => {
     if (!selectedNodeIds.length) return;
-    const message = lang === "zh"
+    const message = lang === "zh-Hant" || lang === "zh-Hans"
       ? `删除选中的 ${selectedNodeIds.length} 个节点？此操作可以撤回。`
       : `Delete ${selectedNodeIds.length} selected nodes? You can undo this action.`;
     if (window.confirm(message)) removeNodes(selectedNodeIds);
@@ -602,11 +602,11 @@ export function CreativeCanvas() {
           onPointerUp={finishBatchSelectionDrag}
           onPointerCancel={finishBatchSelectionDrag}
           role="group"
-          aria-label={lang === "zh" ? `已选择 ${selectedNodes.length} 个节点；拖动可整体移动` : `${selectedNodes.length} nodes selected; drag to move them together`}
-          title={lang === "zh" ? "拖动选框可整体移动节点" : "Drag the frame to move selected nodes"}
+          aria-label={lang === "zh-Hant" || lang === "zh-Hans" ? `已选择 ${selectedNodes.length} 个节点；拖动可整体移动` : `${selectedNodes.length} nodes selected; drag to move them together`}
+          title={lang === "zh-Hant" || lang === "zh-Hans" ? "拖动选框可整体移动节点" : "Drag the frame to move selected nodes"}
         >
           <span className="pointer-events-none absolute -top-3 left-5 rounded-full bg-[#ed7c28] px-2 py-0.5 text-[9px] font-black tracking-wide text-white shadow-sm dark:bg-amber-300 dark:text-[#21170d]">
-            {lang === "zh" ? `${selectedNodes.length} 个节点` : `${selectedNodes.length} nodes`}
+            {lang === "zh-Hant" || lang === "zh-Hans" ? `${selectedNodes.length} 个节点` : `${selectedNodes.length} nodes`}
           </span>
         </div>
       )}
@@ -615,13 +615,13 @@ export function CreativeCanvas() {
         <div
           className="nodrag nopan absolute left-1/2 top-4 z-[9998] flex -translate-x-1/2 items-center gap-1 rounded-full border border-[#f0a55a] bg-[#fffaf4]/95 p-1.5 pl-3 shadow-[0_12px_32px_rgba(101,54,10,0.16)] backdrop-blur-md dark:border-amber-400/50 dark:bg-[#17130d]/95"
           role="toolbar"
-          aria-label={lang === "zh" ? "多选节点操作" : "Selected node actions"}
+          aria-label={lang === "zh-Hant" || lang === "zh-Hans" ? "多选节点操作" : "Selected node actions"}
         >
           <span className="mr-2 whitespace-nowrap text-[11px] font-bold tracking-wide text-[#8a4b12] dark:text-amber-200">
-            {lang === "zh" ? `已选 ${selectedNodes.length} 个` : `${selectedNodes.length} selected`}
+            {lang === "zh-Hant" || lang === "zh-Hans" ? `已选 ${selectedNodes.length} 个` : `${selectedNodes.length} selected`}
           </span>
           <span className="hidden whitespace-nowrap text-[10px] text-[#9a7656] dark:text-amber-100/60 lg:inline">
-            {lang === "zh" ? "拖动选框可整体移动" : "Drag the frame to move all"}
+            {lang === "zh-Hant" || lang === "zh-Hans" ? "拖动选框可整体移动" : "Drag the frame to move all"}
           </span>
           <div className="mx-1 h-5 w-px bg-[#f1cfad] dark:bg-amber-300/20" />
           <button
@@ -631,21 +631,21 @@ export function CreativeCanvas() {
             className="flex h-8 items-center gap-1.5 rounded-full bg-[#18130f] px-3 text-[11px] font-bold text-white transition hover:bg-[#3b2819] disabled:cursor-not-allowed disabled:opacity-35 dark:bg-amber-300 dark:text-[#21170d] dark:hover:bg-amber-200"
           >
             <svg width="9" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><path d="M2 1.5v7l6-3.5z" /></svg>
-            {lang === "zh" ? `运行 ${runnableSelectionCount}` : `Run ${runnableSelectionCount}`}
+            {lang === "zh-Hant" || lang === "zh-Hans" ? `运行 ${runnableSelectionCount}` : `Run ${runnableSelectionCount}`}
           </button>
           <button
             type="button"
             onClick={handleBatchDelete}
             className="h-8 rounded-full px-3 text-[11px] font-bold text-rose-600 transition hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-400/10"
           >
-            {lang === "zh" ? "删除" : "Delete"}
+            {lang === "zh-Hant" || lang === "zh-Hans" ? "删除" : "Delete"}
           </button>
           <button
             type="button"
             onClick={() => setSelectedNodes([])}
             className="grid h-8 w-8 place-items-center rounded-full text-[#997456] transition hover:bg-[#f5e5d5] hover:text-[#3b2819] dark:text-amber-100/70 dark:hover:bg-amber-300/10"
-            aria-label={lang === "zh" ? "取消选择" : "Clear selection"}
-            title={lang === "zh" ? "取消选择" : "Clear selection"}
+            aria-label={lang === "zh-Hant" || lang === "zh-Hans" ? "取消选择" : "Clear selection"}
+            title={lang === "zh-Hant" || lang === "zh-Hans" ? "取消选择" : "Clear selection"}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M2 2l8 8M10 2L2 10" /></svg>
           </button>
@@ -660,7 +660,7 @@ export function CreativeCanvas() {
 
       {!selectedNodes.length && !selectionMode && !isGhosting && (
         <div className="pointer-events-none absolute bottom-5 left-1/2 z-20 -translate-x-1/2 rounded-full border border-black/5 bg-white/75 px-3 py-1.5 text-[10px] font-medium text-[#777] shadow-sm backdrop-blur dark:border-white/10 dark:bg-[#101c29]/75 dark:text-slate-400">
-          {lang === "zh" ? "按住 Shift 拖动画布，可框选多个节点" : "Hold Shift and drag to select multiple nodes"}
+          {lang === "zh-Hant" || lang === "zh-Hans" ? "按住 Shift 拖动画布，可框选多个节点" : "Hold Shift and drag to select multiple nodes"}
         </div>
       )}
 
