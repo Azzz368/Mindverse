@@ -547,11 +547,11 @@ export default function Home() {
 
           <div className="absolute left-[1191px] top-[661px] w-[226px] text-center">
             <div className="font-baskervville text-[20px] font-bold italic leading-[26px]">MINDVERSE</div>
-            <div className="absolute left-[88px] top-[83px] grid h-[89px] w-[89px] grid-cols-7 grid-rows-7 gap-[2px] bg-white p-[7px]">
-              {Array.from({ length: 49 }, (_, index) => (
-                <span key={index} className={(index * 7 + Math.floor(index / 3)) % 5 < 2 ? "bg-black" : "bg-white"} />
-              ))}
-            </div>
+            <img
+              src="/asset/website/websiteqrcode.jpg"
+              alt="Mindverse website QR code"
+              className="absolute left-[88px] top-[83px] h-[89px] w-[89px] object-cover"
+            />
             <div className="absolute left-[7px] top-[198px] flex items-center gap-[18px]">
               <Link href="#" aria-label="TikTok" className="transition-opacity hover:opacity-70">
                 <svg aria-hidden="true" className="h-6 w-[21px] invert" viewBox="0 0 21 24" fill="none"><path d="M15.4401 0H11.2968V16.3478C11.2968 18.2957 9.70322 19.8957 7.72007 19.8957C5.73693 19.8957 4.14334 18.2957 4.14334 16.3478C4.14334 14.4348 5.70152 12.8695 7.61385 12.8V8.69567C3.39966 8.7652 0 12.1391 0 16.3478C0 20.5913 3.47049 24 7.7555 24C12.0405 24 15.5109 20.5565 15.5109 16.3478V7.9652C17.0691 9.07827 18.9814 9.73913 21 9.77393V5.66957C17.8837 5.56522 15.4401 3.06087 15.4401 0Z" fill="black" /></svg>
