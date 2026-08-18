@@ -217,7 +217,7 @@ const fallbackSizeFor = (type: string) => ({
 }[type] || { w: 280, h: 250 });
 
 export function CreativeCanvas() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, setSelectedNodes, removeNodes, runNodes, selectionMode, ghostType, setGhostType, placeGhostNode, addMediaNode, addPastedMediaNodes, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia, pendingAgentPatch, setPendingAgentPatch, placeAgentPatch, recordCanvasMutation } = useCanvasStore();
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, setSelectedNodes, removeNodes, runNodes, selectionMode, ghostType, setGhostType, placeGhostNode, addMediaNode, addPastedMediaNodes, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia, pendingAgentPatch, setPendingAgentPatch, placeAgentPatch, recordCanvasMutation, undoLastCanvasMutation, canUndo, setGroupColor, clearGroup } = useCanvasStore();
   const { theme } = useTheme();
   const { lang } = useLang();
   const { getNodes, screenToFlowPosition } = useReactFlow();
@@ -243,6 +243,12 @@ export function CreativeCanvas() {
   const isGhosting = !!(ghostType || ghostMediaUrl || pendingAgentPatch);
   const selectedNodes = useMemo(() => nodes.filter((node) => node.selected), [nodes]);
   const selectedNodeIds = useMemo(() => selectedNodes.map((node) => node.id), [selectedNodes]);
+  const selectedGroupId = useMemo(() => {
+    if (selectedNodes.length < 2) return null;
+    const groupId = selectedNodes[0]?.data.groupId;
+    if (!groupId || selectedNodes.some((node) => node.data.groupId !== groupId)) return null;
+    return nodes.filter((node) => node.data.groupId === groupId).length === selectedNodes.length ? groupId : null;
+  }, [nodes, selectedNodes]);
   const runnableSelectionCount = useMemo(() => selectedNodes.filter((node) => BATCH_RUNNABLE_NODE_TYPES.has(node.data.nodeType) && node.data.status !== "running" && node.data.status !== "waiting").length, [selectedNodes]);
   const batchSelectionBounds = useMemo(() => {
     if (selectedNodes.length < 2) return null;
@@ -297,6 +303,35 @@ export function CreativeCanvas() {
       height: (group.maxY - group.minY + GROUP_PADDING * 2) * zoom,
     }));
   }, [nodes, viewX, viewY, zoom]);
+  const groupAtFlowPosition = useCallback((position: { x: number; y: number }) => {
+    const groups = new Map<string, { minX: number; minY: number; maxX: number; maxY: number }>();
+    nodes.forEach((node) => {
+      const groupId = node.data.groupId;
+      if (!groupId || !node.data.groupColor) return;
+      const measuredNode = node as typeof node & { measured?: { width?: number; height?: number }; width?: number; height?: number };
+      const fallback = fallbackSizeFor(node.data.nodeType);
+      const width = measuredNode.measured?.width || measuredNode.width || fallback.w;
+      const height = measuredNode.measured?.height || measuredNode.height || fallback.h;
+      const existing = groups.get(groupId);
+      const minX = node.position.x;
+      const minY = node.position.y;
+      const maxX = node.position.x + width;
+      const maxY = node.position.y + height;
+      if (!existing) groups.set(groupId, { minX, minY, maxX, maxY });
+      else {
+        existing.minX = Math.min(existing.minX, minX);
+        existing.minY = Math.min(existing.minY, minY);
+        existing.maxX = Math.max(existing.maxX, maxX);
+        existing.maxY = Math.max(existing.maxY, maxY);
+      }
+    });
+    return [...groups.entries()].find(([, bounds]) =>
+      position.x >= bounds.minX - GROUP_PADDING
+      && position.x <= bounds.maxX + GROUP_PADDING
+      && position.y >= bounds.minY - GROUP_PADDING
+      && position.y <= bounds.maxY + GROUP_PADDING,
+    )?.[0] ?? null;
+  }, [nodes]);
 
   /* Track mouse for both ghost types */
   useEffect(() => {
@@ -313,6 +348,30 @@ export function CreativeCanvas() {
     window.addEventListener("contextmenu", onCtx);
     return () => window.removeEventListener("contextmenu", onCtx);
   }, [ghostType, ghostMediaUrl, pendingAgentPatch, setGhostType, _setGhostMedia, setPendingAgentPatch]);
+
+  /* Canvas undo: Command+Z on macOS, Ctrl+Z on Windows/Linux. */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.key.toLowerCase() !== "z" || (!event.metaKey && !event.ctrlKey)) return;
+      if (isEditablePasteTarget(event.target) || !canUndo) return;
+      event.preventDefault();
+      undoLastCanvasMutation();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canUndo, undoLastCanvasMutation]);
+
+  /* Group the current Shift selection without taking over text-input shortcuts. */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.key.toLowerCase() !== "g" || !event.shiftKey || event.metaKey || event.ctrlKey) return;
+      if (isEditablePasteTarget(event.target) || selectedNodeIds.length < 2) return;
+      event.preventDefault();
+      setGroupColor(selectedNodeIds, MORANDI[1].bg);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedNodeIds, setGroupColor]);
 
   /* Paste a copied media file directly into the canvas. */
   useEffect(() => {
@@ -502,9 +561,12 @@ export function CreativeCanvas() {
       recordCanvasMutation();
       placeGhostMedia(flowPos);
     } else if (!selectionMode) {
-      setSelectedNode(null);
+      const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      const groupId = groupAtFlowPosition(flowPos);
+      if (groupId) setSelectedNodes(nodes.filter((node) => node.data.groupId === groupId).map((node) => node.id));
+      else setSelectedNode(null);
     }
-  }, [ghostType, ghostMediaUrl, pendingAgentPatch, screenToFlowPosition, placeGhostNode, placeGhostMedia, placeAgentPatch, selectionMode, setSelectedNode]);
+  }, [ghostType, ghostMediaUrl, pendingAgentPatch, screenToFlowPosition, placeGhostNode, placeGhostMedia, placeAgentPatch, selectionMode, groupAtFlowPosition, nodes, setSelectedNode, setSelectedNodes]);
 
   /* Right-click on selected nodes → context menu */
   const handleSelectionContextMenu = useCallback((e: React.MouseEvent) => {
@@ -585,8 +647,27 @@ export function CreativeCanvas() {
         {groupBackdrops.map((group) => (
           <div
             key={group.id}
-            className="react-flow__group-backdrop pointer-events-none"
+            className="react-flow__group-backdrop nodrag nopan cursor-pointer"
             style={{ left: group.left, top: group.top, width: group.width, height: group.height, borderColor: rgba(group.color, 0.45), backgroundColor: rgba(group.color, 0.28) }}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              event.stopPropagation();
+              setSelectedNodes(nodes.filter((node) => node.data.groupId === group.id).map((node) => node.id));
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+              setSelectedNodes(nodes.filter((node) => node.data.groupId === group.id).map((node) => node.id));
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              setSelectedNodes(nodes.filter((node) => node.data.groupId === group.id).map((node) => node.id));
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label={lang === "zh-Hant" || lang === "zh-Hans" ? "选择整个分组" : "Select this group"}
+            title={lang === "zh-Hant" || lang === "zh-Hans" ? "点击选择整个分组" : "Click to select this group"}
           />
         ))}
         <Controls showInteractive={false} />
@@ -624,6 +705,26 @@ export function CreativeCanvas() {
             {lang === "zh-Hant" || lang === "zh-Hans" ? "拖动选框可整体移动" : "Drag the frame to move all"}
           </span>
           <div className="mx-1 h-5 w-px bg-[#f1cfad] dark:bg-amber-300/20" />
+          {!selectedGroupId && (
+            <button
+              type="button"
+              onClick={() => setGroupColor(selectedNodeIds, MORANDI[1].bg)}
+              className="flex h-8 items-center gap-1.5 rounded-full border border-[#e9bd94] px-3 text-[11px] font-bold text-[#8a4b12] transition hover:bg-[#fff0df] dark:border-amber-300/30 dark:text-amber-100 dark:hover:bg-amber-300/10"
+              title={lang === "zh-Hant" || lang === "zh-Hans" ? "打组（Shift + G）" : "Group (Shift + G)"}
+            >
+              {lang === "zh-Hant" || lang === "zh-Hans" ? "打组" : "Group"}
+            </button>
+          )}
+          {selectedGroupId && (
+            <button
+              type="button"
+              onClick={() => clearGroup(selectedNodeIds)}
+              className="h-8 rounded-full px-3 text-[11px] font-bold text-[#8a4b12] transition hover:bg-[#fff0df] dark:text-amber-100 dark:hover:bg-amber-300/10"
+              title={lang === "zh-Hant" || lang === "zh-Hans" ? "取消打组" : "Ungroup"}
+            >
+              {lang === "zh-Hant" || lang === "zh-Hans" ? "取消打组" : "Ungroup"}
+            </button>
+          )}
           <button
             type="button"
             disabled={!runnableSelectionCount}

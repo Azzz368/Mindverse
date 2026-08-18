@@ -63,6 +63,7 @@ type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEd
   addStoryChainNode(content: string, title?: string): void;
   runGroup(groupId: string): Promise<void>;
   setGroupColor(nodeIds: string[], color: string): void;
+  clearGroup(nodeIds: string[]): void;
   updateGroupColor(groupId: string, color: string): void;
   setGroupLocked(nodeIds: string[], locked: boolean): void;
   markSelectedWorkflow(order: number, title?: string): void;
@@ -404,7 +405,27 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       selectedNodeId: node.id,
     };
   }),
-  setGroupColor: (nodeIds, color) => set((state) => { const groupId = `group-${crypto.randomUUID()}`; return { nodes: state.nodes.map((n) => nodeIds.includes(n.id) ? { ...n, data: { ...n.data, groupId, groupColor: color } } : n) }; }),
+  setGroupColor: (nodeIds, color) => set((state) => {
+    if (nodeIds.length < 2) return {};
+    const undoStack = appendUndoEntry(state.undoStack, state);
+    const groupId = `group-${crypto.randomUUID()}`;
+    return {
+      nodes: state.nodes.map((n) => nodeIds.includes(n.id) ? { ...n, data: { ...n.data, groupId, groupColor: color } } : n),
+      undoStack,
+      canUndo: true,
+    };
+  }),
+  clearGroup: (nodeIds) => set((state) => {
+    if (!nodeIds.length) return {};
+    const undoStack = appendUndoEntry(state.undoStack, state);
+    return {
+      nodes: state.nodes.map((node) => nodeIds.includes(node.id)
+        ? { ...node, draggable: true, data: { ...node.data, groupId: undefined, groupColor: undefined, locked: undefined } }
+        : node),
+      undoStack,
+      canUndo: true,
+    };
+  }),
   updateGroupColor: (groupId, color) => set((state) => ({ nodes: state.nodes.map((n) => n.data.groupId === groupId ? { ...n, data: { ...n.data, groupColor: color } } : n) })),
   setGroupLocked: (nodeIds, locked) => set((state) => ({ nodes: state.nodes.map((n) => nodeIds.includes(n.id) ? { ...n, draggable: !locked, data: { ...n.data, locked } } : n) })),
   markSelectedWorkflow: (order, title) => set((state) => {

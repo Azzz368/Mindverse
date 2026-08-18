@@ -139,7 +139,7 @@ button { cursor: pointer; }
 
 .react-flow__group-backdrop {
   position: absolute;
-  pointer-events: none;
+  pointer-events: auto;
   z-index: 0;
   border-width: 1px;
   border-style: solid;
@@ -738,4 +738,3 @@ button { cursor: pointer; }
 
   .mindverse-agent-task-card { transform: none !important; }
 }
-
