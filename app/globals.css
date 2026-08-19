@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+/* The workspace uses 1440px as its Figma coordinate system. On wider displays,
+   Chromium's layout zoom scales that system proportionally but never beyond 130%. */
+.workspace-stage { zoom: clamp(1, calc(100vw / 1440px), 1.3); }
+
 .auth-shell { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(560px, .88fr); min-height: 100svh; overflow: hidden; font-family: var(--font-epilogue), sans-serif; }
 .auth-art { position: relative; min-height: 100svh; overflow: hidden; isolation: isolate; background: #080706; }
 .auth-art__base { position: absolute; inset: -18%; z-index: -2; background: linear-gradient(145deg, #050505 8%, #2b1206 48%, #ff9900 118%); transform: rotate(-8deg) scale(1.2); }
