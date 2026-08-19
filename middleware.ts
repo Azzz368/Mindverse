@@ -19,6 +19,7 @@ async function validSessionCookie(value: string) {
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
+  if (path === "/") return NextResponse.redirect(new URL("/login", request.url));
   if (workerPaths.some((pattern) => pattern.test(path))) return NextResponse.next();
   if (!protectedApiPrefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) return NextResponse.next();
   const cookie = request.cookies.get(SESSION_COOKIE)?.value || "";
@@ -29,4 +30,4 @@ export async function middleware(request: NextRequest) {
   );
 }
 
-export const config = { matcher: "/api/:path*" };
+export const config = { matcher: ["/", "/api/:path*"] };
