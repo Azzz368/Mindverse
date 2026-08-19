@@ -77,7 +77,7 @@ function CreateCanvasCard({ onCreate, busy }: { onCreate: () => void; busy: bool
       <div className="absolute left-[4px] top-[4px] h-[112px] w-[188px] overflow-hidden rounded-[5px] bg-[#868686]">
         <img src="/website/flowvideo/toplist/6.png" alt="" className="absolute left-[70px] top-[34px] z-10 h-[31px] w-[31px] rotate-[-6.28deg] rounded-[5px] border border-white/80 object-cover transition-transform duration-300 ease-out group-hover:-translate-x-1" />
         <span className="absolute left-[94px] top-[34px] z-20 grid h-[31px] w-[31px] rotate-[6.81deg] place-items-center rounded-[5px] border border-white/40 bg-white/[0.13] text-[28px] font-light leading-none text-white shadow-[inset_1px_1px_2px_rgba(255,255,255,0.48),inset_-1px_-1px_2px_rgba(0,0,0,0.2),0_2px_5px_rgba(0,0,0,0.18)] backdrop-blur-[3px] transition-transform duration-300 ease-out group-hover:translate-x-1">+</span>
-        <span className="absolute left-[46.5px] top-[72px] w-[95px] text-center text-[9px] font-medium leading-[9px]">Create New Canvas</span>
+        <span className="absolute left-[49.5px] top-[78px] w-[95px] text-center text-[10px] font-bold leading-[9px]">New Canvas</span>
       </div>
     </button>
   );
@@ -125,8 +125,14 @@ export function WorkflowDashboard({ user, workspace, initialWorkflows }: Props) 
   const lowerNav: SideIconKind[] = ["folder", "rewind", "sync"];
 
   return (
-    <main className="min-h-screen overflow-x-auto bg-black font-epilogue text-white" style={{ backgroundImage: "radial-gradient(164.05% 124.18% at 50% 124.18%, #fff6e8 0%, #b0220c 31.25%, transparent 53.64%), radial-gradient(183.83% 316.53% at 18.82% 202.19%, #fff6e8 0%, #b0220c 31.25%, transparent 53.64%)" }}>
-      <div className="relative flex min-h-[max(854px,100vh)] min-w-[1440px] justify-center">
+    <main className="workspace-noise relative min-h-screen overflow-x-auto bg-black font-epilogue text-white">
+      <div aria-hidden="true" className="absolute inset-0 overflow-hidden">
+        <span className="workspace-background-orb workspace-background-orb--mirrored-gradient" />
+        <span className="workspace-background-orb workspace-background-orb--vector" />
+        <span className="workspace-background-orb workspace-background-orb--rust" />
+        <span className="workspace-background-orb workspace-background-orb--cream" />
+      </div>
+      <div className="relative z-10 flex min-h-[max(854px,100vh)] min-w-[1440px] justify-center">
         <aside className="absolute inset-y-0 left-0 w-[56px] bg-white/[0.1]">
           <nav className="absolute left-0 top-[137px] flex w-full flex-col items-center gap-[26px]" aria-label="Primary navigation">
             {upperNav.map((kind) => <button key={kind} type="button" title={kind} className="text-white transition hover:text-white/60"><SideIcon kind={kind} /></button>)}

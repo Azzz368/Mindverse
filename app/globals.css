@@ -6,6 +6,92 @@
    Chromium's layout zoom scales that system proportionally but never beyond 130%. */
 .workspace-stage { zoom: clamp(1, calc(100vw / 1440px), 1.3); }
 
+.workspace-noise::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.38;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Cfilter id='workspace-noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23workspace-noise)' opacity='0.3'/%3E%3C/svg%3E");
+}
+
+/* Workspace background: staggered fades keep the moving light subtle—no more
+  than two of the four background light sources reach their bright phase. */
+.workspace-background-orb {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(150px);
+  will-change: opacity;
+}
+.workspace-background-orb--mirrored-gradient {
+  left: 1.27%;
+  right: 1.81%;
+  top: 0;
+  bottom: -22.53%;
+  background: radial-gradient(164.05% 124.18% at 50% 124.18%, #fff6e8 0%, #b0220c 31.25%, transparent 53.64%, transparent 100%);
+  border-radius: 0;
+  filter: none;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent), linear-gradient(to bottom, #000 0%, #000 78%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent), linear-gradient(to bottom, #000 0%, #000 78%, transparent 100%);
+  mask-composite: intersect;
+  transform: scaleX(-1);
+  animation: workspace-orb-fade-d 22.57s ease-in-out -11.71s infinite;
+}
+.workspace-background-orb--vector {
+  width: 69.874%;
+  height: 74.784%;
+  left: 45.208%;
+  top: 62.608%;
+  background: linear-gradient(82.36deg, rgba(171, 71, 0, .35) 38.7%, rgba(255, 204, 255, .35) 76.51%);
+  transform: rotate(3.55deg);
+  animation: workspace-orb-fade-a 20.86s ease-in-out 0s infinite;
+}
+.workspace-background-orb--rust {
+  width: 11.219%;
+  height: 63.039%;
+  left: -10.486%;
+  top: 35.597%;
+  background: #ab4700;
+  transform: rotate(-24.04deg);
+  animation: workspace-orb-fade-b 17.43s ease-in-out -6.86s infinite;
+}
+.workspace-background-orb--cream {
+  width: 61.707%;
+  height: 41.956%;
+  left: -6.875%;
+  top: 54.801%;
+  background: rgba(255, 244, 245, .2);
+  transform: rotate(9.05deg);
+  animation: workspace-orb-fade-c 24.86s ease-in-out -16.57s infinite;
+}
+@keyframes workspace-orb-fade-a {
+  0%, 18%, 100% { opacity: .05; }
+  34%, 54% { opacity: .82; }
+  70% { opacity: .12; }
+}
+@keyframes workspace-orb-fade-b {
+  0%, 24%, 100% { opacity: .04; }
+  40%, 58% { opacity: .76; }
+  74% { opacity: .1; }
+}
+@keyframes workspace-orb-fade-c {
+  0%, 28%, 100% { opacity: .03; }
+  44%, 62% { opacity: .72; }
+  78% { opacity: .08; }
+}
+@keyframes workspace-orb-fade-d {
+  0%, 26%, 100% { opacity: .04; }
+  42%, 60% { opacity: .46; }
+  76% { opacity: .08; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-background-orb { animation: none; opacity: .32; }
+}
+
 .auth-shell { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(560px, .88fr); min-height: 100svh; overflow: hidden; font-family: var(--font-epilogue), sans-serif; }
 .auth-art { position: relative; min-height: 100svh; overflow: hidden; isolation: isolate; background: #080706; }
 .auth-art__base { position: absolute; inset: -18%; z-index: -2; background: linear-gradient(145deg, #050505 8%, #2b1206 48%, #ff9900 118%); transform: rotate(-8deg) scale(1.2); }
