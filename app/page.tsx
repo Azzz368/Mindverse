@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type RefObject } from "react";
+import Hls from "hls.js";
 import { DirectorAgentPanel } from "@/components/DirectorAgentPanel";
 import { LensRefraction } from "@/components/LensRefraction";
 import { useLang } from "@/components/providers/LangProvider";
@@ -23,6 +24,15 @@ const DOWNLIST_IMAGES = Array.from(
   (_, index) => `/website/flowvideo/downlist/${index + 1}.png`,
 );
 
+type HeroVideoKey = "fullCowboy" | "partCowboy" | "daduhuidog" | "basketball";
+
+const HERO_STREAMS: Record<HeroVideoKey, string> = {
+  basketball: "https://vz-72684588-73a.b-cdn.net/18ebfb9a-a1be-48b5-96cc-1ea3f5eaa07e/playlist.m3u8",
+  partCowboy: "https://vz-72684588-73a.b-cdn.net/28bbf253-6a42-4320-8d78-1eb09da3e1d8/playlist.m3u8",
+  fullCowboy: "https://vz-72684588-73a.b-cdn.net/a6462599-1544-45b4-ace8-eff19f2fb0d8/playlist.m3u8",
+  daduhuidog: "https://vz-72684588-73a.b-cdn.net/778df653-ba04-40c3-8500-b7e700c6cfb3/playlist.m3u8",
+};
+
 export default function Home() {
   const { lang, setLang } = useLang();
   const copy = landingStrings[lang];
@@ -30,7 +40,7 @@ export default function Home() {
   const topLanguageMenuRef = useRef<HTMLDivElement>(null);
   const bottomLanguageMenuRef = useRef<HTMLDivElement>(null);
   const [heroStage, setHeroStage] = useState<"black" | "video">("black");
-  const [activeHeroVideo, setActiveHeroVideo] = useState<"fullCowboy" | "partCowboy" | "daduhuidog" | "basketball">("fullCowboy");
+  const [activeHeroVideo, setActiveHeroVideo] = useState<HeroVideoKey>("fullCowboy");
   const [heroMediaReady, setHeroMediaReady] = useState(false);
   const heroSectionRef = useRef<HTMLElement>(null);
   const heroPanRef = useRef({ x: 0, y: 0 });
@@ -38,6 +48,7 @@ export default function Home() {
   const partCowboyVideoRef = useRef<HTMLVideoElement>(null);
   const daduhuidogVideoRef = useRef<HTMLVideoElement>(null);
   const basketballVideoRef = useRef<HTMLVideoElement>(null);
+  const hlsInstancesRef = useRef<Partial<Record<HeroVideoKey, Hls>>>({});
 
   useEffect(() => {
     // Keep the first paint black, then immediately start the normal 0.2 s video fade.
@@ -70,17 +81,59 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (heroStage === "video") {
-      const video = {
-        fullCowboy: fullCowboyVideoRef.current,
-        partCowboy: partCowboyVideoRef.current,
-        daduhuidog: daduhuidogVideoRef.current,
-        basketball: basketballVideoRef.current,
-      }[activeHeroVideo];
-      if (video?.ended) video.currentTime = 0;
-      void video?.play();
+    if (heroStage !== "video") return;
+
+    const videoRefs: Record<HeroVideoKey, RefObject<HTMLVideoElement | null>> = {
+      fullCowboy: fullCowboyVideoRef,
+      partCowboy: partCowboyVideoRef,
+      daduhuidog: daduhuidogVideoRef,
+      basketball: basketballVideoRef,
+    };
+    const video = videoRefs[activeHeroVideo].current;
+    const source = HERO_STREAMS[activeHeroVideo];
+    if (!video || !source) return;
+
+    // Only keep the active stream attached. This prevents hidden videos from
+    // opening four concurrent HLS downloads.
+    Object.entries(hlsInstancesRef.current).forEach(([key, instance]) => {
+      if (key !== activeHeroVideo && instance) {
+        instance.destroy();
+        delete hlsInstancesRef.current[key as HeroVideoKey];
+      }
+    });
+
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = source;
+      video.load();
+      void video.play().catch(() => undefined);
+      return () => {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      };
     }
+
+    if (!Hls.isSupported()) return;
+
+    const hls = new Hls();
+    hlsInstancesRef.current[activeHeroVideo] = hls;
+    hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(source));
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      if (video.ended) video.currentTime = 0;
+      void video.play().catch(() => undefined);
+    });
+    hls.attachMedia(video);
+
+    return () => {
+      hls.destroy();
+      if (hlsInstancesRef.current[activeHeroVideo] === hls) delete hlsInstancesRef.current[activeHeroVideo];
+    };
   }, [activeHeroVideo, heroStage]);
+
+  useEffect(() => () => {
+    Object.values(hlsInstancesRef.current).forEach((instance) => instance?.destroy());
+    hlsInstancesRef.current = {};
+  }, []);
 
   useEffect(() => {
     const section = heroSectionRef.current;
@@ -311,37 +364,33 @@ export default function Home() {
         <video
           ref={fullCowboyVideoRef}
           className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "fullCowboy" ? "hero-video--visible" : ""}`}
-          src="/website/fullcowboy.mp4"
           muted
           playsInline
-          preload="auto"
+          preload="none"
           onEnded={() => setActiveHeroVideo("daduhuidog")}
         />
         <video
           ref={partCowboyVideoRef}
           className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "partCowboy" ? "hero-video--visible" : ""}`}
-          src="/website/partofcowboy.mp4"
           muted
           playsInline
-          preload="auto"
+          preload="none"
           onEnded={() => setActiveHeroVideo("daduhuidog")}
         />
         <video
           ref={daduhuidogVideoRef}
           className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "daduhuidog" ? "hero-video--visible" : ""}`}
-          src="/website/daduhuidog.mp4"
           muted
           playsInline
-          preload="auto"
+          preload="none"
           onEnded={() => setActiveHeroVideo("basketball")}
         />
         <video
           ref={basketballVideoRef}
           className={`hero-video absolute inset-0 h-full w-full object-cover pointer-events-none ${heroStage === "video" && activeHeroVideo === "basketball" ? "hero-video--visible" : ""}`}
-          src="/website/feichuanlanqiu.mp4"
           muted
           playsInline
-          preload="auto"
+          preload="none"
           onEnded={() => setActiveHeroVideo("partCowboy")}
         />
 
