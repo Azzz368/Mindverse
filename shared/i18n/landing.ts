@@ -134,10 +134,10 @@ const km: typeof en = {
 export type LandingStrings = typeof en;
 export const landingStrings: Record<Lang, LandingStrings> = { en, "zh-Hant": zhHant, "zh-Hans": zhHans, ko, th, km };
 export const languageOptions: Array<{ value: Lang; label: string }> = [
-  { value: "zh-Hant", label: "繁體中文" },
+  { value: "en", label: "English" },
   { value: "zh-Hans", label: "简体中文" },
+  { value: "zh-Hant", label: "繁體中文" },
   { value: "ko", label: "한국어" },
   { value: "th", label: "ไทย" },
   { value: "km", label: "ខ្មែរ" },
-  { value: "en", label: "English" },
 ];

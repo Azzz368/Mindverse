@@ -28,7 +28,7 @@ export type AgentWorkflowPlan = {
   aspectRatio?: "16:9" | "9:16" | "1:1";
   sceneCount?: number;
   includeAudio?: boolean;
-  videoProvider?: "tokenstar" | "kling" | "302ai" | "302-sora2" | "hkgai";
+  videoProvider?: "tokenstar" | "kling" | "302ai" | "302-sora2" | "hkgai" | "talkingdata";
   steps: AgentWorkflowStep[];
   successCriteria?: string[] | Record<string, unknown>;
   warnings?: string[];
@@ -206,18 +206,18 @@ const hasChinese = (value: string) => /[\u3400-\u9fff]/.test(value);
 const fallbackLabel = (kind: AgentStepKind, index: number, zh: boolean) => {
   if (!zh) return `${kind[0].toUpperCase()}${kind.slice(1)} ${index + 1}`;
   const labels: Partial<Record<AgentStepKind, string>> = {
-    prompt: "创意输入",
-    text: "文本生成",
-    script: "完整剧本",
-    storyboard: "分镜设计",
-    storyboardImage: "关键帧提示词",
-    image: "关键帧图像",
-    video: "视频生成",
-    audio: "音频生成",
-    voiceClone: "人声克隆",
-    voiceTTS: "克隆人声生成",
-    reference: "参考素材",
-    output: "最终输出",
+    prompt: "Creative input",
+    text: "Text generation",
+    script: "Full script",
+    storyboard: "Storyboard design",
+    storyboardImage: "Keyframe prompt",
+    image: "Keyframe image",
+    video: "Video generation",
+    audio: "Audio generation",
+    voiceClone: "Voice cloning",
+    voiceTTS: "Cloned voice generation",
+    reference: "Reference media",
+    output: "Final output",
   };
   return `${labels[kind]} ${index + 1}`;
 };

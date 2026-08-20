@@ -15,7 +15,7 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
   motion: { prompt: "", compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")), motionMode: "codex-hyperframes" },
   audio: { prompt: "A warm, modern ambient bed", voiceStyle: "Atmospheric", duration: 12, model: "", voice: "", emotion: "", volume: 1 },
   musicGeneration: { musicName: "mindverse_track", musicTags: "cinematic, warm, mid tempo, instrumental", prompt: "[intro];[verse] A gentle theme begins;[chorus] The melody opens into a memorable hook;[outro];" },
-  hkgaiTTS: { ttsText: "", voice: "Mandarin_治愈女声", language: "auto", ttsInstructions: "温柔、自然、像在聊天", xVectorOnly: true, consentConfirmed: false },
+  hkgaiTTS: { ttsText: "", voice: "Mandarin_治愈女声", language: "auto", ttsInstructions: "Warm, natural, and conversational", xVectorOnly: true, consentConfirmed: false },
   voiceClone: { preferredName: "voice_1", targetModel: DEFAULT_QWEN_VOICE_MODEL, voiceProvider: DEFAULT_QWEN_VOICE_PROVIDER, language: "zh", transcript: "", consentConfirmed: false },
   voiceTTS: { ttsText: "", voice: "", targetModel: DEFAULT_QWEN_VOICE_MODEL, voiceProvider: DEFAULT_QWEN_VOICE_PROVIDER, languageType: "Auto" },
   storyboard: { storyBrief: "A small transformation told in light and motion", numberOfScenes: 3, model: "" },
@@ -25,7 +25,7 @@ const defaults: Record<NodeType, Omit<CanvasNodeData, "nodeType" | "title" | "st
 };
 export function makeNode(type: NodeType, position = { x: 140, y: 120 }): CanvasNode {
   const prefix = type === "videoEdit" ? "Video" : type === "videoRegeneration" ? "Video Regeneration" : type === "videoFrame" ? "Video Frame" : type === "motion" ? "Motion" : `${type[0].toUpperCase()}${type.slice(1)}`;
-  const title = type === "image" ? "Image* GPT Image 2 (TokenStar)" : type === "videoRegeneration" ? "Video* MiniMax H3 2K 再生成" : type === "videoFrame" ? "Video* 视频抽帧" : type === "musicGeneration" ? "Audio* HKGAI Music" : type === "hkgaiTTS" ? "Audio* HKGAI TTS" : type === "voiceClone" ? "Voice* Clone" : type === "voiceTTS" ? "Voice* Cloned TTS" : `${prefix}* New ${prefix}`;
+  const title = type === "image" ? "Image* GPT Image 2 (TokenStar)" : type === "videoRegeneration" ? "Video* MiniMax H3 2K Regeneration" : type === "videoFrame" ? "Video* Extract Frames" : type === "musicGeneration" ? "Audio* HKGAI Music" : type === "hkgaiTTS" ? "Audio* HKGAI TTS" : type === "voiceClone" ? "Voice* Clone" : type === "voiceTTS" ? "Voice* Cloned TTS" : `${prefix}* New ${prefix}`;
   return { id: `${type}-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: type, title, status: "idle", ...defaults[type] } };
 }
 export type Template = { id: string; name: string; description: string; types: NodeType[] };

@@ -92,7 +92,7 @@ const orderedTargetNodes = (nodes: CanvasNode[], edges: WorkflowEdge[], targetId
       }
     });
   }
-  if (ordered.length !== targets.length) throw new Error("本次 Agent 影响到的工作流包含循环连接，无法自主运行。");
+  if (ordered.length !== targets.length) throw new Error("The workflow affected by this Agent run contains a cycle and cannot run autonomously.");
   return ordered;
 };
 
@@ -110,14 +110,14 @@ const waitForTerminalNode = (nodeId: string, signal?: AbortSignal, timeoutMs = 1
   };
   const inspect = (nodes: CanvasNode[]) => {
     const node = nodes.find((item) => item.id === nodeId);
-    if (!node) return finish(() => reject(new Error(`节点 ${nodeId} 在执行期间消失。`)));
+    if (!node) return finish(() => reject(new Error(`Node ${nodeId} disappeared during execution.`)));
     if (terminalStatuses.has(node.data.status)) finish(() => resolve(node));
   };
-  const onAbort = () => finish(() => reject(new DOMException("自主执行已取消。", "AbortError")));
+  const onAbort = () => finish(() => reject(new DOMException("Autonomous execution was cancelled.", "AbortError")));
   if (signal?.aborted) return onAbort();
   signal?.addEventListener("abort", onAbort, { once: true });
   unsubscribe = useCanvasStore.subscribe((state) => inspect(state.nodes));
-  timer = setTimeout(() => finish(() => reject(new Error(`等待节点 ${nodeId} 超时。`))), timeoutMs);
+  timer = setTimeout(() => finish(() => reject(new Error(`Timed out waiting for node ${nodeId}.`))), timeoutMs);
   inspect(useCanvasStore.getState().nodes);
 });
 
@@ -153,7 +153,7 @@ const applyInitialResponse = async (response: AgentRouterResponse, selectedNodeI
   } else if (response.intent === "skill" && response.skillId) {
     await store.runAgentSkill(response.skillId, response.skillBrief || "");
     const pending = useCanvasStore.getState().pendingAgentPatch;
-    if (!pending) throw new Error("所选 Skill 没有生成可执行的画布工作流。");
+    if (!pending) throw new Error("The selected Skill did not generate an executable canvas workflow.");
     useCanvasStore.getState().placeAgentPatch(defaultPlacement(useCanvasStore.getState().nodes));
   }
   const seeds = patchSeeds(editPatch, beforeIds);
@@ -218,22 +218,22 @@ export async function runAutonomousAgent(input: AutonomousAgentInput): Promise<A
   };
   const cancelled = () => {
     if (!input.signal?.aborted) return false;
-    emit("cancelled", "自主执行已取消。");
+    emit("cancelled", "Autonomous execution was cancelled.");
     return true;
   };
 
   try {
-    emit("applying", "正在把 Agent 计划应用到画布。");
+    emit("applying", "Applying the Agent plan to the canvas.");
     let seeds = await applyInitialResponse(input.response, input.selectedNodeIds);
     checkpoint(input.resumeCheckpoint?.repairAttempts || 0);
     if (input.response.intent === "organize") {
-      emit("completed", "画布整理已应用，不需要运行媒体节点。");
-      return { status: "completed", summary: "画布整理已完成。", events, executedNodeIds: [], repairAttempts: 0 };
+      emit("completed", "Canvas organization applied. No media nodes need to run.");
+      return { status: "completed", summary: "Canvas organization completed.", events, executedNodeIds: [], repairAttempts: 0 };
     }
-    if (!seeds.size) throw new Error("Agent 计划没有创建或更新可执行节点。");
+    if (!seeds.size) throw new Error("The Agent plan did not create or update any executable nodes.");
 
     for (let attempt = startingAttempt; attempt <= maxRepairAttempts; attempt += 1) {
-      if (cancelled()) return { status: "cancelled", summary: "自主执行已取消。", events, executedNodeIds: [...executed], repairAttempts: attempt };
+      if (cancelled()) return { status: "cancelled", summary: "Autonomous execution was cancelled.", events, executedNodeIds: [...executed], repairAttempts: attempt };
       const executedThisAttempt = new Set<string>();
       const stateBeforeRun = useCanvasStore.getState();
       const runTargets = descendantsOf(seeds, stateBeforeRun.edges);
@@ -244,7 +244,7 @@ export async function runAutonomousAgent(input: AutonomousAgentInput): Promise<A
         const ordered = orderedTargetNodes(state.nodes, state.edges, runTargets);
         for (const current of ordered) {
           if (completedThisRun.has(current.id)) continue;
-          if (cancelled()) return { status: "cancelled", summary: "自主执行已取消。", events, executedNodeIds: [...executed], repairAttempts: attempt };
+          if (cancelled()) return { status: "cancelled", summary: "Autonomous execution was cancelled.", events, executedNodeIds: [...executed], repairAttempts: attempt };
           const latestState = useCanvasStore.getState();
           const latest = latestState.nodes.find((node) => node.id === current.id);
           if (!latest) continue;
@@ -256,12 +256,12 @@ export async function runAutonomousAgent(input: AutonomousAgentInput): Promise<A
             completedThisRun.add(latest.id);
             executed.add(latest.id);
             executedThisAttempt.add(latest.id);
-            emit("executing", `跳过 ${latest.data.title}，因为上游 ${failedDependency.data.title} 执行失败。`, latest.id, attempt);
+            emit("executing", `Skipped ${latest.data.title} because upstream node ${failedDependency.data.title} failed.`, latest.id, attempt);
             checkpoint(attempt);
             progressed = true;
             continue;
           }
-          emit("executing", `正在运行 ${latest.data.title}。`, latest.id, attempt);
+          emit("executing", `Running ${latest.data.title}.`, latest.id, attempt);
           await useCanvasStore.getState().runNode(latest.id);
           const afterStart = useCanvasStore.getState().nodes.find((node) => node.id === latest.id);
           const finished = afterStart && terminalStatuses.has(afterStart.data.status)
@@ -270,7 +270,7 @@ export async function runAutonomousAgent(input: AutonomousAgentInput): Promise<A
           completedThisRun.add(latest.id);
           executed.add(latest.id);
           executedThisAttempt.add(latest.id);
-          emit("executing", finished.data.status === "success" ? `${finished.data.title} 已完成。` : `${finished.data.title} 失败：${finished.data.error || "未知错误"}`, latest.id, attempt);
+          emit("executing", finished.data.status === "success" ? `${finished.data.title} completed.` : `${finished.data.title} failed: ${finished.data.error || "Unknown error"}`, latest.id, attempt);
           if (finished.data.nodeType === "storyboard" && finished.data.status === "success") {
             const beforeMaterialize = new Set(useCanvasStore.getState().nodes.map((node) => node.id));
             useCanvasStore.getState().materializeStoryboardBranch(finished.id);
@@ -283,7 +283,7 @@ export async function runAutonomousAgent(input: AutonomousAgentInput): Promise<A
         }
       }
 
-      emit("observing", "正在检查节点状态、输出、比例、时长和 Codex 执行结果。", undefined, attempt);
+      emit("observing", "Checking node status, output, aspect ratio, duration, and Codex execution results.", undefined, attempt);
       const observation = await requestAgentObserve({
         userMessage: input.userMessage,
         canvasSnapshot: snapshot(),
@@ -307,22 +307,22 @@ export async function runAutonomousAgent(input: AutonomousAgentInput): Promise<A
       descendantsOf(seeds, useCanvasStore.getState().edges).forEach((id) => completedThisRun.delete(id));
       checkpoint(attempt + 1);
       if (!seeds.size) {
-        const summary = "Agent 请求修复，但没有生成可执行修改或可重试节点。";
+        const summary = "The Agent requested a repair but did not generate executable changes or retryable nodes.";
         emit("blocked", summary, undefined, attempt + 1);
         return { status: "blocked", summary, events, executedNodeIds: [...executed], repairAttempts: attempt + 1 };
       }
     }
   } catch (error) {
     if (input.signal?.aborted || error instanceof DOMException && error.name === "AbortError") {
-      emit("cancelled", "自主执行已取消。");
-      return { status: "cancelled", summary: "自主执行已取消。", events, executedNodeIds: [...executed], repairAttempts: 0 };
+      emit("cancelled", "Autonomous execution was cancelled.");
+      return { status: "cancelled", summary: "Autonomous execution was cancelled.", events, executedNodeIds: [...executed], repairAttempts: 0 };
     }
-    const message = error instanceof Error ? error.message : "Agent 自主执行失败。";
+    const message = error instanceof Error ? error.message : "Agent autonomous execution failed.";
     emit("blocked", message);
     return { status: "blocked", summary: message, events, executedNodeIds: [...executed], repairAttempts: 0 };
   }
 
-  const summary = "Agent 自主执行结束，但没有得到最终验证结果。";
+  const summary = "Agent autonomous execution ended without a final validation result.";
   emit("blocked", summary);
   return { status: "blocked", summary, events, executedNodeIds: [...executed], repairAttempts: maxRepairAttempts };
 }

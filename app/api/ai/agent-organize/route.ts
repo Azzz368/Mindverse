@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       selectedNodeIds?: unknown;
       executionModel?: unknown;
     };
-    const userInstruction = text(body.userInstruction) || "自动识别当前画布内容和工作流，并整理画布。";
+    const userInstruction = text(body.userInstruction) || "Identify the current canvas content and workflows, then organize the canvas.";
     const { nodes, edges } = snapshotFrom(body.canvasSnapshot);
     if (!nodes.length) return NextResponse.json({ ok: false, error: { message: "Canvas must include at least one node before organizing." } }, { status: 400 });
     const selectedNodeIds = stringArray(body.selectedNodeIds);

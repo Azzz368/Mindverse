@@ -66,7 +66,7 @@ const blocksFrom = (markdown: string): PreviewBlock[] => {
 
 export function SkillMarkdownPreview({ markdown }: { markdown: string }) {
   const blocks = blocksFrom(markdown);
-  if (!blocks.length) return <p className="text-[#8d8d8d]">暂无可预览内容。</p>;
+  if (!blocks.length) return <p className="text-[#8d8d8d]">Nothing to preview yet.</p>;
   return (
     <article className="space-y-5 text-[15px] leading-7 text-[#d6d6d6]">
       {blocks.map((block, index) => {

@@ -108,7 +108,7 @@ export function SkillEditor({ skillId }: { skillId?: string }) {
           setIncludeCanvas(true);
         }
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "加载 Skill 失败。");
+        setMessage(error instanceof Error ? error.message : "Could not load Skill.");
       } finally {
         setLoading(false);
       }
@@ -128,7 +128,7 @@ export function SkillEditor({ skillId }: { skillId?: string }) {
   const uploadMarkdown = async (file?: File) => {
     if (!file) return;
     if (file.size > 1024 * 1024) {
-      setMessage("SKILL.md 不能超过 1 MB。");
+      setMessage("SKILL.md must be no larger than 1 MB.");
       return;
     }
     setField("skillMd", await file.text());
@@ -153,7 +153,7 @@ export function SkillEditor({ skillId }: { skillId?: string }) {
       window.sessionStorage.removeItem(SKILL_DRAFT_SNAPSHOT_KEY);
       window.location.href = `${backHref}${backHref.includes("?") ? "&" : "?"}saved=1`;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "保存 Skill 失败。");
+      setMessage(error instanceof Error ? error.message : "Could not save Skill.");
     } finally {
       setSaving(false);
     }
@@ -163,18 +163,18 @@ export function SkillEditor({ skillId }: { skillId?: string }) {
     <div className={expanded ? "flex h-full min-h-0 flex-col" : ""}>
       <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
         <div className="flex rounded-lg bg-[#242424] p-1 text-sm">
-          <button type="button" onClick={() => setMode("code")} className={`rounded-md px-3 py-1.5 ${mode === "code" ? "bg-[#3a3a3a] text-white" : "text-[#949494] hover:text-white"}`}>编辑</button>
-          <button type="button" onClick={() => setMode("preview")} className={`rounded-md px-3 py-1.5 ${mode === "preview" ? "bg-[#3a3a3a] text-white" : "text-[#949494] hover:text-white"}`}>预览</button>
+          <button type="button" onClick={() => setMode("code")} className={`rounded-md px-3 py-1.5 ${mode === "code" ? "bg-[#3a3a3a] text-white" : "text-[#949494] hover:text-white"}`}>Edit</button>
+          <button type="button" onClick={() => setMode("preview")} className={`rounded-md px-3 py-1.5 ${mode === "preview" ? "bg-[#3a3a3a] text-white" : "text-[#949494] hover:text-white"}`}>Preview</button>
         </div>
         <span className="mx-1 h-7 w-px bg-[#3b3b3b]" />
-        <button type="button" onClick={() => fileRef.current?.click()} className="rounded-md px-3 py-2 text-sm font-medium text-white transition hover:bg-[#2b2b2b]">上传 .md</button>
+        <button type="button" onClick={() => fileRef.current?.click()} className="rounded-md px-3 py-2 text-sm font-medium text-white transition hover:bg-[#2b2b2b]">Upload .md</button>
         <input ref={fileRef} type="file" accept=".md,.markdown,text/markdown,text/plain" className="hidden" onChange={(event) => void uploadMarkdown(event.target.files?.[0])} />
-        <button type="button" onClick={() => setExpanded((value) => !value)} title={expanded ? "退出全屏" : "全屏编辑"} aria-label={expanded ? "退出全屏" : "全屏编辑"} className="flex h-9 w-9 items-center justify-center rounded-md text-xl text-white transition hover:bg-[#2b2b2b]">{expanded ? "×" : "⛶"}</button>
+        <button type="button" onClick={() => setExpanded((value) => !value)} title={expanded ? "Exit full screen" : "Edit full screen"} aria-label={expanded ? "Exit full screen" : "Edit full screen"} className="flex h-9 w-9 items-center justify-center rounded-md text-xl text-white transition hover:bg-[#2b2b2b]">{expanded ? "×" : "⛶"}</button>
       </div>
       <div className={`grid min-h-0 overflow-hidden rounded-lg border border-[#343434] bg-[#171717] md:grid-cols-[260px_minmax(0,1fr)] ${expanded ? "flex-1" : "min-h-[620px]"}`}>
         <aside className="border-b border-[#343434] p-4 md:border-b-0 md:border-r">
           <div className="mb-4 flex items-center justify-between text-sm text-[#a8a8a8]">
-            <span>目录</span>
+            <span>Files</span>
             <span className="text-lg text-white">＋</span>
           </div>
           <div className="flex items-center justify-between rounded-lg bg-[#3a3a3a] px-4 py-3 text-sm font-medium text-white">
@@ -184,7 +184,7 @@ export function SkillEditor({ skillId }: { skillId?: string }) {
         </aside>
         <section className="min-h-[420px] bg-[#2b2b2b]">
           {mode === "code" ? (
-            <textarea value={draft.skillMd} onChange={(event) => setField("skillMd", event.target.value)} spellCheck={false} aria-label="SKILL.md 内容" className="h-full min-h-[620px] w-full resize-none bg-transparent p-6 font-mono text-sm leading-7 text-[#d8d8d8] outline-none placeholder:text-[#898989]" />
+            <textarea value={draft.skillMd} onChange={(event) => setField("skillMd", event.target.value)} spellCheck={false} aria-label="SKILL.md content" className="h-full min-h-[620px] w-full resize-none bg-transparent p-6 font-mono text-sm leading-7 text-[#d8d8d8] outline-none placeholder:text-[#898989]" />
           ) : (
             <div className="h-full overflow-y-auto p-7"><SkillMarkdownPreview markdown={draft.skillMd} /></div>
           )}
@@ -193,49 +193,49 @@ export function SkillEditor({ skillId }: { skillId?: string }) {
     </div>
   );
 
-  if (loading) return <main className="min-h-screen bg-[#111] px-6 py-20 text-center text-[#aaa]">正在加载 Skill...</main>;
+  if (loading) return <main className="min-h-screen bg-[#111] px-6 py-20 text-center text-[#aaa]">Loading Skill...</main>;
 
   return (
     <main className="min-h-screen bg-[#111] text-white">
       <form onSubmit={save} className="mx-auto w-full max-w-[1600px] px-5 py-8 sm:px-10 lg:px-16">
         <header className="flex items-center gap-4 border-b border-[#4a4a4a] pb-7">
-          <Link href={backHref} aria-label="返回 Skills" className="flex h-10 w-10 items-center justify-center rounded-md text-2xl transition hover:bg-[#272727]">←</Link>
-          <h1 className="text-2xl font-semibold">{skillId ? "编辑 Skill" : "创建 Skill"}</h1>
-          <button type="submit" disabled={saving} className="ml-auto h-12 rounded-lg bg-white px-8 text-base font-semibold text-black transition hover:bg-[#e5e5e5] disabled:cursor-not-allowed disabled:opacity-50">{saving ? "保存中..." : "保存"}</button>
+          <Link href={backHref} aria-label="Back to Skills" className="flex h-10 w-10 items-center justify-center rounded-md text-2xl transition hover:bg-[#272727]">←</Link>
+          <h1 className="text-2xl font-semibold">{skillId ? "Edit Skill" : "Create Skill"}</h1>
+          <button type="submit" disabled={saving} className="ml-auto h-12 rounded-lg bg-white px-8 text-base font-semibold text-black transition hover:bg-[#e5e5e5] disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Saving..." : "Save"}</button>
         </header>
 
         {message && <div role="alert" className="mt-7 rounded-lg border border-[#704040] bg-[#2a1818] px-5 py-4 text-sm text-[#ffb3b3]">{message}</div>}
 
         <div className="space-y-10 py-10">
           <section>
-            <FieldLabel>Skill 名称</FieldLabel>
-            <input value={draft.name} onChange={(event) => setField("name", event.target.value)} maxLength={80} placeholder="给你的 Skill 起个名字" className={`${inputClass} h-16`} />
+            <FieldLabel>Skill name</FieldLabel>
+            <input value={draft.name} onChange={(event) => setField("name", event.target.value)} maxLength={80} placeholder="Give your Skill a name" className={`${inputClass} h-16`} />
           </section>
           <section>
-            <FieldLabel>一句话介绍</FieldLabel>
-            <input value={draft.tagline} onChange={(event) => setField("tagline", event.target.value)} maxLength={160} placeholder="简短描述该 Skill 的能力" className={`${inputClass} h-16`} />
+            <FieldLabel>Tagline</FieldLabel>
+            <input value={draft.tagline} onChange={(event) => setField("tagline", event.target.value)} maxLength={160} placeholder="Briefly describe what this Skill can do" className={`${inputClass} h-16`} />
           </section>
           <section>
-            <FieldLabel>Skill 内容</FieldLabel>
+            <FieldLabel>Skill content</FieldLabel>
             {expanded ? <div className="fixed inset-0 z-50 bg-[#111] p-5 sm:p-8">{editorPanel}</div> : editorPanel}
           </section>
 
           <div className="border-t border-[#4a4a4a] pt-10" />
 
           <section>
-            <FieldLabel>使用场景</FieldLabel>
-            <textarea value={draft.usageScenario} onChange={(event) => setField("usageScenario", event.target.value)} maxLength={2000} placeholder="详细描述该 Skill 的使用场景信息" className={`${inputClass} min-h-40 resize-y py-5`} />
+            <FieldLabel>Use cases</FieldLabel>
+            <textarea value={draft.usageScenario} onChange={(event) => setField("usageScenario", event.target.value)} maxLength={2000} placeholder="Describe when this Skill should be used" className={`${inputClass} min-h-40 resize-y py-5`} />
           </section>
           <section>
-            <FieldLabel>如何使用</FieldLabel>
-            <textarea value={draft.howToUse} onChange={(event) => setField("howToUse", event.target.value)} maxLength={2000} placeholder="描述用户如何使用该 Skill，需要输入什么信息（例如：剧本内容、故事梗概或任何叙事素材）" className={`${inputClass} min-h-40 resize-y py-5`} />
+            <FieldLabel>How to use</FieldLabel>
+            <textarea value={draft.howToUse} onChange={(event) => setField("howToUse", event.target.value)} maxLength={2000} placeholder="Describe how to use this Skill and what input it needs (for example, a script, story outline, or other narrative material)" className={`${inputClass} min-h-40 resize-y py-5`} />
           </section>
           <section>
-            <FieldLabel>输出内容</FieldLabel>
-            <textarea value={draft.expectedOutput} onChange={(event) => setField("expectedOutput", event.target.value)} maxLength={2000} placeholder="描述用户使用该 Skill 后，预期输出的结果产物是什么（例如：30 秒短视频工作流）" className={`${inputClass} min-h-40 resize-y py-5`} />
+            <FieldLabel>Expected output</FieldLabel>
+            <textarea value={draft.expectedOutput} onChange={(event) => setField("expectedOutput", event.target.value)} maxLength={2000} placeholder="Describe the expected result (for example, a 30-second short-video workflow)" className={`${inputClass} min-h-40 resize-y py-5`} />
           </section>
           <section>
-            <FieldLabel>Skill 角色</FieldLabel>
+            <FieldLabel>Skill role</FieldLabel>
             <select
               value={draft.role}
               onChange={(event) => {
@@ -253,14 +253,14 @@ export function SkillEditor({ skillId }: { skillId?: string }) {
             </select>
             <p className="mt-2 text-sm leading-6 text-[#929292]">
               {isPromptGuidance
-                ? "此 Skill 会在匹配的创作请求中指导 Image / Video Node 的正向与负向提示词，不会自行选择模型或创建节点。请在 SKILL.md 中具体写清视觉方向、角色/产品不可变化项、镜头与光影、连续性，以及负面约束。"
-                : "此 Skill 用于指导工作流规划、模板复用或修复流程；不会作为自动视觉风格覆写。"}
+                ? "This Skill guides positive and negative prompts for Image and Video Nodes when a creative request matches. It does not select models or create nodes. Define the visual direction, immutable character or product traits, framing, lighting, continuity, and negative constraints in SKILL.md."
+                : "This Skill guides workflow planning, template reuse, or repair. It is not applied as an automatic visual-style override."}
             </p>
           </section>
           {isPromptGuidance && (
             <section className="space-y-5 rounded-lg border border-[#343434] bg-[#191919] p-5">
               <div>
-                <FieldLabel>作用节点</FieldLabel>
+                <FieldLabel>Target nodes</FieldLabel>
                 <div className="flex gap-3">
                   {(["image", "video"] as PromptTarget[]).map((target) => (
                     <label key={target} className="flex cursor-pointer items-center gap-2 rounded-md bg-[#2b2b2b] px-4 py-3 text-sm text-white">
@@ -271,36 +271,36 @@ export function SkillEditor({ skillId }: { skillId?: string }) {
                 </div>
               </div>
               <div>
-                <FieldLabel>自动触发语义</FieldLabel>
+                <FieldLabel>Automatic trigger phrases</FieldLabel>
                 <input
                   value={(draft.triggerPhrases || []).join(", ")}
                   onChange={(event) => setField("triggerPhrases", event.target.value.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean))}
                   maxLength={1200}
-                  placeholder="例如：日系动画, anime, 雨后校园, 青春剧场版"
+                  placeholder="For example: Japanese animation, anime, campus after rain, coming-of-age film"
                   className={`${inputClass} h-14`}
                 />
-                <p className="mt-2 text-sm leading-6 text-[#929292]">用逗号分隔。用户需求匹配这些语义时，Agent 会从 RAG 检索并把该 Skill 应用于提示词生成。</p>
+                <p className="mt-2 text-sm leading-6 text-[#929292]">Separate phrases with commas. When a request matches, the Agent retrieves this Skill and applies it during prompt generation.</p>
               </div>
               <div>
-                <FieldLabel>优先级</FieldLabel>
+                <FieldLabel>Priority</FieldLabel>
                 <input type="number" min={1} max={999} value={draft.priority || 100} onChange={(event) => setField("priority", Number(event.target.value) || 100)} className={`${inputClass} h-14`} />
-                <p className="mt-2 text-sm leading-6 text-[#929292]">风格通常使用 200；数值更高的同类风格优先。一次创作最多自动应用一个风格 Profile，避免冲突。</p>
+                <p className="mt-2 text-sm leading-6 text-[#929292]">Style profiles usually use 200. A higher value takes priority among similar styles. Only one style profile is applied automatically per creation to avoid conflicts.</p>
               </div>
             </section>
           )}
           <section>
-            <FieldLabel>选择类型</FieldLabel>
+            <FieldLabel>Category</FieldLabel>
             <select value={draft.category} onChange={(event) => setField("category", event.target.value as SkillCategory)} className={`${inputClass} h-16 appearance-auto`}>
               {skillCategories.map((category) => <option key={category} value={category}>{skillCategoryLabels[category]}</option>)}
             </select>
           </section>
           <section>
-            <FieldLabel required={false}>画布模板</FieldLabel>
+            <FieldLabel required={false}>Canvas template</FieldLabel>
             <div className="flex flex-col gap-4 rounded-lg border border-[#343434] bg-[#191919] p-5 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="font-medium text-white">包含当前画布工作流</p>
-                <p className="mt-1 text-sm leading-6 text-[#929292]">保存节点、连线和参数；运行状态、任务 ID 与生成结果不会进入模板。</p>
-                <p className="mt-2 text-xs text-[#6f6f6f]">{canvasTemplate ? `${canvasTemplate.nodes.length} 个节点 · ${canvasTemplate.edges.length} 条连线` : "没有从画布带入模板"}</p>
+                <p className="font-medium text-white">Include the current canvas workflow</p>
+                <p className="mt-1 text-sm leading-6 text-[#929292]">Save nodes, connections, and settings. Run status, task IDs, and generated results are excluded.</p>
+                <p className="mt-2 text-xs text-[#6f6f6f]">{canvasTemplate ? `${canvasTemplate.nodes.length} nodes · ${canvasTemplate.edges.length} connections` : "No canvas template included"}</p>
               </div>
               <label className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition ${includeCanvas && canvasTemplate ? "bg-white" : "bg-[#3b3b3b]"}`}>
                 <input type="checkbox" checked={includeCanvas} disabled={!canvasTemplate} onChange={(event) => setIncludeCanvas(event.target.checked)} className="sr-only" />

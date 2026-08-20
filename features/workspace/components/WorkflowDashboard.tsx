@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { createWorkflowRemote, deleteWorkflowRemote, renameWorkflowRemote } from "@/features/workspace/services/workflowClient";
 import type { WorkflowSummary } from "@/shared/api/workflowContracts";
 
-type Props = { user: { name: string; email: string }; workspace: { name: string }; initialWorkflows: WorkflowSummary[] };
+type Props = { user: { name: string; email: string }; workspace: { name: string }; initialWorkflows: WorkflowSummary[]; localMode?: boolean };
 
 const previewImages = [
   "/website/flowvideo/toplist/1.png",
@@ -83,7 +83,7 @@ function CreateCanvasCard({ onCreate, busy }: { onCreate: () => void; busy: bool
   );
 }
 
-export function WorkflowDashboard({ user, workspace, initialWorkflows }: Props) {
+export function WorkflowDashboard({ user, workspace, initialWorkflows, localMode = false }: Props) {
   const router = useRouter();
   const [workflows, setWorkflows] = useState(initialWorkflows);
   const [message, setMessage] = useState("");
@@ -91,6 +91,10 @@ export function WorkflowDashboard({ user, workspace, initialWorkflows }: Props) 
   const [loggingOut, setLoggingOut] = useState(false);
 
   const createWorkflow = async () => {
+    if (localMode) {
+      router.push("/workspace/local");
+      return;
+    }
     setBusy(true); setMessage("");
     try {
       const payload = await createWorkflowRemote("Untitled workflow");
@@ -135,19 +139,26 @@ export function WorkflowDashboard({ user, workspace, initialWorkflows }: Props) 
       <div className="relative z-10 flex min-h-[max(854px,100vh)] min-w-[1440px] justify-center">
         <aside className="absolute inset-y-0 left-0 w-[56px] bg-white/[0.1]">
           <nav className="absolute left-0 top-[137px] flex w-full flex-col items-center gap-[26px]" aria-label="Primary navigation">
-            {upperNav.map((kind) => <button key={kind} type="button" title={kind} className="text-white transition hover:text-white/60"><SideIcon kind={kind} /></button>)}
+            {upperNav.map((kind) => kind === "home"
+              ? <Link key={kind} href="/" title="Home" aria-label="Home" className="text-white transition hover:text-white/60"><SideIcon kind={kind} /></Link>
+              : <button key={kind} type="button" title={kind} className="text-white transition hover:text-white/60"><SideIcon kind={kind} /></button>)}
           </nav>
           <div className="absolute left-[13px] top-[274px] h-px w-[31px] bg-[#9c9c9c]" />
           <nav className="absolute left-0 top-[296px] flex w-full flex-col items-center gap-[25px]" aria-label="Project navigation">
             {lowerNav.map((kind, index) => <button key={kind} type="button" title={kind} className={`relative grid h-[31px] w-[31px] place-items-center text-white transition hover:text-white/60 ${index === 0 ? "rounded-[5px] bg-black" : ""}`}><SideIcon kind={kind} /></button>)}
           </nav>
           <button type="button" title="Settings" className="absolute left-[19px] top-[748px] text-white transition hover:text-white/60" onClick={() => setMessage("Settings are coming soon.")}><SideIcon kind="settings" /></button>
-          <button type="button" title="Account" className="absolute left-[14px] top-[789px] h-[27px] w-[29px] rounded-[5px] bg-[#d9d9d9]" onClick={() => void logout()} disabled={loggingOut} />
+          <button type="button" title="Log out" aria-label="Log out" className="absolute left-[14px] top-[789px] h-[27px] w-[29px] rounded-[5px] bg-[#d9d9d9]" onClick={() => void logout()} disabled={loggingOut} />
         </aside>
 
         <section className="workspace-stage w-[1440px] shrink-0 pl-[126px] pt-[58px]">
           <header className="mb-[18px] h-[39px]">
-            <h1 className="text-[30px] font-semibold leading-none tracking-wide" style={{ fontFamily: "var(--font-baskervville-bold)" }}>PROJECT</h1>
+            <div className="flex items-center gap-4">
+              <h1 className="text-[30px] font-semibold leading-none tracking-wide" style={{ fontFamily: "var(--font-baskervville-bold)" }}>PROJECT</h1>
+              <Link href="/" className="rounded-full border border-white/45 bg-black/20 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-white hover:text-black">
+                ← Home
+              </Link>
+            </div>
           </header>
 
           <div className="mb-[20px] flex gap-[20px]">

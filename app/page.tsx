@@ -463,7 +463,7 @@ export default function Home() {
             <div className="start-now-control absolute top-[11px] left-[1267.5px] h-[32px] w-[141px] z-10">
               <div className="start-now-pill absolute left-[14.5px] top-0 h-[32px] w-[112px] rounded-[25px] border border-white mix-blend-difference box-border" />
               <Link
-                href="/login"
+                href="/workspace"
                 className="absolute inset-0 flex items-center justify-center font-normal text-[13px] leading-[14px] text-white mix-blend-difference drop-shadow-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-white"
               >
                 {copy.startNow}
@@ -494,7 +494,7 @@ export default function Home() {
 
           {/* Group 1: Get Started */}
           <Link
-            href="/login"
+            href="/workspace"
             aria-label={copy.getStarted}
             className="get-started-link font-baskervville-bold absolute top-[500px] left-[565px] flex h-[71px] w-[334px] items-start justify-center text-[40px] font-bold leading-[41px] text-white transition-colors duration-[350ms] ease-out hover:text-black focus-visible:text-black active:text-black z-20 pointer-events-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
             style={{ fontFamily: "var(--font-baskervville-bold)" }}

@@ -40,7 +40,7 @@ const themeScript = `try{const t=localStorage.getItem('theme');const d=window.ma
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN" className={`${epilogue.variable} ${baskervville.variable} ${baskervvilleRegular.variable} ${baskervvilleBold.variable} ${baskervvilleMediumItalic.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`${epilogue.variable} ${baskervville.variable} ${baskervvilleRegular.variable} ${baskervvilleBold.variable} ${baskervvilleMediumItalic.variable}`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>

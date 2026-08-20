@@ -137,11 +137,11 @@ export const applyEditPatchToState = (state: { nodes: CanvasNode[]; edges: Workf
     agentStatus: "completed" as const,
     agentMessage: layoutOnlyPatch
       ? patch.warnings?.length
-        ? `画布已整理，已有生成结果已保留；另有 ${patch.warnings.length} 条提示。`
-        : "画布已整理，已有生成结果已保留。"
+        ? `Canvas organized and existing generated results preserved. ${patch.warnings.length} notice(s) remain.`
+        : "Canvas organized and existing generated results preserved."
       : patch.warnings?.length
-        ? `已应用修改，但有 ${patch.warnings.length} 条提示。节点仍需手动运行。`
-        : "已应用修改，节点仍需手动运行。",
+        ? `Changes applied with ${patch.warnings.length} notice(s). Nodes still need to be run manually.`
+        : "Changes applied. Nodes still need to be run manually.",
     lastError: null,
   };
 };

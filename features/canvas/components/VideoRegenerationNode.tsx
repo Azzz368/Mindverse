@@ -7,13 +7,13 @@ import { videoUrlFrom } from "@/features/canvas/domain/nodeInputCompiler";
 import type { CanvasNode, CanvasNodeData } from "@/shared/canvas";
 
 const inputPorts = [
-  { id: "text", label: "最终提示词", color: "#f59e0b" },
-  { id: "base-video", label: "H3 768P 视频", color: "#7322e3" },
-  { id: "first-frame", label: "首帧", color: "#84cc16" },
-  { id: "last-frame", label: "尾帧", color: "#65a30d" },
-  { id: "reference-image", label: "参考图", color: "#22c55e" },
-  { id: "reference-video", label: "参考视频", color: "#8b5cf6" },
-  { id: "reference-audio", label: "参考音频", color: "#f5510b" },
+  { id: "text", label: "Final prompt", color: "#f59e0b" },
+  { id: "base-video", label: "H3 768P video", color: "#7322e3" },
+  { id: "first-frame", label: "First frame", color: "#84cc16" },
+  { id: "last-frame", label: "Last frame", color: "#65a30d" },
+  { id: "reference-image", label: "Reference image", color: "#22c55e" },
+  { id: "reference-video", label: "Reference video", color: "#8b5cf6" },
+  { id: "reference-audio", label: "Reference audio", color: "#f5510b" },
 ] as const;
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -47,7 +47,7 @@ export function VideoRegenerationNode({ id, data, selected }: { id: string; data
   return (
     <div className={`relative w-[380px] rounded-[24px] border bg-white shadow-sm dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"}`}>
       {isRunning && <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": "#7322e3" } as React.CSSProperties} />}
-      <div className="absolute -top-8 left-1 text-[19px] font-bold text-[#030303] dark:text-slate-100">{data.title || "MiniMax H3 2K 再生成"}</div>
+      <div className="absolute -top-8 left-1 text-[19px] font-bold text-[#030303] dark:text-slate-100">{data.title || "MiniMax H3 2K Regeneration"}</div>
 
       {mode === "base-video" && <div className="absolute left-0 top-6 z-10 flex -translate-x-1/2 flex-col gap-5">
         {inputPorts.map((port) => <div key={port.id} className="relative h-4">
@@ -59,24 +59,24 @@ export function VideoRegenerationNode({ id, data, selected }: { id: string; data
 
       <div className="p-5">
         <div className="mb-4 flex rounded-full bg-[#f0f1f3] p-1 dark:bg-slate-800">
-          <button onClick={() => setMode("base-video")} className={`flex-1 rounded-full px-3 py-2 text-[11px] font-bold ${mode === "base-video" ? "bg-white text-[#030303] shadow dark:bg-slate-700 dark:text-white" : "text-[#676f7b]"}`}>连接源视频</button>
-          <button onClick={() => setMode("source-task")} className={`flex-1 rounded-full px-3 py-2 text-[11px] font-bold ${mode === "source-task" ? "bg-white text-[#030303] shadow dark:bg-slate-700 dark:text-white" : "text-[#676f7b]"}`}>使用任务 ID</button>
+          <button onClick={() => setMode("base-video")} className={`flex-1 rounded-full px-3 py-2 text-[11px] font-bold ${mode === "base-video" ? "bg-white text-[#030303] shadow dark:bg-slate-700 dark:text-white" : "text-[#676f7b]"}`}>Connect source video</button>
+          <button onClick={() => setMode("source-task")} className={`flex-1 rounded-full px-3 py-2 text-[11px] font-bold ${mode === "source-task" ? "bg-white text-[#030303] shadow dark:bg-slate-700 dark:text-white" : "text-[#676f7b]"}`}>Use task ID</button>
         </div>
 
         {videoUrl ? <video src={videoUrl} controls playsInline className="h-[180px] w-full rounded-2xl bg-black object-contain" /> : <div className="flex h-[150px] flex-col items-center justify-center rounded-2xl border border-dashed border-[#c9ccd1] bg-[#f8f9fa] px-5 text-center dark:border-slate-700 dark:bg-slate-900">
           <span className="text-2xl font-black text-violet-600">2K</span>
-          <p className="mt-2 text-[11px] leading-4 text-[#676f7b] dark:text-slate-400">{mode === "source-task" ? "输入同一 MiniMax 账号近 7 天内成功的 H3 任务 ID" : sourceVideo && videoUrlFrom(sourceVideo) ? "源视频已连接，运行前请确认提示词与原素材完全一致" : "连接符合 MiniMax-H3 768P 输出规格且带音轨的视频"}</p>
+          <p className="mt-2 text-[11px] leading-4 text-[#676f7b] dark:text-slate-400">{mode === "source-task" ? "Enter a successful H3 task ID from the same MiniMax account within the last 7 days" : sourceVideo && videoUrlFrom(sourceVideo) ? "Source video connected. Confirm that the prompt exactly matches the original before running" : "Connect a video with audio that meets the MiniMax-H3 768P output specification"}</p>
         </div>}
 
-        {mode === "source-task" ? <input value={data.sourceTaskId || ""} onChange={(event) => updateNodeData(id, { sourceTaskId: event.target.value })} placeholder="source_task_id" className="nodrag mt-4 w-full rounded-xl border border-[#e7eaf0] bg-white px-3 py-2 text-xs outline-none dark:border-slate-700 dark:bg-[#0c1622] dark:text-white" /> : <textarea value={data.prompt || ""} onChange={(event) => updateNodeData(id, { prompt: event.target.value })} maxLength={40000} placeholder="必须填写生成 768P 源视频时实际提交的最终提示词（Context IR 增强后的版本）" className="nodrag mt-4 h-24 w-full resize-none rounded-xl border border-[#e7eaf0] bg-white px-3 py-2 text-xs leading-5 outline-none dark:border-slate-700 dark:bg-[#0c1622] dark:text-white" />}
+        {mode === "source-task" ? <input value={data.sourceTaskId || ""} onChange={(event) => updateNodeData(id, { sourceTaskId: event.target.value })} placeholder="source_task_id" className="nodrag mt-4 w-full rounded-xl border border-[#e7eaf0] bg-white px-3 py-2 text-xs outline-none dark:border-slate-700 dark:bg-[#0c1622] dark:text-white" /> : <textarea value={data.prompt || ""} onChange={(event) => updateNodeData(id, { prompt: event.target.value })} maxLength={40000} placeholder="Enter the exact final prompt submitted when generating the 768P source video, including the Context IR enhancement" className="nodrag mt-4 h-24 w-full resize-none rounded-xl border border-[#e7eaf0] bg-white px-3 py-2 text-xs leading-5 outline-none dark:border-slate-700 dark:bg-[#0c1622] dark:text-white" />}
 
-        <button onClick={() => setDetailsOpen((value) => !value)} className="nodrag mt-3 text-[10px] font-semibold text-violet-700 dark:text-violet-300">{detailsOpen ? "收起接口限制" : "查看接口限制"}</button>
-        {detailsOpen && <div className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[10px] leading-4 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">仅支持 MiniMax-H3 768P 输出再生为 2K，不支持任意视频。源视频必须带音轨、24fps、宽高均可被 32 整除，并满足官方帧数与面积限制。任务 ID 模式需要白名单权限。</div>}
+        <button onClick={() => setDetailsOpen((value) => !value)} className="nodrag mt-3 text-[10px] font-semibold text-violet-700 dark:text-violet-300">{detailsOpen ? "Hide API limits" : "View API limits"}</button>
+        {detailsOpen && <div className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[10px] leading-4 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">Only MiniMax-H3 768P output can be regenerated at 2K. Arbitrary videos are not supported. The source video must include audio, use 24 fps, have dimensions divisible by 32, and meet the official frame-count and area limits. Task ID mode requires allowlist access.</div>}
         {data.error && <p className="mt-2 text-[11px] leading-4 text-rose-600 dark:text-rose-300">{data.error}</p>}
       </div>
 
       <div className="nodrag flex items-center justify-between border-t border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
-        <label className="flex items-center gap-2 text-[10px] text-[#676f7b] dark:text-slate-400"><input type="checkbox" checked={data.aigcWatermark === true} onChange={(event) => updateNodeData(id, { aigcWatermark: event.target.checked })} />AIGC 水印</label>
+        <label className="flex items-center gap-2 text-[10px] text-[#676f7b] dark:text-slate-400"><input type="checkbox" checked={data.aigcWatermark === true} onChange={(event) => updateNodeData(id, { aigcWatermark: event.target.checked })} />AIGC watermark</label>
         <div className="flex gap-1"><button onClick={() => duplicateNode(id)} className="rounded px-2 py-1 text-[10px] text-[#676f7b] hover:bg-[#f0f1f3]">Duplicate</button><button onClick={() => removeNode(id)} className="rounded px-2 py-1 text-[10px] text-[#676f7b] hover:bg-rose-50 hover:text-rose-600">Delete</button><button onClick={() => void runNode(id)} disabled={isRunning} className="rounded-full bg-[#030303] px-4 py-1.5 text-[11px] font-bold text-white disabled:opacity-40 dark:bg-cyan-500 dark:text-[#030303]">Run</button></div>
       </div>
     </div>
