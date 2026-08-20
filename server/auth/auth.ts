@@ -9,6 +9,9 @@ export const SESSION_COOKIE = "mindverse_session";
 const SESSION_DAYS = Math.max(1, Number(process.env.MINDVERSE_SESSION_MAX_AGE_DAYS || 30));
 const PASSWORD_MIN_LENGTH = 10;
 const developmentAuthSecret = "mindverse-local-development-secret-change-before-deploy";
+const demoMode = () => process.env.NODE_ENV !== "production" && process.env.MINDVERSE_DEMO_MODE === "true";
+const demoEmail = "demo@mindverse.local";
+const demoPassword = "MindverseDemo123!";
 
 export type AuthContext = {
   userId: string;
@@ -150,6 +153,13 @@ export async function registerUser(input: { email?: unknown; name?: unknown; pas
 }
 
 export async function loginUser(input: { email?: unknown; password?: unknown }) {
+  if (demoMode()) {
+    const email = normalizeEmail(input.email);
+    const password = typeof input.password === "string" ? input.password : "";
+    if (email !== demoEmail || password !== demoPassword) throw new AuthError("Invalid demo credentials.", 401, "INVALID_CREDENTIALS");
+    const expires = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
+    return { token: "demo-session", expires, userId: "demo-user" };
+  }
   authSecret();
   authStorage();
   const email = normalizeEmail(input.email);
@@ -166,6 +176,11 @@ export async function loginUser(input: { email?: unknown; password?: unknown }) 
 }
 
 export async function sessionFromHeaders(headers: Headers): Promise<AuthContext | null> {
+  if (demoMode()) {
+    try {
+      if (cookieToken(headers) === "demo-session") return { userId: "demo-user", email: demoEmail, name: "Demo User", workspaceId: "demo-workspace", workspaceName: "Demo Workspace", role: "owner", sessionExpiresAt: new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000).toISOString() };
+    } catch { return null; }
+  }
   if (!postgresConfigured()) return null;
   let token = "";
   try { token = cookieToken(headers); } catch { return null; }

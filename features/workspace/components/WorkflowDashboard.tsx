@@ -55,7 +55,7 @@ function ProjectCard({ workflow, index, onRename, onDelete }: { workflow: Workfl
     <article className="group relative h-[142px] w-[197px] rounded-[5px] border border-white/75 bg-[#c2c2c2] text-[#575757] shadow-[0_0_0_1px_rgba(0,0,0,.12)] transition-transform hover:-translate-y-1">
       <Link href={`/workspace/${workflow.id}`} className="absolute left-[4px] top-[4px] block h-[112px] w-[188px] overflow-hidden rounded-[5px]">
         <div className="relative h-[112px] overflow-hidden rounded-[5px] bg-[#777]">
-          <img src={previewImages[index % previewImages.length]} alt="" className="h-full w-full object-cover transition duration-300 ease-out group-hover:scale-105 group-hover:blur-[7px]" />
+          <img src={workflow.previewUrl || previewImages[index % previewImages.length]} alt="" className={`h-full w-full object-cover transition duration-300 ease-out group-hover:scale-105 ${workflow.previewUrl ? "" : "group-hover:blur-[7px]"}`} />
           <div className="absolute inset-0 grid place-items-center bg-black/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100"><span className="text-[14px] font-bold text-white drop-shadow">{workflow.name || "Untitled"}</span></div>
         </div>
       </Link>
@@ -121,8 +121,16 @@ export function WorkflowDashboard({ user, workspace, initialWorkflows }: Props) 
     catch { setMessage("Logout failed. Please try again."); setLoggingOut(false); }
   };
 
-  const upperNav: SideIconKind[] = ["home", "building", "share"];
-  const lowerNav: SideIconKind[] = ["folder", "rewind", "sync"];
+  const upperNav: Array<{ kind: SideIconKind; label: string }> = [
+    { kind: "home", label: "Home" },
+    { kind: "building", label: "Community" },
+    { kind: "share", label: "Workflows" },
+  ];
+  const lowerNav: Array<{ kind: SideIconKind; label: string }> = [
+    { kind: "folder", label: "Projects" },
+    { kind: "rewind", label: "Recents" },
+    { kind: "sync", label: "Favourites" },
+  ];
 
   return (
     <main className="workspace-noise relative min-h-screen overflow-x-auto bg-black font-epilogue text-white">
@@ -135,11 +143,11 @@ export function WorkflowDashboard({ user, workspace, initialWorkflows }: Props) 
       <div className="relative z-10 flex min-h-[max(854px,100vh)] min-w-[1440px] justify-center">
         <aside className="absolute inset-y-0 left-0 w-[56px] bg-white/[0.1]">
           <nav className="absolute left-0 top-[137px] flex w-full flex-col items-center gap-[26px]" aria-label="Primary navigation">
-            {upperNav.map((kind) => <button key={kind} type="button" title={kind} className="text-white transition hover:text-white/60"><SideIcon kind={kind} /></button>)}
+            {upperNav.map(({ kind, label }) => <button key={label} type="button" title={label} aria-label={label} className="text-white transition hover:text-white/60"><SideIcon kind={kind} /></button>)}
           </nav>
           <div className="absolute left-[13px] top-[274px] h-px w-[31px] bg-[#9c9c9c]" />
           <nav className="absolute left-0 top-[296px] flex w-full flex-col items-center gap-[25px]" aria-label="Project navigation">
-            {lowerNav.map((kind, index) => <button key={kind} type="button" title={kind} className={`relative grid h-[31px] w-[31px] place-items-center text-white transition hover:text-white/60 ${index === 0 ? "rounded-[5px] bg-black" : ""}`}><SideIcon kind={kind} /></button>)}
+            {lowerNav.map(({ kind, label }, index) => <button key={label} type="button" title={label} aria-label={label} className={`relative grid h-[31px] w-[31px] place-items-center text-white transition hover:text-white/60 ${index === 0 ? "rounded-[5px] bg-black" : ""}`}><SideIcon kind={kind} /></button>)}
           </nav>
           <button type="button" title="Settings" className="absolute left-[19px] top-[748px] text-white transition hover:text-white/60" onClick={() => setMessage("Settings are coming soon.")}><SideIcon kind="settings" /></button>
           <button type="button" title="Account" className="absolute left-[14px] top-[789px] h-[27px] w-[29px] rounded-[5px] bg-[#d9d9d9]" onClick={() => void logout()} disabled={loggingOut} />

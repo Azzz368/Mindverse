@@ -10,7 +10,7 @@ import { indexProjectMemory } from "@/server/rag/sources/projectSource";
 import { indexSuccessfulWorkflow } from "@/server/rag/sources/workflowSource";
 import { deactivateRagDocument } from "@/server/rag/documentIngestion";
 
-export type WorkflowSummary = { id: string; name: string; createdAt: string; updatedAt: string; revision: number };
+export type WorkflowSummary = { id: string; name: string; createdAt: string; updatedAt: string; revision: number; previewUrl?: string };
 export type StoredWorkflow = WorkflowSummary & CanvasSnapshot;
 export type WorkflowOwner = { workspaceId: string; userId: string };
 
@@ -36,6 +36,16 @@ const snapshotPath = (workspaceId: string, workflowId: string, revision: number,
 const localRoot = () => process.env.MINDVERSE_LOCAL_STORAGE_ROOT || path.join(process.cwd(), ".mindverse-local");
 const localPath = (remotePath: string) => path.join(localRoot(), ...remotePath.split("/"));
 const useLocal = () => process.env.WORKFLOW_STORAGE_PROVIDER === "local";
+const demoMode = () => process.env.NODE_ENV !== "production" && process.env.MINDVERSE_DEMO_MODE === "true";
+const demoPath = () => path.join(process.cwd(), ".mindverse-local", "demo-workflows.json");
+async function readDemoWorkflows() {
+  try { return JSON.parse(await readFile(demoPath(), "utf8")) as StoredWorkflow[]; }
+  catch (error) { if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return []; throw error; }
+}
+async function writeDemoWorkflows(workflows: StoredWorkflow[]) {
+  await mkdir(path.dirname(demoPath()), { recursive: true });
+  await writeFile(demoPath(), JSON.stringify(workflows, null, 2), "utf8");
+}
 const executableNodeTypes = new Set(["script", "storyboard", "storyboardImage", "image", "video", "videoEdit", "motion", "audio", "musicGeneration", "hkgaiTTS", "voiceClone", "voiceTTS", "output"]);
 
 const iso = (value: Date | string) => new Date(value).toISOString();
@@ -46,6 +56,25 @@ const summaryFromRow = (row: WorkflowRow): WorkflowSummary => ({
   createdAt: iso(row.created_at),
   updatedAt: iso(row.updated_at),
 });
+
+const mediaUrl = (value: unknown) => {
+  if (typeof value !== "string") return "";
+  const url = value.trim();
+  return /^(https?:\/\/|data:image\/)/i.test(url) ? url : "";
+};
+
+function imagePreview(snapshot: CanvasSnapshot | null) {
+  if (!snapshot) return "";
+  for (const node of [...snapshot.nodes].reverse()) {
+    if (!["image", "reference", "videoFrame"].includes(node.data.nodeType)) continue;
+    const data = node.data as CanvasSnapshot["nodes"][number]["data"] & { activeImageUrl?: unknown; imageUrl?: unknown };
+    const output = data.output?.value;
+    const outputRecord = output && typeof output === "object" ? output as Record<string, unknown> : null;
+    const url = mediaUrl(data.activeImageUrl) || mediaUrl(data.imageUrl) || mediaUrl(outputRecord?.imageUrl) || mediaUrl(outputRecord?.revisedImageUrl) || mediaUrl(data.output?.value);
+    if (url) return url;
+  }
+  return "";
+}
 
 async function writeSnapshot(storageKey: string, value: StoredWorkflow) {
   if (!useLocal()) return uploadJsonToBunny(storageKey, value).then(() => undefined);
@@ -101,6 +130,7 @@ async function workflowRow(workspaceId: string, workflowId: string) {
 }
 
 export async function listWorkflows(workspaceId: string) {
+  if (demoMode()) return { workflows: (await readDemoWorkflows()).filter((workflow) => (workflow as StoredWorkflow & { workspaceId?: string; deletedAt?: string }).workspaceId === workspaceId && !(workflow as StoredWorkflow & { deletedAt?: string }).deletedAt).map((workflow) => ({ id: workflow.id, name: workflow.name, revision: workflow.revision, createdAt: workflow.createdAt, updatedAt: workflow.updatedAt, previewUrl: imagePreview(workflow) || undefined })) };
   const result = await queryPostgres<WorkflowRow>(
     `SELECT id, name, snapshot_storage_key, revision, created_at, updated_at
        FROM mindverse_workflows
@@ -108,7 +138,12 @@ export async function listWorkflows(workspaceId: string) {
       ORDER BY updated_at DESC`,
     [workspaceId],
   );
-  return { workflows: result.rows.map(summaryFromRow) };
+  const workflows = await Promise.all(result.rows.map(async (row) => {
+    const summary = summaryFromRow(row);
+    const snapshot = await readSnapshot(row.snapshot_storage_key);
+    return { ...summary, previewUrl: imagePreview(snapshot) || undefined };
+  }));
+  return { workflows };
 }
 
 export async function createWorkflow(owner: WorkflowOwner, nameValue: unknown) {
@@ -117,8 +152,9 @@ export async function createWorkflow(owner: WorkflowOwner, nameValue: unknown) {
   const name = typeof nameValue === "string" && nameValue.trim() ? nameValue.trim().slice(0, 160) : "Untitled workflow";
   const revision = 1;
   const storageKey = snapshotPath(owner.workspaceId, id, revision);
-  const summary: WorkflowSummary = { id, name, revision, createdAt: now.toISOString(), updatedAt: now.toISOString() };
+  const summary: WorkflowSummary = { id, name, revision, createdAt: now.toISOString(), updatedAt: now.toISOString(), previewUrl: undefined };
   const workflow: StoredWorkflow = { ...summary, ...emptySnapshot(name) };
+  if (demoMode()) { await writeDemoWorkflows([...(await readDemoWorkflows()), { ...workflow, workspaceId: owner.workspaceId, createdBy: owner.userId } as StoredWorkflow & { workspaceId: string; createdBy: string }]); return workflow; }
   await writeSnapshot(storageKey, workflow);
   await queryPostgres(
     `INSERT INTO mindverse_workflows (id, workspace_id, created_by, name, snapshot_storage_key, revision, created_at, updated_at)
@@ -129,6 +165,7 @@ export async function createWorkflow(owner: WorkflowOwner, nameValue: unknown) {
 }
 
 export async function getWorkflow(workspaceId: string, workflowId: string) {
+  if (demoMode()) return (await readDemoWorkflows()).find((workflow) => workflow.id === workflowId && (workflow as StoredWorkflow & { workspaceId?: string }).workspaceId === workspaceId && !(workflow as StoredWorkflow & { deletedAt?: string }).deletedAt) || null;
   const row = await workflowRow(workspaceId, workflowId);
   if (!row) return null;
   const snapshot = await readSnapshot(row.snapshot_storage_key);
@@ -137,6 +174,16 @@ export async function getWorkflow(workspaceId: string, workflowId: string) {
 }
 
 export async function saveWorkflow(owner: WorkflowOwner, workflowId: string, snapshot: CanvasSnapshot, nameValue?: unknown, expectedRevision?: unknown) {
+  if (demoMode()) {
+    const workflows = await readDemoWorkflows();
+    const existing = workflows.find((workflow) => workflow.id === workflowId && (workflow as StoredWorkflow & { workspaceId?: string }).workspaceId === owner.workspaceId);
+    if (!existing) throw new WorkflowStorageError("Workflow not found.", 404, "WORKFLOW_NOT_FOUND");
+    const revision = existing.revision + 1;
+    const name = typeof nameValue === "string" && nameValue.trim() ? nameValue.trim().slice(0, 160) : snapshot.projectName || existing.name;
+    const workflow = { ...snapshot, id: workflowId, name, projectName: name, revision, createdAt: existing.createdAt, updatedAt: new Date().toISOString(), workspaceId: owner.workspaceId, createdBy: owner.userId } as StoredWorkflow;
+    await writeDemoWorkflows(workflows.map((item) => item.id === workflowId ? workflow : item));
+    return workflow;
+  }
   const existing = await workflowRow(owner.workspaceId, workflowId);
   if (!existing) throw new WorkflowStorageError("Workflow not found.", 404, "WORKFLOW_NOT_FOUND");
   const clientRevision = Number(expectedRevision);
@@ -177,6 +224,12 @@ export async function renameWorkflow(owner: WorkflowOwner, workflowId: string, n
 }
 
 export async function deleteWorkflow(owner: WorkflowOwner, workflowId: string) {
+  if (demoMode()) {
+    const workflows = await readDemoWorkflows();
+    if (!workflows.some((workflow) => workflow.id === workflowId && (workflow as StoredWorkflow & { workspaceId?: string }).workspaceId === owner.workspaceId)) throw new WorkflowStorageError("Workflow not found.", 404, "WORKFLOW_NOT_FOUND");
+    await writeDemoWorkflows(workflows.map((workflow) => workflow.id === workflowId ? { ...workflow, deletedAt: new Date().toISOString() } : workflow));
+    return;
+  }
   const result = await queryPostgres(
     `UPDATE mindverse_workflows SET deleted_at = now(), updated_at = now()
       WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL`,

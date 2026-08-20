@@ -114,7 +114,11 @@ const withVideoTargetHandles = (nodes: CanvasNode[], edges: WorkflowEdge[]): Wor
       : edge;
     if (!source || !target || !["text", "script", "image", "video", "videoRegeneration", "videoFrame", "videoEdit", "voiceTTS"].includes(target.data.nodeType)) return [normalizedEdge];
     const targetHandle = targetHandleForConnection(source, target, normalizedEdge.targetHandle);
-    return targetHandle ? [{ ...normalizedEdge, targetHandle }] : [];
+    // Historical workflows can contain connections that were valid before a
+    // node's inputs or handle rules changed. Loading a canvas must not erase
+    // those graph links merely because a newer rule cannot infer a handle.
+    // Keep the edge and only update its target handle when one is known.
+    return targetHandle ? [{ ...normalizedEdge, targetHandle }] : [normalizedEdge];
   });
 };
 const hasRunnableSource = (node: CanvasNode) =>
