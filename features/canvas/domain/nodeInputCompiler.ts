@@ -336,14 +336,19 @@ export const inputFor = (node: CanvasNode, upstream: CanvasNode[], incomingEdges
     const compiledVideoPrompt = activeVideoModel === "minimax-h3-hkgai"
       ? imagePromptReferences(videoPrompt)
       : videoPromptReferences(videoPrompt, orderedPromptReferences);
+    // A selected TalkingData asset:// reference has already passed through the
+    // private trusted-material flow. Do not also send a connected public image
+    // URL, because the provider will evaluate that URL as a separate image and
+    // can reject a real-person photo before the private asset is considered.
+    const useTalkingDataPrivateImage = activeVideoModel === "talkingdata-yunzhu80" && Boolean(d.referenceImageAssetUrl);
 
     return {
       prompt: limitProviderPrompt(compiledVideoPrompt, promptMaxLength),
       videoModelPreset: activeVideoModel,
       negativePrompt: d.negativePrompt,
       model: activeVideoPatch.model,
-      image: supportedKinds.has("image") ? d.referenceImageUrl || referenceImageUrls[0] : undefined,
-      referenceImageUrls,
+      image: useTalkingDataPrivateImage ? undefined : supportedKinds.has("image") ? d.referenceImageUrl || referenceImageUrls[0] : undefined,
+      referenceImageUrls: useTalkingDataPrivateImage ? [] : referenceImageUrls,
       referenceVideoUrls,
       referenceAudioUrls,
       useImageInput: activeVideoPatch.videoInputMode === "image-to-video",

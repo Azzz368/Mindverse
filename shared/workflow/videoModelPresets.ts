@@ -12,7 +12,7 @@ export type VideoModelPresetId =
   | "minimax-h3-hkgai"
   | "minimax-ref2va-hkgai"
   | "sora-2"
-  | "talkingdata-yunzhu81";
+  | "talkingdata-yunzhu80";
 
 export const DEFAULT_VIDEO_MODEL_PRESET_ID: VideoModelPresetId = "seedance-asset-fast";
 
@@ -184,16 +184,16 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     aspectRatios: ["16:9", "9:16"],
     aspectRatioControl: "source",
   },
-  "talkingdata-yunzhu81": {
-    id: "talkingdata-yunzhu81",
-    label: "TalkingData Yunzhu 81 (Seedance-2.5)",
-    desc: "TalkingData official full model · text/image-to-video · 480p/720p/1080p",
-    patch: { videoModelPreset: "talkingdata-yunzhu81", videoProvider: "talkingdata", model: "T0601002", videoInputMode: "image-to-video", duration: 5, resolution: "720p", generateAudio: false },
-    inputPorts: [textPort, imagePort],
-    aspectRatios: ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"],
+  "talkingdata-yunzhu80": {
+    id: "talkingdata-yunzhu80",
+    label: "TalkingData Yunzhu 80 · Private Assets",
+    desc: "TalkingData trusted private image/video/audio assets",
+    patch: { videoModelPreset: "talkingdata-yunzhu80", videoProvider: "talkingdata", model: "T0101009", videoInputMode: "image-to-video", duration: 5, resolution: "480p", generateAudio: false },
+    inputPorts: [textPort, imagePort, videoPort, audioPort],
+    aspectRatios: ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"],
     aspectRatioControl: "native",
-    durationOptions: [-1, ...Array.from({ length: 27 }, (_, index) => index + 4)],
-    referenceLimits: { image: 30, video: 10, audio: 10 },
+    durationOptions: Array.from({ length: 27 }, (_, index) => index + 4),
+    referenceLimits: { image: 2, video: 10, audio: 10 },
   },
 };
 
@@ -215,7 +215,7 @@ export const videoAspectRatioForPreset = (id: VideoModelPresetId, value: unknown
 
 export const videoModelSelectionPatch = (id: VideoModelPresetId, currentAspectRatio?: string): VideoModelPatch & { aspectRatio: VideoAspectRatio } => ({
   ...videoModelPatch(id),
-  aspectRatio: videoAspectRatioForPreset(id, currentAspectRatio),
+  aspectRatio: id === "talkingdata-yunzhu80" ? "adaptive" : videoAspectRatioForPreset(id, currentAspectRatio),
 });
 
 export const videoInputPortsForPreset = (id: VideoModelPresetId) => videoModelPresets[id].inputPorts;
@@ -261,7 +261,7 @@ export const videoModelPresetIdFromData = (data: {
 }): VideoModelPresetId => {
   if (data.videoModelPreset && data.videoModelPreset in videoModelPresets) return data.videoModelPreset as VideoModelPresetId;
   if (data.videoProvider === "302-sora2") return "sora-2";
-  if (data.videoProvider === "talkingdata") return "talkingdata-yunzhu81";
+  if (data.videoProvider === "talkingdata") return "talkingdata-yunzhu80";
   if (data.videoProvider === "hkgai" && data.model === "t2_minimax-h3_bf16_ref2va") return "minimax-ref2va-hkgai";
   if (data.videoProvider === "hkgai" && data.model === "t2_minimax-h3_bf16_7k2p") return "minimax-h3-hkgai";
   if (data.videoProvider === "volcengine" && data.model === "jimeng_realman_avatar_picture_omni_v15") return "omnihuman-1.5-volcengine";

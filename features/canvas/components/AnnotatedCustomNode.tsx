@@ -11,6 +11,7 @@ import { VideoEditComposer, type VideoEditSource } from "./VideoEditComposer";
 import { VideoFrameNode } from "./VideoFrameNode";
 import { VideoRegenerationNode } from "./VideoRegenerationNode";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
+import { archiveImageFile } from "@/features/canvas/services/mediaArchiveClient";
 import { useLang } from "@/components/providers/LangProvider";
 import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
 import { imagePromptPresets, type ImagePromptPresetId } from "@/shared/workflow/imagePromptPresets";
@@ -94,6 +95,98 @@ const imageResolutionValue = (resolution?: string, size?: string) => {
   return "1K";
 };
 
+type TalkingDataImageAsset = { id: string; url: string; name: string; createdAt: string; status?: "Active" | "Processing" | "Failed" | "Unknown"; error?: string };
+const TALKINGDATA_IMAGE_LIBRARY_KEY = "mindverse-talkingdata-image-library";
+const talkingDataAssetUrl = (id: string) => id.startsWith("asset://") ? id : `asset://${id}`;
+const persistTalkingDataImageLibrary = (assets: TalkingDataImageAsset[]) => window.localStorage.setItem(TALKINGDATA_IMAGE_LIBRARY_KEY, JSON.stringify(assets));
+const loadTalkingDataImageLibrary = (): TalkingDataImageAsset[] => {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(TALKINGDATA_IMAGE_LIBRARY_KEY) || "[]") as unknown;
+    return Array.isArray(value) ? value.filter((item): item is TalkingDataImageAsset => Boolean(item && typeof item === "object" && typeof (item as TalkingDataImageAsset).id === "string" && typeof (item as TalkingDataImageAsset).url === "string" && typeof (item as TalkingDataImageAsset).name === "string")).slice(0, 24) : [];
+  } catch {
+    return [];
+  }
+};
+
+function TalkingDataImageLibrary({ onUse }: { onUse(role: "first" | "last" | "reference", assetUrl: string): void }) {
+  const [assets, setAssets] = useState<TalkingDataImageAsset[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => setAssets(loadTalkingDataImageLibrary()), []);
+
+  const refreshAssetStatus = async (asset: TalkingDataImageAsset): Promise<TalkingDataImageAsset> => {
+    try {
+      const response = await fetch("/api/video/talkingdata/assets/get", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: asset.id }) });
+      const payload = await response.json() as { asset?: { status?: unknown; groupId?: unknown; verifiedGroup?: unknown; errorMessage?: unknown }; error?: { message?: string } };
+      if (!response.ok) throw new Error(payload.error?.message || "无法查询素材状态。");
+      const status = payload.asset?.status === "Active" || payload.asset?.status === "Processing" || payload.asset?.status === "Failed" ? payload.asset.status : "Unknown";
+      if (payload.asset?.verifiedGroup !== true) return { ...asset, status: "Failed", error: `素材未验证在当前私域 Group 中（接口返回 GroupId: ${typeof payload.asset?.groupId === "string" ? payload.asset.groupId : "未知"}）。` };
+      return { ...asset, status, error: typeof payload.asset?.errorMessage === "string" ? payload.asset.errorMessage : undefined };
+    } catch (statusError) {
+      return { ...asset, status: "Unknown", error: statusError instanceof Error ? statusError.message : "无法查询素材状态。" };
+    }
+  };
+
+  const refreshAsset = async (asset: TalkingDataImageAsset) => {
+    const refreshed = await refreshAssetStatus(asset);
+    setAssets((current) => {
+      const next = current.map((item) => item.id === asset.id ? refreshed : item);
+      persistTalkingDataImageLibrary(next);
+      return next;
+    });
+  };
+
+  const removeAsset = (assetId: string) => {
+    setAssets((current) => {
+      const next = current.filter((asset) => asset.id !== assetId);
+      persistTalkingDataImageLibrary(next);
+      return next;
+    });
+  };
+
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("请选择图片文件。");
+      return;
+    }
+    if (file.size >= 30 * 1024 * 1024) {
+      setError("TalkingData 图片必须小于 30MB。");
+      return;
+    }
+    setUploading(true);
+    setError("");
+    try {
+      const url = await archiveImageFile(file);
+      const response = await fetch("/api/video/talkingdata/assets/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, name: file.name.replace(/\.[^.]+$/, ""), assetType: "Image" }),
+      });
+      const payload = await response.json() as { asset?: { id?: string }; error?: { message?: string } };
+      if (!response.ok || !payload.asset?.id) throw new Error(payload.error?.message || "TalkingData 素材创建失败。");
+      const asset = await refreshAssetStatus({ id: payload.asset.id, url, name: file.name, createdAt: new Date().toISOString(), status: "Processing" });
+      setAssets((current) => {
+        const next = [asset, ...current.filter((item) => item.id !== asset.id)].slice(0, 24);
+        persistTalkingDataImageLibrary(next);
+        return next;
+      });
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "素材上传失败。");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return <section className="mb-3 rounded-lg border border-violet-200 bg-violet-50 p-2 dark:border-violet-400/30 dark:bg-violet-950/20">
+    <div className="flex items-center justify-between gap-2"><span className="text-[10px] font-semibold text-violet-900 dark:text-violet-100">TalkingData 真人图片素材库</span><label className="cursor-pointer rounded bg-violet-700 px-2 py-1 text-[10px] font-medium text-white hover:bg-violet-600"><input className="sr-only" type="file" accept="image/jpeg,image/png,image/webp,image/bmp,image/tiff,image/gif,image/heic,image/heif" disabled={uploading} onChange={(event) => { void upload(event.target.files?.[0]); event.currentTarget.value = ""; }} />{uploading ? "上传中…" : "上传图片"}</label></div>
+    <p className="mt-1 text-[9px] leading-3 text-violet-800 dark:text-violet-200">图片会先安全归档，再创建 TalkingData 的 asset:// 私有素材。支持 jpeg、png、webp、bmp、tiff、gif、heic、heif，单张小于 30MB。</p>
+    {error && <p role="alert" className="mt-1 text-[9px] leading-3 text-rose-600 dark:text-rose-300">{error}</p>}
+    {assets.length > 0 && <div className="mt-2 max-h-32 space-y-1 overflow-y-auto">{assets.map((asset) => { const ready = asset.status === "Active"; return <div key={asset.id} className="flex items-center gap-1 rounded bg-white/80 p-1 dark:bg-slate-900/60"><img src={asset.url} alt="" className="h-7 w-7 rounded object-cover" /><span title={asset.name} className="min-w-0 flex-1 truncate text-[9px] text-[#343434] dark:text-slate-200">{asset.name}<span title={asset.error || (ready ? "已验证：素材在当前私域 Group 中且状态为 Active。" : "正在等待 TalkingData 完成私域素材预处理。")} className={`ml-1 ${ready ? "text-emerald-600" : asset.status === "Failed" ? "text-rose-600" : "text-amber-600"}`}>{ready ? "已就绪" : asset.status === "Failed" ? "失败" : "处理中"}</span></span><button type="button" className="rounded px-1 py-0.5 text-[8px] text-violet-700 hover:bg-violet-100 dark:text-violet-200" onClick={() => void refreshAsset(asset)}>刷新</button><button type="button" disabled={!ready} className="rounded px-1 py-0.5 text-[8px] text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-35 dark:text-violet-200" onClick={() => onUse("first", talkingDataAssetUrl(asset.id))}>首帧</button><button type="button" disabled={!ready} className="rounded px-1 py-0.5 text-[8px] text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-35 dark:text-violet-200" onClick={() => onUse("last", talkingDataAssetUrl(asset.id))}>尾帧</button><button type="button" disabled={!ready} className="rounded px-1 py-0.5 text-[8px] text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-35 dark:text-violet-200" onClick={() => onUse("reference", talkingDataAssetUrl(asset.id))}>参考</button><button type="button" className="rounded px-1 py-0.5 text-[8px] text-rose-600 hover:bg-rose-50 dark:text-rose-300" onClick={() => removeAsset(asset.id)}>删除</button></div>; })}</div>}
+  </section>;
+}
+
 function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; nodeId: string; onClose(): void }) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const { t } = useLang();
@@ -112,9 +205,12 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
   const sourceControlsVideoRatio = videoAspectRatioControlForPreset(activeVideoModel) === "source";
   const isHKGAIMinimax = activeVideoModel === "minimax-h3-hkgai";
   const isHKGAIRef2va = activeVideoModel === "minimax-ref2va-hkgai";
-  const isTalkingDataFull = activeVideoModel === "talkingdata-yunzhu81";
+  const isTalkingDataFull = activeVideoModel === "talkingdata-yunzhu80";
   const activeVideoDurationOptions = videoDurationOptionsForPreset(activeVideoModel) || videoDurationOptions;
   const videoPromptMaxLength = videoPromptMaxLengthForPreset(activeVideoModel);
+  useEffect(() => {
+    if (isTalkingDataFull && (data.talkingDataImageMode === "first-frame" || data.talkingDataImageMode === "first-last-frame" || !data.talkingDataImageMode) && data.aspectRatio !== "adaptive") set({ aspectRatio: "adaptive" });
+  }, [data.aspectRatio, data.talkingDataImageMode, isTalkingDataFull]);
   const textInput = (key: keyof CanvasNodeData, value: string | undefined) => (
     <ImeInput className={inp} value={value ?? ""} onValueChange={(next) => set({ [key]: next } as Partial<CanvasNodeData>)} />
   );
@@ -138,15 +234,18 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
           <label className={wrap}><span className={lbl}>Model</span><select className={sel} value={activeVideoModel} onChange={e => { const presetId = e.target.value as VideoModelPresetId; set({ ...videoModelSelectionPatch(presetId, data.aspectRatio), ...(presetId === "minimax-ref2va-hkgai" ? { referenceImageUrl: undefined, videoReferenceNodeIds: [], videoReferenceSelectionActive: false } : {}) }); }}>{videoModelOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
           <label className={wrap}><span className={lbl}>Motion prompt</span>{textArea("prompt", data.prompt, 3, videoPromptMaxLength)}</label>
           {isTalkingDataFull && <><label className={wrap}><span className={lbl}>Image input mode</span><select className={sel} value={data.talkingDataImageMode || "first-frame"} onChange={e => set({ talkingDataImageMode: e.target.value as "first-frame" | "first-last-frame" | "reference" })}><option value="first-frame">First-frame image to video</option><option value="first-last-frame">First and last frame to video</option><option value="reference">Reference image to video</option></select></label>{data.talkingDataImageMode === "first-last-frame" && <label className={wrap}><span className={lbl}>End-frame URL (or connect a second image)</span>{textInput("talkingDataEndImageUrl", data.talkingDataEndImageUrl)}</label>}<label className={wrap}><span className={lbl}>Private image asset ID (asset://…, optional)</span>{textInput("referenceImageAssetUrl", data.referenceImageAssetUrl)}</label><label className={wrap}><span className={lbl}>Private video asset ID (asset://…, optional)</span>{textInput("referenceVideoAssetUrl", data.referenceVideoAssetUrl)}</label><label className={wrap}><span className={lbl}>Private audio asset ID (asset://…, optional)</span>{textInput("referenceAudioAssetUrl", data.referenceAudioAssetUrl)}</label><label className={wrap}><span className={lbl}>Multimodal task type</span><select className={sel} value={data.talkingDataOmniReferenceTaskType || "auto"} onChange={e => set({ talkingDataOmniReferenceTaskType: e.target.value as "auto" | "reference" | "edit" | "extend" })}><option value="auto">Auto detect</option><option value="reference">Reference generation</option><option value="edit">Video edit</option><option value="extend">Video extension</option></select></label><label className={wrap}><span className={lbl}>Output format</span><select className={sel} value={data.talkingDataOutputFormat || "mp4"} onChange={e => set({ talkingDataOutputFormat: e.target.value as "mp4" | "mov" })}><option value="mp4">MP4</option><option value="mov">MOV (professional post-production)</option></select></label><label className={wrap}><span className={lbl}>Generate audio</span><select className={sel} value={data.generateAudio === true ? "true" : "false"} onChange={e => set({ generateAudio: e.target.value === "true" })}><option value="false">Off</option><option value="true">On</option></select></label><label className={wrap}><span className={lbl}>Watermark</span><select className={sel} value={data.talkingDataWatermark === true ? "true" : "false"} onChange={e => set({ talkingDataWatermark: e.target.value === "true" })}><option value="false">No watermark</option><option value="true">AI-generated watermark</option></select></label><label className={wrap}><span className={lbl}>Return final frame</span><select className={sel} value={data.talkingDataReturnLastFrame === true ? "true" : "false"} onChange={e => set({ talkingDataReturnLastFrame: e.target.value === "true" })}><option value="false">No</option><option value="true">Yes</option></select></label><label className={wrap}><span className={lbl}>Web search</span><select className={sel} value={data.talkingDataWebSearch === true ? "true" : "false"} onChange={e => set({ talkingDataWebSearch: e.target.value === "true" })}><option value="false">Off</option><option value="true">On</option></select></label></>}
+          {isTalkingDataFull && <TalkingDataImageLibrary onUse={(role, assetUrl) => set(role === "last"
+            ? { talkingDataEndImageUrl: assetUrl, talkingDataImageMode: "first-last-frame" }
+            : { referenceImageAssetUrl: assetUrl, talkingDataImageMode: role === "reference" ? "reference" : "first-frame" })} />}
           {sourceControlsVideoRatio && !isHKGAIRef2va && <label className={wrap}><span className={lbl}>First-frame URL (optional)</span>{textInput("referenceImageUrl", data.referenceImageUrl)}</label>}
           {provider === "tokenstar" && (activeVideoModel === "kling-v3-tokenstar" || activeVideoModel === "kling-v3-omni-tokenstar") && <label className={wrap}><span className={lbl}>Subject element IDs (comma-separated)</span>{textInput("klingElementId", data.klingElementId)}</label>}
           {provider === "tokenstar" && activeVideoPatch.generateAudio !== undefined && <div className="mb-3 flex items-center justify-between"><span className={lbl} style={{marginBottom:0}}>Generate audio</span><button onClick={() => set({ generateAudio: data.generateAudio === false })} className={`relative h-5 w-9 rounded-full transition-colors ${data.generateAudio !== false ? "bg-[#030303] dark:bg-cyan-500" : "bg-[#c9ccd1] dark:bg-slate-600"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${data.generateAudio !== false ? "translate-x-[18px]" : "translate-x-0.5"}`} /></button></div>}
-          {!isHKGAIMinimax && !isHKGAIRef2va && <label className={wrap}><span className={lbl}>Resolution</span><select className={sel} value={data.resolution ?? ""} onChange={e => set({ resolution: e.target.value || undefined })}>{isTalkingDataFull ? <><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></> : <><option value="">Server default</option><option value="720p">720p</option><option value="1080p">1080p</option></>}</select></label>}
+          {!isHKGAIMinimax && !isHKGAIRef2va && <label className={wrap}><span className={lbl}>Resolution</span><select className={sel} value={data.resolution ?? ""} onChange={e => set({ resolution: e.target.value || undefined })}>{isTalkingDataFull ? <option value="480p">480p</option> : <><option value="">Server default</option><option value="720p">720p</option><option value="1080p">1080p</option></>}</select></label>}
           <label className={wrap}><span className={lbl}>Duration</span><select className={sel} value={String(data.duration ?? activeVideoPatch.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}>{activeVideoDurationOptions.map(n=><option key={n} value={n}>{n}s</option>)}</select></label>
           {!isHKGAIRef2va && <label className={wrap}><span className={lbl}>Aspect ratio</span><select className={sel} value={videoAspectRatio} onChange={e => set({ aspectRatio: e.target.value })}>{videoAspectRatios.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}</select></label>}
           {isHKGAIRef2va && <label className={wrap}><span className={lbl}>Audio flow shift</span><input className={inp} type="number" step="0.1" value={data.audioFlowShift ?? 3} onChange={e => set({ audioFlowShift: Number(e.target.value) })} /></label>}
           {isHKGAIMinimax && <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">HKGAI OpenAI video API: prompts support up to 7,000 characters and up to 2 reference images. It supports 5–15 seconds and 16:9, 9:16, or 1:1; resolution is mapped automatically from the selected ratio.</p>}
-          {isTalkingDataFull && <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">TalkingData Yunzhu 81 (Seedance-2.5): supports text, image, video, and audio inputs; first-frame or first-and-last-frame input; reference media; video editing and extension; 4–30 seconds; and 480p/720p/1080p. First-frame mode automatically uses the adaptive ratio and preserves the image ratio.</p>}
+          {isTalkingDataFull && <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">TalkingData 云筑80私域可信素材：上传素材后等待 GetAsset 返回 Active，再以 asset://AssetId 作为首帧、首尾帧或参考图输入。</p>}
           {isHKGAIRef2va && <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">Image mode requires 1 image and 1 audio clip. Video mode accepts 1–3 videos with audio, totaling no more than 15 seconds. Images and videos cannot be mixed, and video mode cannot use a separate audio input.</p>}
           {sourceControlsVideoRatio && <p className="mb-3 text-[10px] leading-4 text-amber-700 dark:text-amber-300">{isHKGAIRef2va ? "The output ratio is determined by the selected image or reference video." : "This model determines the output ratio from the first frame. The first-frame ratio is validated before submission."}</p>}
         </>}
@@ -864,7 +963,7 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
   );
 }
 
-function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: any) {
+function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode, openSettings, settingsOpen, closeSettings }: any) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const edges = useCanvasStore((s) => s.edges);
   const allNodes = useCanvasStore((s) => s.nodes);
@@ -894,6 +993,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const sourceControlsVideoRatio = videoAspectRatioControlForPreset(activeVideoModel) === "source";
   const isHKGAIMinimax = activeVideoModel === "minimax-h3-hkgai";
   const isHKGAIRef2va = activeVideoModel === "minimax-ref2va-hkgai";
+  const isTalkingDataFull = activeVideoModel === "talkingdata-yunzhu80";
   const isOmniHuman = activeVideoModel === "omnihuman-1.5-volcengine";
   const isDigitalHumanModel = activeVideoModel === "digital-human-video" || isOmniHuman;
   const videoPromptMaxLength = videoPromptMaxLengthForPreset(activeVideoModel);
@@ -1280,6 +1380,15 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                    });
                  }}
               />}
+              {!isVideoEdit && isTalkingDataFull && <PillDropdown
+                value={data.talkingDataImageMode || "first-frame"}
+                options={[
+                  { value: "first-frame", label: "首帧" },
+                  { value: "first-last-frame", label: "首尾帧" },
+                  { value: "reference", label: "参考图" },
+                ]}
+                onChange={(value) => { const imageMode = String(value) as "first-frame" | "first-last-frame" | "reference"; updateNodeData(id, { talkingDataImageMode: imageMode, ...(imageMode === "first-frame" || imageMode === "first-last-frame" ? { aspectRatio: "adaptive" } : {}) }); }}
+              />}
               {!isVideoEdit && !isOmniHuman && !isHKGAIRef2va && <PillDropdown
                  value={videoAspectRatio}
                  options={videoAspectRatios.map((ratio) => ({ value: ratio, label: ratio }))}
@@ -1290,11 +1399,11 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                  options={activeVideoDurationOptions.map((value) => ({ value, label: value === -1 ? "Auto" : `${value}s` }))}
                  onChange={v => updateNodeData(id, { duration: Number(v) })}
               />}
-              {!isVideoEdit && !isHKGAIMinimax && !isHKGAIRef2va && !isOmniHuman && <PillDropdown
-                 value={data.resolution || "1080p"} 
-                 options={[{value: "1080p", label: "1080p"}, {value: "720p", label: "720p"}, {value: "480p", label: "480p"}]}
-                 onChange={v => updateNodeData(id, { resolution: String(v) })}
-              />}
+                {!isVideoEdit && !isHKGAIMinimax && !isHKGAIRef2va && !isOmniHuman && <PillDropdown
+                  value={isTalkingDataFull ? "480p" : data.resolution || "1080p"}
+                  options={isTalkingDataFull ? [{ value: "480p", label: "480p" }] : [{value: "1080p", label: "1080p"}, {value: "720p", label: "720p"}, {value: "480p", label: "480p"}]}
+                  onChange={v => updateNodeData(id, { resolution: String(v) })}
+                />}
               {!isVideoEdit && isOmniHuman && <PillDropdown
                  value={data.resolution || "1080p"}
                  options={[{value: "1080p", label: "1080p"}, {value: "720p", label: "720p Fast"}]}
@@ -1311,6 +1420,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
             </button>
          </div>
          {!isVideoEdit && sourceControlsVideoRatio && <p className="shrink-0 border-t border-[#e7eaf0] px-6 py-2 text-[11px] text-amber-700 dark:border-slate-800 dark:text-amber-300">{isOmniHuman ? "OmniHuman determines the output ratio from the input image. 720p enables fast mode automatically; 1080p uses standard mode." : isHKGAIRef2va ? "minimax_ref2va determines the aspect ratio from the selected image or reference video." : "This model determines the ratio from the first frame. Submission stops if the first-frame ratio does not match the selected ratio."}</p>}
+        {settingsOpen && <NodeSettingsPanel data={data} nodeId={id} onClose={closeSettings} />}
       </div>
 
       {previewOpen && videoUrl && typeof document !== "undefined" && createPortal(
@@ -1427,7 +1537,7 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
   const detailSelected = Boolean(selected && selectedNodeCount === 1);
 
   if (data.nodeType === "video" || data.nodeType === "videoEdit" || data.nodeType === "motion") {
-    return <VideoNodeLayout id={id} data={data} selected={detailSelected} node={node} isGenerating={isGenerating} runNode={runNode} />;
+    return <VideoNodeLayout id={id} data={data} selected={detailSelected} node={node} isGenerating={isGenerating} runNode={runNode} openSettings={() => setSettingsOpen(true)} settingsOpen={settingsOpen} closeSettings={() => setSettingsOpen(false)} />;
   }
   if (data.nodeType === "videoRegeneration") {
     return <VideoRegenerationNode id={id} data={data} selected={detailSelected} />;
