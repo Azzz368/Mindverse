@@ -53,19 +53,19 @@ export type StoredSkill = SkillSummary & {
 export type ActiveSkillContext = Pick<StoredSkill, "id" | "name" | "tagline" | "skillMd" | "usageScenario" | "howToUse" | "expectedOutput" | "role" | "appliesTo" | "triggerPhrases" | "priority">;
 
 export const skillCategoryLabels: Record<SkillCategory, string> = {
-  image: "图片",
-  video: "视频",
-  audio: "音频",
-  story: "故事",
+  image: "Image",
+  video: "Video",
+  audio: "Audio",
+  story: "Story",
   agent: "Agent",
-  motion: "动效",
+  motion: "Motion",
 };
 
 export const skillRoleLabels: Record<SkillRole, string> = {
-  workflow_recipe: "工作流配方",
-  base_prompt_policy: "基础提示词规范",
-  style_profile: "风格 Profile",
-  repair_playbook: "修复/排错规范",
+  workflow_recipe: "Workflow recipe",
+  base_prompt_policy: "Base prompt policy",
+  style_profile: "Style profile",
+  repair_playbook: "Repair and troubleshooting guide",
 };
 
 export const defaultSkillMarkdown = `---
@@ -73,23 +73,23 @@ name: new-skill
 description: Use this skill to turn a creative brief into a reusable Mindverse workflow.
 ---
 
-# 做什么
+# Purpose
 
-用一句话说明这个 Skill 要完成的创作任务。
+Describe the creative task this Skill completes in one sentence.
 
-# 需要什么输入
+# Required input
 
-列出用户最少需要提供的内容，以及可以选择提供的素材或风格。
+List the minimum information the user must provide and any optional media or style references.
 
-# 怎么做
+# Process
 
-写清关键步骤、约束和判断标准。只保留 Agent 真正需要遵循的内容。
+Define the key steps, constraints, and decision criteria. Include only instructions the Agent needs to follow.
 
-# 产出什么
+# Output
 
-说明最终交付物，例如画布工作流、图片、视频、音频或分镜。
+Describe the final deliverable, such as a canvas workflow, image, video, audio, or storyboard.
 
-# 什么时候询问用户
+# When to ask the user
 
-列出必须暂停并确认的情况，其余情况由 Agent 自主完成。
+List the cases that require confirmation. The Agent may handle all other cases autonomously.
 `;

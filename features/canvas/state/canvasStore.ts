@@ -63,6 +63,7 @@ type CanvasState = { projectName: string; nodes: CanvasNode[]; edges: WorkflowEd
   addStoryChainNode(content: string, title?: string): void;
   runGroup(groupId: string): Promise<void>;
   setGroupColor(nodeIds: string[], color: string): void;
+  clearGroup(nodeIds: string[]): void;
   updateGroupColor(groupId: string, color: string): void;
   setGroupLocked(nodeIds: string[], locked: boolean): void;
   markSelectedWorkflow(order: number, title?: string): void;
@@ -90,7 +91,7 @@ const withRunMetadata = (value: unknown, provider?: string, polling?: unknown) =
 const pollProviderFor = (node: CanvasNode, value: Record<string, unknown>) =>
   node.data.nodeType === "video" ? asText(value.provider) || node.data.videoProvider : node.data.nodeType === "videoRegeneration" ? "minimax" : undefined;
 const videoProviderFrom = (value: string | undefined): CanvasNodeData["videoProvider"] | undefined =>
-  value === "mock" || value === "302ai" || value === "302-sora2" || value === "tokenstar" || value === "kling" || value === "hkgai" || value === "volcengine" ? value : undefined;
+  value === "mock" || value === "302ai" || value === "302-sora2" || value === "tokenstar" || value === "kling" || value === "hkgai" || value === "volcengine" || value === "talkingdata" ? value : undefined;
 const restoreStatuses = (nodes: CanvasNode[]): CanvasNode[] => nodes.map((node) => { if (node.data.status !== "running") return node; const polling = ["pending", "running"].includes(asText(asRecord(node.data.output?.value).status)); const status: CanvasNodeData["status"] = polling ? "waiting" : "idle"; return { ...node, data: { ...node.data, status } }; });
 const targetHandleForConnection = (source: CanvasNode, target: CanvasNode, preferredHandle?: string | null) =>
   targetHandleForNodeConnection(source.data.nodeType, target.data, preferredHandle);
@@ -193,10 +194,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   setGhostMedia: (dataUrl) => set({ ghostMediaUrl: dataUrl }),
   updateAgentMemory: (patch) => set((state) => ({ agentMemory: mergeAgentProjectMemory(state.agentMemory, patch) })),
   clearAgentMemory: () => set({ agentMemory: null }),
-  placeGhostMedia: (position) => { const { ghostMediaUrl } = get(); if (!ghostMediaUrl) return; const node: CanvasNode = { id: `reference-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: "reference", title: "Reference* 图片素材", status: "idle", imageUrl: ghostMediaUrl, notes: "" } }; set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id, ghostMediaUrl: null })); },
-  setPendingAgentPatch: (pendingAgentPatch) => set({ pendingAgentPatch, ghostType: null, ghostData: null, ghostMediaUrl: null, agentMessage: pendingAgentPatch ? "请在画布上点击工作流起点。" : null }),
-  placeAgentPatch: (position) => { const { pendingAgentPatch } = get(); if (!pendingAgentPatch) return; const placed = offsetPatchTo(pendingAgentPatch, position); set((state) => { const clean = dedupePatch(placed, state.nodes, state.edges); return { nodes: [...state.nodes, ...clean.nodes], edges: [...state.edges, ...clean.edges], selectedNodeId: clean.nodes[0]?.id || state.selectedNodeId, pendingAgentPatch: null, agentStatus: "completed", agentMessage: "工作流已放置到画布。请检查节点参数后手动运行。", lastError: null }; }); },
-  addMediaNode: (dataUrl, position) => { const node: CanvasNode = { id: `reference-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: "reference", title: "Reference* 图片素材", status: "idle", imageUrl: dataUrl, notes: "" } }; set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id })); },
+  placeGhostMedia: (position) => { const { ghostMediaUrl } = get(); if (!ghostMediaUrl) return; const node: CanvasNode = { id: `reference-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: "reference", title: "Reference* Image Media", status: "idle", imageUrl: ghostMediaUrl, notes: "" } }; set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id, ghostMediaUrl: null })); },
+  setPendingAgentPatch: (pendingAgentPatch) => set({ pendingAgentPatch, ghostType: null, ghostData: null, ghostMediaUrl: null, agentMessage: pendingAgentPatch ? "Click the canvas to choose the workflow starting point." : null }),
+  placeAgentPatch: (position) => { const { pendingAgentPatch } = get(); if (!pendingAgentPatch) return; const placed = offsetPatchTo(pendingAgentPatch, position); set((state) => { const clean = dedupePatch(placed, state.nodes, state.edges); return { nodes: [...state.nodes, ...clean.nodes], edges: [...state.edges, ...clean.edges], selectedNodeId: clean.nodes[0]?.id || state.selectedNodeId, pendingAgentPatch: null, agentStatus: "completed", agentMessage: "Workflow placed on the canvas. Review node settings, then run the nodes manually.", lastError: null }; }); },
+  addMediaNode: (dataUrl, position) => { const node: CanvasNode = { id: `reference-${crypto.randomUUID()}`, type: "creative", position, data: { nodeType: "reference", title: "Reference* Image Media", status: "idle", imageUrl: dataUrl, notes: "" } }; set((state) => ({ nodes: [...state.nodes, node], selectedNodeId: node.id })); },
   addPastedMediaNodes: (items, position) => {
     if (!items.length) return [];
     const labelFor = (item: PastedCanvasMedia, fallback: string) =>
@@ -213,7 +214,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           position: offset,
           data: {
             nodeType: "reference",
-            title: `Reference* ${labelFor(item, "图片素材")}`,
+            title: `Reference* ${labelFor(item, "Image Media")}`,
             status: "idle",
             imageUrl: item.url,
             notes: "",
@@ -251,8 +252,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       canUndo: true,
       lastError: null,
       agentMessage: preserveExistingSelection
-        ? `已上传 ${nodes.length} 个 Agent 素材并加入画布。`
-        : `已粘贴 ${nodes.length} 个素材到画布。`,
+        ? `Uploaded ${nodes.length} Agent media file(s) and added them to the canvas.`
+        : `Pasted ${nodes.length} media file(s) onto the canvas.`,
     }));
     return nodes.map((node) => node.id);
   },
@@ -408,7 +409,27 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       selectedNodeId: node.id,
     };
   }),
-  setGroupColor: (nodeIds, color) => set((state) => { const groupId = `group-${crypto.randomUUID()}`; return { nodes: state.nodes.map((n) => nodeIds.includes(n.id) ? { ...n, data: { ...n.data, groupId, groupColor: color } } : n) }; }),
+  setGroupColor: (nodeIds, color) => set((state) => {
+    if (nodeIds.length < 2) return {};
+    const undoStack = appendUndoEntry(state.undoStack, state);
+    const groupId = `group-${crypto.randomUUID()}`;
+    return {
+      nodes: state.nodes.map((n) => nodeIds.includes(n.id) ? { ...n, data: { ...n.data, groupId, groupColor: color } } : n),
+      undoStack,
+      canUndo: true,
+    };
+  }),
+  clearGroup: (nodeIds) => set((state) => {
+    if (!nodeIds.length) return {};
+    const undoStack = appendUndoEntry(state.undoStack, state);
+    return {
+      nodes: state.nodes.map((node) => nodeIds.includes(node.id)
+        ? { ...node, draggable: true, data: { ...node.data, groupId: undefined, groupColor: undefined, locked: undefined } }
+        : node),
+      undoStack,
+      canUndo: true,
+    };
+  }),
   updateGroupColor: (groupId, color) => set((state) => ({ nodes: state.nodes.map((n) => n.data.groupId === groupId ? { ...n, data: { ...n.data, groupColor: color } } : n) })),
   setGroupLocked: (nodeIds, locked) => set((state) => ({ nodes: state.nodes.map((n) => nodeIds.includes(n.id) ? { ...n, draggable: !locked, data: { ...n.data, locked } } : n) })),
   markSelectedWorkflow: (order, title) => set((state) => {
@@ -420,7 +441,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const workflowTitle = title?.trim() || `Workflow ${cleanOrder}`;
     return {
       nodes: state.nodes.map((node) => workflowNodeIds.includes(node.id) ? { ...node, data: { ...node.data, workflowId, workflowOrder: cleanOrder, workflowTitle, workflowLabel: String(cleanOrder), groupColor: undefined } } : node),
-      agentMessage: `已将 ${workflowNodeIds.length} 个节点标记为工作流 ${cleanOrder}。`,
+      agentMessage: `Marked ${workflowNodeIds.length} node(s) as workflow ${cleanOrder}.`,
       lastError: null,
     };
   }),
@@ -430,13 +451,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const workflowNodeIds = connectedNodeIdsFrom(selectedIds, state.nodes, state.edges);
     return {
       nodes: state.nodes.map((node) => workflowNodeIds.includes(node.id) ? { ...node, data: { ...node.data, workflowId: undefined, workflowOrder: undefined, workflowTitle: undefined, workflowLabel: undefined, groupColor: undefined } } : node),
-      agentMessage: `已清除 ${workflowNodeIds.length} 个节点的工作流标记。`,
+      agentMessage: `Cleared workflow marks from ${workflowNodeIds.length} node(s).`,
       lastError: null,
     };
   }),
   arrangeWorkflows: () => set((state) => ({
     nodes: arrangeWorkflowNodes(state.nodes, state.edges),
-    agentMessage: "画布已按工作流编号整理。",
+    agentMessage: "Canvas arranged by workflow number.",
     lastError: null,
   })),
   setGroupLockedByGroupId: (groupId, locked) => set((state) => ({ nodes: state.nodes.map((n) => n.data.groupId === groupId ? { ...n, draggable: !locked, data: { ...n.data, locked } } : n) })),
@@ -483,7 +504,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     let switchedVideoInput = false;
 
     if (source && target?.data.nodeType === "videoFrame" && !targetHandleForConnection(source, target, connection.targetHandle)) {
-      return { lastError: "视频抽帧节点只接受 Video、Video Edit 或 Motion 节点。" };
+      return { lastError: "Extract Frames accepts only Video, Video Edit, or Motion nodes." };
     }
 
     if (
@@ -526,7 +547,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       nodes,
       edges: addEdge({ ...connection, targetHandle, id: `edge-${crypto.randomUUID()}` }, edges),
       lastError: null,
-      ...(switchedVideoInput ? { agentMessage: "视频节点已切换为支持图片素材的 Seedance Assets 模式。" } : {}),
+      ...(switchedVideoInput ? { agentMessage: "The video node switched to Seedance Assets mode to support image media." } : {}),
     };
   }),
   addNode: (type) => { const node = makeNode(type, { x: 160 + (get().nodes.length % 4) * 55, y: 120 + (get().nodes.length % 5) * 60 }); set((state) => { const undoStack = appendUndoEntry(state.undoStack, state); return { nodes: [...state.nodes, node], selectedNodeId: node.id, undoStack, canUndo: true }; }); },
@@ -546,7 +567,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       undoStack,
       canUndo: true,
       lastError: null,
-      agentMessage: `已删除 ${removedIds.size} 个节点。`,
+      agentMessage: `Deleted ${removedIds.size} node(s).`,
     };
   }),
   duplicateNode: (id) => { const original = get().nodes.find((node) => node.id === id); if (!original) return; const clone: CanvasNode = { ...original, id: `${original.data.nodeType}-${crypto.randomUUID()}`, position: { x: original.position.x + 36, y: original.position.y + 36 }, selected: true, data: { ...original.data, title: `${original.data.title} copy`, status: "idle", output: undefined, error: undefined, ...(original.data.nodeType === "videoFrame" ? { imageUrl: undefined, frameSourceVideoNodeId: undefined, frameTimestampSeconds: 0 } : {}) } }; set((state) => { const undoStack = appendUndoEntry(state.undoStack, state); return { nodes: [...state.nodes.map((node) => ({ ...node, selected: false })), clone], selectedNodeId: clone.id, undoStack, canUndo: true }; }); },
@@ -557,7 +578,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const source = current.nodes.find((node) => node.id === sourceEdge?.source);
     const videoUrl = source ? videoUrlFrom(source) : "";
     if (!extractor || !source || !["video", "videoEdit", "motion"].includes(source.data.nodeType) || !videoUrl) {
-      const message = source ? "源视频尚未生成，暂时无法抽帧。" : "请先把一个 VideoNode 连接到视频抽帧节点。";
+      const message = source ? "The source video has not been generated, so frames cannot be extracted yet." : "Connect a Video node to Extract Frames first.";
       set({ lastError: message });
       throw new Error(message);
     }
@@ -582,12 +603,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const timestampLabel = `${output.timestampSeconds.toFixed(2)}s`;
       frame.data = {
         ...frame.data,
-        title: mode === "last" ? "Reference* 视频尾帧" : `Reference* 当前画面 ${timestampLabel}`,
+        title: mode === "last" ? "Reference* Final Video Frame" : `Reference* Current Frame ${timestampLabel}`,
         status: "success",
         imageUrl: output.imageUrl,
         notes: mode === "last"
-          ? `由「${source.data.title}」的最后有效画面抽取。`
-          : `由「${source.data.title}」在 ${timestampLabel} 抽取。`,
+          ? `Extracted from the last valid frame of “${source.data.title}”.`
+          : `Extracted from “${source.data.title}” at ${timestampLabel}.`,
         frameSourceVideoNodeId: source.id,
         frameMode: mode,
         frameTimestampSeconds: output.timestampSeconds,
@@ -630,11 +651,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         undoStack: appendUndoEntry(state.undoStack, state),
         canUndo: true,
         lastError: null,
-        agentMessage: mode === "last" ? "已抽取视频尾帧并创建 Reference 节点。" : "已抽取当前画面并创建 Reference 节点。",
+        agentMessage: mode === "last" ? "Extracted the final video frame and created a Reference node." : "Extracted the current frame and created a Reference node.",
       }));
       return frame.id;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "视频抽帧失败。";
+      const message = error instanceof Error ? error.message : "Frame extraction failed.";
       set((state) => ({
         lastError: message,
         nodes: state.nodes.map((node) => node.id === extractorId ? { ...node, data: { ...node.data, status: "error", error: message } } : node),
@@ -692,15 +713,15 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   generateAgentPlan: async (userPrompt) => {
     const prompt = userPrompt.trim();
     if (!prompt) throw new Error("Agent brief is empty.");
-    set({ agentStatus: "planning", agentMessage: "正在生成工作流计划...", lastError: null });
+    set({ agentStatus: "planning", agentMessage: "Generating workflow plan...", lastError: null });
     try {
       const { nodes, edges, projectName } = get();
       const payload = await requestAgentPlan({ userPrompt: prompt, canvasSnapshot: { version: 1, projectName, nodes, edges }, mode: nodes.length ? "edit" : "create" });
-      if (!payload.plan || !payload.patch) throw new Error("Agent 计划生成失败。");
-      set({ agentStatus: "completed", agentMessage: payload.summary || "工作流计划已生成。" });
-      return { plan: payload.plan, patch: payload.patch, summary: payload.summary || "工作流计划已生成。" };
+      if (!payload.plan || !payload.patch) throw new Error("Could not generate the Agent plan.");
+      set({ agentStatus: "completed", agentMessage: payload.summary || "Workflow plan generated." });
+      return { plan: payload.plan, patch: payload.patch, summary: payload.summary || "Workflow plan generated." };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Agent 计划生成失败。";
+      const message = error instanceof Error ? error.message : "Could not generate the Agent plan.";
       set({ agentStatus: "error", agentMessage: message, lastError: message });
       throw error;
     }
@@ -712,40 +733,40 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       edges: [...state.edges, ...clean.edges],
       selectedNodeId: clean.nodes[0]?.id || state.selectedNodeId,
       agentStatus: "completed",
-      agentMessage: "工作流已添加到画布。请检查节点参数后手动运行。",
+      agentMessage: "Workflow added to the canvas. Review node settings, then run the nodes manually.",
       lastError: null,
     };
   }),
   generateAgentEdit: async (userInstruction) => {
     const instruction = userInstruction.trim();
     if (!instruction) throw new Error("Agent edit instruction is empty.");
-    set({ agentStatus: "planning", agentMessage: "正在生成画布修改计划...", lastError: null });
+    set({ agentStatus: "planning", agentMessage: "Generating canvas edit plan...", lastError: null });
     try {
       const { nodes, edges, projectName, selectedNodeId } = get();
       const selectedNodeIds = [...new Set([...nodes.filter((node) => node.selected).map((node) => node.id), ...(selectedNodeId ? [selectedNodeId] : [])])];
       const payload = await requestAgentEdit({ userInstruction: instruction, canvasSnapshot: { version: 1, projectName, nodes, edges }, selectedNodeIds });
-      if (!payload.editPlan || !payload.patch) throw new Error("Agent 修改计划生成失败。");
-      set({ agentStatus: "completed", agentMessage: payload.summary || "画布修改计划已生成。" });
-      return { editPlan: payload.editPlan, patch: payload.patch, summary: payload.summary || "画布修改计划已生成。" };
+      if (!payload.editPlan || !payload.patch) throw new Error("Could not generate the Agent edit plan.");
+      set({ agentStatus: "completed", agentMessage: payload.summary || "Canvas edit plan generated." });
+      return { editPlan: payload.editPlan, patch: payload.patch, summary: payload.summary || "Canvas edit plan generated." };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Agent 修改计划生成失败。";
+      const message = error instanceof Error ? error.message : "Could not generate the Agent edit plan.";
       set({ agentStatus: "error", agentMessage: message, lastError: message });
       throw error;
     }
   },
   applyAgentEditPatch: (patch) => set((state) => applyEditPatchToState(state, patch)),
   generateAgentOrganize: async (userInstruction) => {
-    const instruction = userInstruction.trim() || "自动识别当前画布内容和工作流，并整理画布。";
-    set({ agentStatus: "planning", agentMessage: "正在识别画布工作流并生成整理计划...", lastError: null });
+    const instruction = userInstruction.trim() || "Identify the current canvas content and workflows, then organize the canvas.";
+    set({ agentStatus: "planning", agentMessage: "Identifying canvas workflows and generating an organization plan...", lastError: null });
     try {
       const { nodes, edges, projectName, selectedNodeId } = get();
       const selectedNodeIds = [...new Set([...nodes.filter((node) => node.selected).map((node) => node.id), ...(selectedNodeId ? [selectedNodeId] : [])])];
       const payload = await requestAgentOrganize({ userInstruction: instruction, canvasSnapshot: { version: 1, projectName, nodes, edges }, selectedNodeIds });
-      if (!payload.organizePlan || !payload.patch) throw new Error("Agent 整理计划生成失败。");
-      set({ agentStatus: "completed", agentMessage: payload.summary || "画布整理计划已生成。" });
-      return { organizePlan: payload.organizePlan, patch: payload.patch, summary: payload.summary || "画布整理计划已生成。" };
+      if (!payload.organizePlan || !payload.patch) throw new Error("Could not generate the Agent organization plan.");
+      set({ agentStatus: "completed", agentMessage: payload.summary || "Canvas organization plan generated." });
+      return { organizePlan: payload.organizePlan, patch: payload.patch, summary: payload.summary || "Canvas organization plan generated." };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Agent 整理计划生成失败。";
+      const message = error instanceof Error ? error.message : "Could not generate the Agent organization plan.";
       set({ agentStatus: "error", agentMessage: message, lastError: message });
       throw error;
     }
@@ -801,18 +822,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       && node.data.status !== "running"
       && node.data.status !== "waiting");
     if (!selected.length) {
-      set({ lastError: "选中的节点中没有可运行节点。" });
+      set({ lastError: "The selected nodes contain no runnable nodes." });
       return;
     }
     const selectedIds = new Set(selected.map((node) => node.id));
     const selectedEdges = state.edges.filter((edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target));
     try {
       const ordered = topologicalSort(selected, selectedEdges);
-      set({ lastError: null, agentMessage: `正在依次运行 ${ordered.length} 个选中节点…` });
+      set({ lastError: null, agentMessage: `Running ${ordered.length} selected node(s) in order…` });
       for (const node of ordered) await get().runNode(node.id);
-      set({ agentMessage: `已运行 ${ordered.length} 个选中节点。` });
+      set({ agentMessage: `Ran ${ordered.length} selected node(s).` });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "批量运行失败。";
+      const message = error instanceof Error ? error.message : "Batch run failed.";
       set({ lastError: message, agentMessage: null });
     }
   },
@@ -851,21 +872,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   runAgentWorkflow: async (brief) => {
     const idea = brief.trim();
     if (!idea) {
-      set({ agentStatus: "error", agentMessage: "请输入一句创意后再启动 Agent。", lastError: "Agent brief is empty." });
+      set({ agentStatus: "error", agentMessage: "Enter a creative idea before starting the Agent.", lastError: "Agent brief is empty." });
       return;
     }
-    set({ agentStatus: "planning", agentMessage: "正在按模板搭建流程图...", lastError: null });
+    set({ agentStatus: "planning", agentMessage: "Building the workflow from the template...", lastError: null });
     const groupId = `agent-${crypto.randomUUID()}`;
     const groupColor = undefined;
     const makeTemplateNode = (type: NodeType, position: { x: number; y: number }, patch: Partial<CanvasNodeData>): CanvasNode => {
       const node = makeNode(type, position);
       return { ...node, data: { ...node.data, ...patch, status: "idle", output: undefined, error: undefined, groupId, groupColor } };
     };
-    const negativePrompt = "拼贴图, 分屏, 四宫格, 分镜板, 漫画分格, 多面板, 多个画面, 多张图出现在同一张图里, collage, split screen, contact sheet, storyboard grid, comic panels, multiple panels, multiple frames, four images in one image, arrows, labels, UI, watermark, text overlay";
-    const continuity = "只生成一个单独的电影拍摄画面，不要拼贴图或分镜板，电影剧照质感，无文字，保持人物、服装、场景、光线、道具和故事连续性";
+    const negativePrompt = "collage, split screen, four-panel grid, storyboard, comic panels, multiple panels, multiple frames, multiple images in one image, contact sheet, storyboard grid, arrows, labels, UI, watermark, text overlay";
+    const continuity = "Generate one cinematic shot only, not a collage or storyboard. Use a film-still look with no text, while maintaining continuity in characters, clothing, setting, lighting, props, and story.";
     const mainImage = makeTemplateNode("image", { x: 613.2296482571714, y: -554.2449289599219 }, {
       title: "Image* gpt-image-2 (TokenStar)",
-      prompt: `以这个背景，生成${idea}的图片`,
+      prompt: `Use this background to generate an image of ${idea}`,
       model: DEFAULT_AGENT_IMAGE_MODEL,
       size: "1024x1024",
       referenceImageUrl: "",
@@ -883,7 +904,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
     const shot1 = makeTemplateNode("image", { x: 617.990547772805, y: -171.3366443837011 }, {
       title: "Image* Shot 01 - Keyframe",
-      prompt: `${idea}的第一个关键帧。校园或主要场景开场，主角走入画面并与周围人物互动，现代建筑背景，阳光明媚，无文字和无 UI。中景，展示人物与环境的互动。对称构图，主角位于画面中央，周围人物在两侧。50mm定焦镜头，自然光，轻微跟随镜头，轻松愉快，保持人物、服装和场景连续。${continuity}`,
+      prompt: `First keyframe for ${idea}. Open on a campus or primary setting as the protagonist enters the frame and interacts with nearby people. Modern architecture, bright sunlight, no text or UI. Medium shot showing interaction between the subject and environment. Symmetrical composition with the protagonist centered and other people on both sides. 50mm prime lens, natural light, gentle tracking shot, relaxed and upbeat mood. Maintain continuity in characters, clothing, and setting. ${continuity}`,
       negativePrompt,
       aspectRatio: "16:9",
       size: "1536x1024",
@@ -893,7 +914,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
     const shot2 = makeTemplateNode("image", { x: 603.5370785454384, y: 115.19856370493375 }, {
       title: "Image* Shot 02 - Keyframe",
-      prompt: `${idea}的第二个关键帧。主角与周围人物在开放空间互动或合影，开心的表情，标志性背景，无文字和无 UI。特写或中近景，捕捉人物表情和互动。圆形构图，主角位于中心，人物围绕在周围。35mm广角镜头，自然光，欢乐、亲切、充满互动，保持人物、服装和场景连续。${continuity}`,
+      prompt: `Second keyframe for ${idea}. The protagonist interacts or poses for a photo with others in an open space, with happy expressions and an iconic background. No text or UI. Close-up or medium close-up capturing expressions and interaction. Circular composition with the protagonist centered and people gathered around. 35mm wide-angle lens, natural light, joyful, friendly, and lively. Maintain continuity in characters, clothing, and setting. ${continuity}`,
       negativePrompt,
       aspectRatio: "16:9",
       size: "1536x1024",
@@ -903,7 +924,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
     const shot3 = makeTemplateNode("image", { x: 616.4406456459226, y: 461.6027416762248 }, {
       title: "Image* Shot 03 - Keyframe",
-      prompt: `${idea}的第三个关键帧。主角在室内或安静空间与人物交流，生动手势，温馨环境，无文字和无 UI。中景，对角线构图，主角在一侧，其他人物在对面形成对话氛围。50mm定焦镜头，轻微推镜，柔和室内灯光，温暖色调，动作节奏缓慢，保持人物、服装和场景连续。${continuity}`,
+      prompt: `Third keyframe for ${idea}. The protagonist talks with others indoors or in a quiet space, using expressive gestures in a warm environment. No text or UI. Medium shot with a diagonal composition: protagonist on one side and the others opposite to create a conversational mood. 50mm prime lens, subtle push-in, soft interior lighting, warm tones, and slow movement. Maintain continuity in characters, clothing, and setting. ${continuity}`,
       negativePrompt,
       aspectRatio: "16:9",
       size: "1536x1024",
@@ -949,7 +970,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       selectedNodeId: clean.nodes[0]?.id || storyboard.id,
       lastError: null,
       agentStatus: "completed",
-      agentMessage: "Storyboard 已创建。运行后会自动生成 Text* Script 与 Image* Scene 树状分支。",
+      agentMessage: "Storyboard created. Running it will automatically generate Text* Script and Image* Scene branches.",
     }));
   },
   runAgentSkill: async (skillId, brief) => {

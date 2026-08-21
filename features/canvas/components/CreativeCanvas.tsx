@@ -53,16 +53,16 @@ const imageUrlFromClipboard = (clipboard: DataTransfer) => {
 
 /* ── Morandicolor palette (10 colours) ───────────────────────── */
 const MORANDI = [
-  { label: "茱萸粉", bg: "#c9a9a6", text: "#fff" },
-  { label: "雾霾蓝", bg: "#a0b4c0", text: "#fff" },
-  { label: "灰紫",   bg: "#b0a8c4", text: "#fff" },
-  { label: "苔绿",   bg: "#a6b89a", text: "#fff" },
-  { label: "燕麦",   bg: "#d4c5a9", text: "#5a4a3a" },
-  { label: "陶土",   bg: "#c4a882", text: "#fff" },
-  { label: "烟灰",   bg: "#b0afaa", text: "#fff" },
-  { label: "薄荷",   bg: "#a8c4bc", text: "#fff" },
-  { label: "奶杏",   bg: "#e0cfc0", text: "#5a4a3a" },
-  { label: "淡丁香", bg: "#c8b8d8", text: "#fff" },
+  { label: "Rose", bg: "#c9a9a6", text: "#fff" },
+  { label: "Misty blue", bg: "#a0b4c0", text: "#fff" },
+  { label: "Gray violet", bg: "#b0a8c4", text: "#fff" },
+  { label: "Moss green", bg: "#a6b89a", text: "#fff" },
+  { label: "Oat", bg: "#d4c5a9", text: "#5a4a3a" },
+  { label: "Clay", bg: "#c4a882", text: "#fff" },
+  { label: "Ash", bg: "#b0afaa", text: "#fff" },
+  { label: "Mint", bg: "#a8c4bc", text: "#fff" },
+  { label: "Cream", bg: "#e0cfc0", text: "#5a4a3a" },
+  { label: "Light lilac", bg: "#c8b8d8", text: "#fff" },
 ];
 
 const icons: Record<string, string> = { prompt: "*", text: "T", image: "#", video: "\u25B6", videoRegeneration: "2K", videoEdit: "\u2702", motion: "\u25A3", audio: "~", musicGeneration: "M", hkgaiTTS: "H", voiceClone: "V", voiceTTS: "\u266A", storyboard: "\u25A6", reference: "/", output: "\u2197" };
@@ -187,7 +187,7 @@ function DeletableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition,
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
             onClick={() => onEdgesChange([{ id, type: "remove" }])}
-            title="删除连线"
+            title="Delete connection"
           >
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
           </button>
@@ -217,9 +217,8 @@ const fallbackSizeFor = (type: string) => ({
 }[type] || { w: 280, h: 250 });
 
 export function CreativeCanvas() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, setSelectedNodes, removeNodes, runNodes, selectionMode, ghostType, setGhostType, placeGhostNode, addMediaNode, addPastedMediaNodes, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia, pendingAgentPatch, setPendingAgentPatch, placeAgentPatch, recordCanvasMutation } = useCanvasStore();
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode, setSelectedNodes, removeNodes, runNodes, selectionMode, ghostType, setGhostType, placeGhostNode, addMediaNode, addPastedMediaNodes, ghostMediaUrl, setGhostMedia: _setGhostMedia, placeGhostMedia, pendingAgentPatch, setPendingAgentPatch, placeAgentPatch, recordCanvasMutation, undoLastCanvasMutation, canUndo, setGroupColor, clearGroup } = useCanvasStore();
   const { theme } = useTheme();
-  const { lang } = useLang();
   const { getNodes, screenToFlowPosition } = useReactFlow();
   const { x: viewX, y: viewY, zoom } = useViewport();
   const nodeTypes = useMemo<NodeTypes>(() => ({ creative: AnnotatedCustomNode }), []);
@@ -243,6 +242,12 @@ export function CreativeCanvas() {
   const isGhosting = !!(ghostType || ghostMediaUrl || pendingAgentPatch);
   const selectedNodes = useMemo(() => nodes.filter((node) => node.selected), [nodes]);
   const selectedNodeIds = useMemo(() => selectedNodes.map((node) => node.id), [selectedNodes]);
+  const selectedGroupId = useMemo(() => {
+    if (selectedNodes.length < 2) return null;
+    const groupId = selectedNodes[0]?.data.groupId;
+    if (!groupId || selectedNodes.some((node) => node.data.groupId !== groupId)) return null;
+    return nodes.filter((node) => node.data.groupId === groupId).length === selectedNodes.length ? groupId : null;
+  }, [nodes, selectedNodes]);
   const runnableSelectionCount = useMemo(() => selectedNodes.filter((node) => BATCH_RUNNABLE_NODE_TYPES.has(node.data.nodeType) && node.data.status !== "running" && node.data.status !== "waiting").length, [selectedNodes]);
   const batchSelectionBounds = useMemo(() => {
     if (selectedNodes.length < 2) return null;
@@ -297,6 +302,35 @@ export function CreativeCanvas() {
       height: (group.maxY - group.minY + GROUP_PADDING * 2) * zoom,
     }));
   }, [nodes, viewX, viewY, zoom]);
+  const groupAtFlowPosition = useCallback((position: { x: number; y: number }) => {
+    const groups = new Map<string, { minX: number; minY: number; maxX: number; maxY: number }>();
+    nodes.forEach((node) => {
+      const groupId = node.data.groupId;
+      if (!groupId || !node.data.groupColor) return;
+      const measuredNode = node as typeof node & { measured?: { width?: number; height?: number }; width?: number; height?: number };
+      const fallback = fallbackSizeFor(node.data.nodeType);
+      const width = measuredNode.measured?.width || measuredNode.width || fallback.w;
+      const height = measuredNode.measured?.height || measuredNode.height || fallback.h;
+      const existing = groups.get(groupId);
+      const minX = node.position.x;
+      const minY = node.position.y;
+      const maxX = node.position.x + width;
+      const maxY = node.position.y + height;
+      if (!existing) groups.set(groupId, { minX, minY, maxX, maxY });
+      else {
+        existing.minX = Math.min(existing.minX, minX);
+        existing.minY = Math.min(existing.minY, minY);
+        existing.maxX = Math.max(existing.maxX, maxX);
+        existing.maxY = Math.max(existing.maxY, maxY);
+      }
+    });
+    return [...groups.entries()].find(([, bounds]) =>
+      position.x >= bounds.minX - GROUP_PADDING
+      && position.x <= bounds.maxX + GROUP_PADDING
+      && position.y >= bounds.minY - GROUP_PADDING
+      && position.y <= bounds.maxY + GROUP_PADDING,
+    )?.[0] ?? null;
+  }, [nodes]);
 
   /* Track mouse for both ghost types */
   useEffect(() => {
@@ -313,6 +347,30 @@ export function CreativeCanvas() {
     window.addEventListener("contextmenu", onCtx);
     return () => window.removeEventListener("contextmenu", onCtx);
   }, [ghostType, ghostMediaUrl, pendingAgentPatch, setGhostType, _setGhostMedia, setPendingAgentPatch]);
+
+  /* Canvas undo: Command+Z on macOS, Ctrl+Z on Windows/Linux. */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.key.toLowerCase() !== "z" || (!event.metaKey && !event.ctrlKey)) return;
+      if (isEditablePasteTarget(event.target) || !canUndo) return;
+      event.preventDefault();
+      undoLastCanvasMutation();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canUndo, undoLastCanvasMutation]);
+
+  /* Group the current Shift selection without taking over text-input shortcuts. */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.key.toLowerCase() !== "g" || !event.shiftKey || event.metaKey || event.ctrlKey) return;
+      if (isEditablePasteTarget(event.target) || selectedNodeIds.length < 2) return;
+      event.preventDefault();
+      setGroupColor(selectedNodeIds, MORANDI[1].bg);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedNodeIds, setGroupColor]);
 
   /* Paste a copied media file directly into the canvas. */
   useEffect(() => {
@@ -345,7 +403,7 @@ export function CreativeCanvas() {
 
       event.preventDefault();
       const position = canvasCenter();
-      useCanvasStore.setState({ agentMessage: "正在归档剪贴板素材…", lastError: null });
+      useCanvasStore.setState({ agentMessage: "Archiving clipboard media…", lastError: null });
 
       void (async () => {
         if (remoteImageUrl) {
@@ -354,7 +412,7 @@ export function CreativeCanvas() {
             addPastedMediaNodes([{ mediaType: "image", url, fileName: "Copied image" }], position);
           } catch (error) {
             console.error("Pasted image URL archive failed", error);
-            useCanvasStore.setState({ lastError: "无法归档剪贴板中的图片链接。请复制图片本身，或将文件拖到画布。", agentMessage: null });
+            useCanvasStore.setState({ lastError: "The clipboard image link could not be archived. Copy the image itself or drag the file onto the canvas.", agentMessage: null });
           }
           return;
         }
@@ -369,8 +427,8 @@ export function CreativeCanvas() {
         if (failedCount) {
           useCanvasStore.setState({
             lastError: successful.length
-              ? `${failedCount} 个剪贴板素材归档失败。`
-              : "剪贴板素材归档失败。请确认文件类型和大小后重试。",
+              ? `${failedCount} clipboard items could not be archived.`
+              : "Clipboard media archiving failed. Check the file type and size, then try again.",
             ...(successful.length ? {} : { agentMessage: null }),
           });
         }
@@ -422,11 +480,9 @@ export function CreativeCanvas() {
 
   const handleBatchDelete = useCallback(() => {
     if (!selectedNodeIds.length) return;
-    const message = lang === "zh-Hant" || lang === "zh-Hans"
-      ? `删除选中的 ${selectedNodeIds.length} 个节点？此操作可以撤回。`
-      : `Delete ${selectedNodeIds.length} selected nodes? You can undo this action.`;
+    const message = `Delete ${selectedNodeIds.length} selected nodes? You can undo this action.`;
     if (window.confirm(message)) removeNodes(selectedNodeIds);
-  }, [lang, removeNodes, selectedNodeIds]);
+  }, [removeNodes, selectedNodeIds]);
 
   const handleSelectionEnd = useCallback(() => {
     const ids = getNodes().filter((node) => node.selected).map((node) => node.id);
@@ -502,9 +558,12 @@ export function CreativeCanvas() {
       recordCanvasMutation();
       placeGhostMedia(flowPos);
     } else if (!selectionMode) {
-      setSelectedNode(null);
+      const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      const groupId = groupAtFlowPosition(flowPos);
+      if (groupId) setSelectedNodes(nodes.filter((node) => node.data.groupId === groupId).map((node) => node.id));
+      else setSelectedNode(null);
     }
-  }, [ghostType, ghostMediaUrl, pendingAgentPatch, screenToFlowPosition, placeGhostNode, placeGhostMedia, placeAgentPatch, selectionMode, setSelectedNode]);
+  }, [ghostType, ghostMediaUrl, pendingAgentPatch, screenToFlowPosition, placeGhostNode, placeGhostMedia, placeAgentPatch, selectionMode, groupAtFlowPosition, nodes, setSelectedNode, setSelectedNodes]);
 
   /* Right-click on selected nodes → context menu */
   const handleSelectionContextMenu = useCallback((e: React.MouseEvent) => {
@@ -585,8 +644,27 @@ export function CreativeCanvas() {
         {groupBackdrops.map((group) => (
           <div
             key={group.id}
-            className="react-flow__group-backdrop pointer-events-none"
+            className="react-flow__group-backdrop nodrag nopan cursor-pointer"
             style={{ left: group.left, top: group.top, width: group.width, height: group.height, borderColor: rgba(group.color, 0.45), backgroundColor: rgba(group.color, 0.28) }}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              event.stopPropagation();
+              setSelectedNodes(nodes.filter((node) => node.data.groupId === group.id).map((node) => node.id));
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+              setSelectedNodes(nodes.filter((node) => node.data.groupId === group.id).map((node) => node.id));
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              setSelectedNodes(nodes.filter((node) => node.data.groupId === group.id).map((node) => node.id));
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label="Select this group"
+            title="Click to select this group"
           />
         ))}
         <Controls showInteractive={false} />
@@ -602,11 +680,11 @@ export function CreativeCanvas() {
           onPointerUp={finishBatchSelectionDrag}
           onPointerCancel={finishBatchSelectionDrag}
           role="group"
-          aria-label={lang === "zh-Hant" || lang === "zh-Hans" ? `已选择 ${selectedNodes.length} 个节点；拖动可整体移动` : `${selectedNodes.length} nodes selected; drag to move them together`}
-          title={lang === "zh-Hant" || lang === "zh-Hans" ? "拖动选框可整体移动节点" : "Drag the frame to move selected nodes"}
+          aria-label={`${selectedNodes.length} nodes selected; drag to move them together`}
+          title="Drag the frame to move selected nodes"
         >
           <span className="pointer-events-none absolute -top-3 left-5 rounded-full bg-[#ed7c28] px-2 py-0.5 text-[9px] font-black tracking-wide text-white shadow-sm dark:bg-amber-300 dark:text-[#21170d]">
-            {lang === "zh-Hant" || lang === "zh-Hans" ? `${selectedNodes.length} 个节点` : `${selectedNodes.length} nodes`}
+            {`${selectedNodes.length} nodes`}
           </span>
         </div>
       )}
@@ -615,15 +693,35 @@ export function CreativeCanvas() {
         <div
           className="nodrag nopan absolute left-1/2 top-4 z-[9998] flex -translate-x-1/2 items-center gap-1 rounded-full border border-[#f0a55a] bg-[#fffaf4]/95 p-1.5 pl-3 shadow-[0_12px_32px_rgba(101,54,10,0.16)] backdrop-blur-md dark:border-amber-400/50 dark:bg-[#17130d]/95"
           role="toolbar"
-          aria-label={lang === "zh-Hant" || lang === "zh-Hans" ? "多选节点操作" : "Selected node actions"}
+          aria-label="Selected node actions"
         >
           <span className="mr-2 whitespace-nowrap text-[11px] font-bold tracking-wide text-[#8a4b12] dark:text-amber-200">
-            {lang === "zh-Hant" || lang === "zh-Hans" ? `已选 ${selectedNodes.length} 个` : `${selectedNodes.length} selected`}
+            {`${selectedNodes.length} selected`}
           </span>
           <span className="hidden whitespace-nowrap text-[10px] text-[#9a7656] dark:text-amber-100/60 lg:inline">
-            {lang === "zh-Hant" || lang === "zh-Hans" ? "拖动选框可整体移动" : "Drag the frame to move all"}
+            Drag the frame to move all
           </span>
           <div className="mx-1 h-5 w-px bg-[#f1cfad] dark:bg-amber-300/20" />
+          {!selectedGroupId && (
+            <button
+              type="button"
+              onClick={() => setGroupColor(selectedNodeIds, MORANDI[1].bg)}
+              className="flex h-8 items-center gap-1.5 rounded-full border border-[#e9bd94] px-3 text-[11px] font-bold text-[#8a4b12] transition hover:bg-[#fff0df] dark:border-amber-300/30 dark:text-amber-100 dark:hover:bg-amber-300/10"
+              title="Group (Shift + G)"
+            >
+              Group
+            </button>
+          )}
+          {selectedGroupId && (
+            <button
+              type="button"
+              onClick={() => clearGroup(selectedNodeIds)}
+              className="h-8 rounded-full px-3 text-[11px] font-bold text-[#8a4b12] transition hover:bg-[#fff0df] dark:text-amber-100 dark:hover:bg-amber-300/10"
+              title="Ungroup"
+            >
+              Ungroup
+            </button>
+          )}
           <button
             type="button"
             disabled={!runnableSelectionCount}
@@ -631,21 +729,21 @@ export function CreativeCanvas() {
             className="flex h-8 items-center gap-1.5 rounded-full bg-[#18130f] px-3 text-[11px] font-bold text-white transition hover:bg-[#3b2819] disabled:cursor-not-allowed disabled:opacity-35 dark:bg-amber-300 dark:text-[#21170d] dark:hover:bg-amber-200"
           >
             <svg width="9" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><path d="M2 1.5v7l6-3.5z" /></svg>
-            {lang === "zh-Hant" || lang === "zh-Hans" ? `运行 ${runnableSelectionCount}` : `Run ${runnableSelectionCount}`}
+            {`Run ${runnableSelectionCount}`}
           </button>
           <button
             type="button"
             onClick={handleBatchDelete}
             className="h-8 rounded-full px-3 text-[11px] font-bold text-rose-600 transition hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-400/10"
           >
-            {lang === "zh-Hant" || lang === "zh-Hans" ? "删除" : "Delete"}
+            Delete
           </button>
           <button
             type="button"
             onClick={() => setSelectedNodes([])}
             className="grid h-8 w-8 place-items-center rounded-full text-[#997456] transition hover:bg-[#f5e5d5] hover:text-[#3b2819] dark:text-amber-100/70 dark:hover:bg-amber-300/10"
-            aria-label={lang === "zh-Hant" || lang === "zh-Hans" ? "取消选择" : "Clear selection"}
-            title={lang === "zh-Hant" || lang === "zh-Hans" ? "取消选择" : "Clear selection"}
+            aria-label="Clear selection"
+            title="Clear selection"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M2 2l8 8M10 2L2 10" /></svg>
           </button>
@@ -660,7 +758,7 @@ export function CreativeCanvas() {
 
       {!selectedNodes.length && !selectionMode && !isGhosting && (
         <div className="pointer-events-none absolute bottom-5 left-1/2 z-20 -translate-x-1/2 rounded-full border border-black/5 bg-white/75 px-3 py-1.5 text-[10px] font-medium text-[#777] shadow-sm backdrop-blur dark:border-white/10 dark:bg-[#101c29]/75 dark:text-slate-400">
-          {lang === "zh-Hant" || lang === "zh-Hans" ? "按住 Shift 拖动画布，可框选多个节点" : "Hold Shift and drag to select multiple nodes"}
+          Hold Shift and drag to select multiple nodes
         </div>
       )}
 

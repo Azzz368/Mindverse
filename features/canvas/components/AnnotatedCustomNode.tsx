@@ -12,7 +12,9 @@ import { VideoFrameNode } from "./VideoFrameNode";
 import { VideoRegenerationNode } from "./VideoRegenerationNode";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { useLang } from "@/components/providers/LangProvider";
-import { DIGITAL_HUMAN_VIDEO_PROMPT, videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoDurationOptionsForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, videoPromptMaxLengthForPreset, videoReferenceLimitForPreset, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
+import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
+import { imagePromptPresets, type ImagePromptPresetId } from "@/shared/workflow/imagePromptPresets";
+import { DEFAULT_VIDEO_MODEL_PRESET_ID, DIGITAL_HUMAN_VIDEO_PROMPT, videoAspectRatioControlForPreset, videoAspectRatioForPreset, videoAspectRatiosForPreset, videoDurationOptionsForPreset, videoInputPortsForPreset, videoModelOptions, videoModelPatch, videoModelPresetIdFromData, videoModelSelectionPatch, videoPromptMaxLengthForPreset, videoReferenceLimitForPreset, type VideoInputPortKind, type VideoModelPresetId } from "@/shared/workflow/videoModelPresets";
 import { DEFAULT_STORYBOARD_SCENE_COUNT, clampStoryboardSceneCount, storyboardScenesFromValue } from "@/shared/workflow/storyPipeline";
 import { audioUrlFrom, imageUrlFrom, videoUrlFrom } from "@/features/canvas/domain/nodeInputCompiler";
 import type { CanvasNode, CanvasNodeData, ImageAnnotation } from "@/shared/canvas";
@@ -47,6 +49,7 @@ const videoPortStyles: Record<VideoInputPortKind, { border: string; connected: s
   audio: { border: "border-[#f5510b]", connected: "bg-[#f5510b]" },
 };
 const videoDurationOptions = Array.from({ length: 11 }, (_, index) => index + 5);
+const digitalHumanVideoModelIds = new Set<VideoModelPresetId>(["digital-human-video", "omnihuman-1.5-volcengine"]);
 const nodeImageUrl = (node: CanvasNode) => {
   return imageUrlFrom(node);
 };
@@ -109,6 +112,7 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
   const sourceControlsVideoRatio = videoAspectRatioControlForPreset(activeVideoModel) === "source";
   const isHKGAIMinimax = activeVideoModel === "minimax-h3-hkgai";
   const isHKGAIRef2va = activeVideoModel === "minimax-ref2va-hkgai";
+  const isTalkingDataFull = activeVideoModel === "talkingdata-yunzhu81";
   const activeVideoDurationOptions = videoDurationOptionsForPreset(activeVideoModel) || videoDurationOptions;
   const videoPromptMaxLength = videoPromptMaxLengthForPreset(activeVideoModel);
   const textInput = (key: keyof CanvasNodeData, value: string | undefined) => (
@@ -125,34 +129,36 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
         <p className="truncate text-xs font-semibold text-[#030303] dark:text-slate-100">{data.title} · {t.settingsTitle}</p>
       </div>
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3">
-        {data.nodeType !== "motion" && <label className={wrap}><span className={lbl}>标题</span>{textInput("title", data.title)}</label>}
-        {data.nodeType === "prompt" && <><label className={wrap}><span className={lbl}>提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>排除</span>{textArea("negativePrompt", data.negativePrompt, 2)}</label><label className={wrap}><span className={lbl}>风格</span>{textInput("style", data.style)}</label><label className={wrap}><span className={lbl}>宽高比</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}>{["1:1","16:9","9:16","4:5"].map(o=><option key={o}>{o}</option>)}</select></label></>}
-        {data.nodeType === "text" && <><label className={wrap}><span className={lbl}>指令</span>{textArea("instruction", data.instruction, 3)}</label><label className={wrap}><span className={lbl}>起始文本</span>{textArea("inputText", data.inputText, 2)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>温度</span><input className={inp} type="number" step="0.1" min="0" max="2" value={data.temperature ?? 0.7} onChange={e => set({ temperature: Number(e.target.value) })} /></label></>}
-        {data.nodeType === "script" && <><label className={wrap}><span className={lbl}>创意概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>语调</span>{textInput("scriptTone", data.scriptTone)}</label><label className={wrap}><span className={lbl}>目标场景数</span><select className={sel} value={String(clampStoryboardSceneCount(data.numberOfScenes))} onChange={e => set({ numberOfScenes: clampStoryboardSceneCount(e.target.value) })}>{[1,2,3].map(n=><option key={n}>{n}</option>)}</select></label></>}
-        {data.nodeType === "image" && <><label className={wrap}><span className={lbl}>图像提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>尺寸</span><select className={sel} value={data.size ?? "1024x1024"} onChange={e => set({ size: e.target.value })}>{["1024x1024","1536x1024","1024x1536","auto"].map(o=><option key={o}>{o}</option>)}</select></label></>}
+        {data.nodeType !== "motion" && <label className={wrap}><span className={lbl}>Title</span>{textInput("title", data.title)}</label>}
+        {data.nodeType === "prompt" && <><label className={wrap}><span className={lbl}>Prompt</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>Exclude</span>{textArea("negativePrompt", data.negativePrompt, 2)}</label><label className={wrap}><span className={lbl}>Style</span>{textInput("style", data.style)}</label><label className={wrap}><span className={lbl}>Aspect ratio</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}>{["1:1","16:9","9:16","4:5"].map(o=><option key={o}>{o}</option>)}</select></label></>}
+        {data.nodeType === "text" && <><label className={wrap}><span className={lbl}>Instruction</span>{textArea("instruction", data.instruction, 3)}</label><label className={wrap}><span className={lbl}>Starting text</span>{textArea("inputText", data.inputText, 2)}</label><label className={wrap}><span className={lbl}>Model override</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>Temperature</span><input className={inp} type="number" step="0.1" min="0" max="2" value={data.temperature ?? 0.7} onChange={e => set({ temperature: Number(e.target.value) })} /></label></>}
+        {data.nodeType === "script" && <><label className={wrap}><span className={lbl}>Creative brief</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>Tone</span>{textInput("scriptTone", data.scriptTone)}</label><label className={wrap}><span className={lbl}>Target scene count</span><select className={sel} value={String(clampStoryboardSceneCount(data.numberOfScenes))} onChange={e => set({ numberOfScenes: clampStoryboardSceneCount(e.target.value) })}>{[1,2,3].map(n=><option key={n}>{n}</option>)}</select></label></>}
+        {data.nodeType === "image" && <><label className={wrap}><span className={lbl}>Image prompt</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>Model override</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>Size</span><select className={sel} value={data.size ?? "1024x1024"} onChange={e => set({ size: e.target.value })}>{["1024x1024","1536x1024","1024x1536","auto"].map(o=><option key={o}>{o}</option>)}</select></label></>}
         {data.nodeType === "video" && <>
-          <label className={wrap}><span className={lbl}>模型</span><select className={sel} value={activeVideoModel} onChange={e => { const presetId = e.target.value as VideoModelPresetId; set({ ...videoModelSelectionPatch(presetId, data.aspectRatio), ...(presetId === "minimax-ref2va-hkgai" ? { referenceImageUrl: undefined, videoReferenceNodeIds: [], videoReferenceSelectionActive: false } : {}) }); }}>{videoModelOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
-          <label className={wrap}><span className={lbl}>动效提示词</span>{textArea("prompt", data.prompt, 3, videoPromptMaxLength)}</label>
-          {sourceControlsVideoRatio && !isHKGAIRef2va && <label className={wrap}><span className={lbl}>首帧 URL（可选）</span>{textInput("referenceImageUrl", data.referenceImageUrl)}</label>}
-          {provider === "tokenstar" && (activeVideoModel === "kling-v3-tokenstar" || activeVideoModel === "kling-v3-omni-tokenstar") && <label className={wrap}><span className={lbl}>主体元素 ID（逗号分隔）</span>{textInput("klingElementId", data.klingElementId)}</label>}
-          {provider === "tokenstar" && activeVideoPatch.generateAudio !== undefined && <div className="mb-3 flex items-center justify-between"><span className={lbl} style={{marginBottom:0}}>生成音频</span><button onClick={() => set({ generateAudio: data.generateAudio === false })} className={`relative h-5 w-9 rounded-full transition-colors ${data.generateAudio !== false ? "bg-[#030303] dark:bg-cyan-500" : "bg-[#c9ccd1] dark:bg-slate-600"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${data.generateAudio !== false ? "translate-x-[18px]" : "translate-x-0.5"}`} /></button></div>}
-          {!isHKGAIMinimax && !isHKGAIRef2va && <label className={wrap}><span className={lbl}>分辨率</span><select className={sel} value={data.resolution ?? ""} onChange={e => set({ resolution: e.target.value || undefined })}><option value="">服务器默认</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>}
-          <label className={wrap}><span className={lbl}>时长</span><select className={sel} value={String(data.duration ?? activeVideoPatch.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}>{activeVideoDurationOptions.map(n=><option key={n} value={n}>{n}s</option>)}</select></label>
-          {!isHKGAIRef2va && <label className={wrap}><span className={lbl}>画面比例</span><select className={sel} value={videoAspectRatio} onChange={e => set({ aspectRatio: e.target.value })}>{videoAspectRatios.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}</select></label>}
+          <label className={wrap}><span className={lbl}>Model</span><select className={sel} value={activeVideoModel} onChange={e => { const presetId = e.target.value as VideoModelPresetId; set({ ...videoModelSelectionPatch(presetId, data.aspectRatio), ...(presetId === "minimax-ref2va-hkgai" ? { referenceImageUrl: undefined, videoReferenceNodeIds: [], videoReferenceSelectionActive: false } : {}) }); }}>{videoModelOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+          <label className={wrap}><span className={lbl}>Motion prompt</span>{textArea("prompt", data.prompt, 3, videoPromptMaxLength)}</label>
+          {isTalkingDataFull && <><label className={wrap}><span className={lbl}>Image input mode</span><select className={sel} value={data.talkingDataImageMode || "first-frame"} onChange={e => set({ talkingDataImageMode: e.target.value as "first-frame" | "first-last-frame" | "reference" })}><option value="first-frame">First-frame image to video</option><option value="first-last-frame">First and last frame to video</option><option value="reference">Reference image to video</option></select></label>{data.talkingDataImageMode === "first-last-frame" && <label className={wrap}><span className={lbl}>End-frame URL (or connect a second image)</span>{textInput("talkingDataEndImageUrl", data.talkingDataEndImageUrl)}</label>}<label className={wrap}><span className={lbl}>Private image asset ID (asset://…, optional)</span>{textInput("referenceImageAssetUrl", data.referenceImageAssetUrl)}</label><label className={wrap}><span className={lbl}>Private video asset ID (asset://…, optional)</span>{textInput("referenceVideoAssetUrl", data.referenceVideoAssetUrl)}</label><label className={wrap}><span className={lbl}>Private audio asset ID (asset://…, optional)</span>{textInput("referenceAudioAssetUrl", data.referenceAudioAssetUrl)}</label><label className={wrap}><span className={lbl}>Multimodal task type</span><select className={sel} value={data.talkingDataOmniReferenceTaskType || "auto"} onChange={e => set({ talkingDataOmniReferenceTaskType: e.target.value as "auto" | "reference" | "edit" | "extend" })}><option value="auto">Auto detect</option><option value="reference">Reference generation</option><option value="edit">Video edit</option><option value="extend">Video extension</option></select></label><label className={wrap}><span className={lbl}>Output format</span><select className={sel} value={data.talkingDataOutputFormat || "mp4"} onChange={e => set({ talkingDataOutputFormat: e.target.value as "mp4" | "mov" })}><option value="mp4">MP4</option><option value="mov">MOV (professional post-production)</option></select></label><label className={wrap}><span className={lbl}>Generate audio</span><select className={sel} value={data.generateAudio === true ? "true" : "false"} onChange={e => set({ generateAudio: e.target.value === "true" })}><option value="false">Off</option><option value="true">On</option></select></label><label className={wrap}><span className={lbl}>Watermark</span><select className={sel} value={data.talkingDataWatermark === true ? "true" : "false"} onChange={e => set({ talkingDataWatermark: e.target.value === "true" })}><option value="false">No watermark</option><option value="true">AI-generated watermark</option></select></label><label className={wrap}><span className={lbl}>Return final frame</span><select className={sel} value={data.talkingDataReturnLastFrame === true ? "true" : "false"} onChange={e => set({ talkingDataReturnLastFrame: e.target.value === "true" })}><option value="false">No</option><option value="true">Yes</option></select></label><label className={wrap}><span className={lbl}>Web search</span><select className={sel} value={data.talkingDataWebSearch === true ? "true" : "false"} onChange={e => set({ talkingDataWebSearch: e.target.value === "true" })}><option value="false">Off</option><option value="true">On</option></select></label></>}
+          {sourceControlsVideoRatio && !isHKGAIRef2va && <label className={wrap}><span className={lbl}>First-frame URL (optional)</span>{textInput("referenceImageUrl", data.referenceImageUrl)}</label>}
+          {provider === "tokenstar" && (activeVideoModel === "kling-v3-tokenstar" || activeVideoModel === "kling-v3-omni-tokenstar") && <label className={wrap}><span className={lbl}>Subject element IDs (comma-separated)</span>{textInput("klingElementId", data.klingElementId)}</label>}
+          {provider === "tokenstar" && activeVideoPatch.generateAudio !== undefined && <div className="mb-3 flex items-center justify-between"><span className={lbl} style={{marginBottom:0}}>Generate audio</span><button onClick={() => set({ generateAudio: data.generateAudio === false })} className={`relative h-5 w-9 rounded-full transition-colors ${data.generateAudio !== false ? "bg-[#030303] dark:bg-cyan-500" : "bg-[#c9ccd1] dark:bg-slate-600"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${data.generateAudio !== false ? "translate-x-[18px]" : "translate-x-0.5"}`} /></button></div>}
+          {!isHKGAIMinimax && !isHKGAIRef2va && <label className={wrap}><span className={lbl}>Resolution</span><select className={sel} value={data.resolution ?? ""} onChange={e => set({ resolution: e.target.value || undefined })}>{isTalkingDataFull ? <><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></> : <><option value="">Server default</option><option value="720p">720p</option><option value="1080p">1080p</option></>}</select></label>}
+          <label className={wrap}><span className={lbl}>Duration</span><select className={sel} value={String(data.duration ?? activeVideoPatch.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}>{activeVideoDurationOptions.map(n=><option key={n} value={n}>{n}s</option>)}</select></label>
+          {!isHKGAIRef2va && <label className={wrap}><span className={lbl}>Aspect ratio</span><select className={sel} value={videoAspectRatio} onChange={e => set({ aspectRatio: e.target.value })}>{videoAspectRatios.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}</select></label>}
           {isHKGAIRef2va && <label className={wrap}><span className={lbl}>Audio flow shift</span><input className={inp} type="number" step="0.1" value={data.audioFlowShift ?? 3} onChange={e => set({ audioFlowShift: Number(e.target.value) })} /></label>}
-          {isHKGAIMinimax && <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">HKGAI OpenAI 视频接口：提示词最多 7,000 字符，最多连接 2 张参考图；支持 5–15 秒和 16:9、9:16、1:1，分辨率由所选比例自动映射。</p>}
-          {isHKGAIRef2va && <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">图片模式必须连接 1 张图片 + 1 段音频；视频模式连接 1–3 段自带音轨的视频（总时长 ≤15 秒）。图片和视频不能混用，视频模式不能另接音频。</p>}
-          {sourceControlsVideoRatio && <p className="mb-3 text-[10px] leading-4 text-amber-700 dark:text-amber-300">{isHKGAIRef2va ? "输出比例由所选图片或参考视频决定。" : "该模型由首帧素材决定输出比例。运行前会校验首帧必须与所选比例一致。"}</p>}
+          {isHKGAIMinimax && <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">HKGAI OpenAI video API: prompts support up to 7,000 characters and up to 2 reference images. It supports 5–15 seconds and 16:9, 9:16, or 1:1; resolution is mapped automatically from the selected ratio.</p>}
+          {isTalkingDataFull && <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">TalkingData Yunzhu 81 (Seedance-2.5): supports text, image, video, and audio inputs; first-frame or first-and-last-frame input; reference media; video editing and extension; 4–30 seconds; and 480p/720p/1080p. First-frame mode automatically uses the adaptive ratio and preserves the image ratio.</p>}
+          {isHKGAIRef2va && <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">Image mode requires 1 image and 1 audio clip. Video mode accepts 1–3 videos with audio, totaling no more than 15 seconds. Images and videos cannot be mixed, and video mode cannot use a separate audio input.</p>}
+          {sourceControlsVideoRatio && <p className="mb-3 text-[10px] leading-4 text-amber-700 dark:text-amber-300">{isHKGAIRef2va ? "The output ratio is determined by the selected image or reference video." : "This model determines the output ratio from the first frame. The first-frame ratio is validated before submission."}</p>}
         </>}
         {data.nodeType === "videoEdit" && <>
-          <label className={wrap}><span className={lbl}>Agent 剪辑计划 JSON（高级）</span>{textArea("editPlan", data.editPlan, 5)}</label>
-          <label className={wrap}><span className={lbl}>自然语言剪辑说明</span>{textArea("prompt", data.prompt, 2)}</label>
-          <label className={wrap}><span className={lbl}>保留原声</span><select className={sel} value={data.preserveAudio === false ? "false" : "true"} onChange={e => set({ preserveAudio: e.target.value === "true" })}><option value="true">保留</option><option value="false">静音</option></select></label>
-          <label className={wrap}><span className={lbl}>原声音量</span>{textInput("originalVolume", String(data.originalVolume ?? 1))}</label>
-          <label className={wrap}><span className={lbl}>背景音乐音量</span>{textInput("backgroundVolume", String(data.backgroundVolume ?? 0.2))}</label>
-          <label className={wrap}><span className={lbl}>分辨率</span><select className={sel} value={data.resolution ?? "720p"} onChange={e => set({ resolution: e.target.value })}>{["480p","720p","1080p"].map(o=><option key={o}>{o}</option>)}</select></label>
-          <label className={wrap}><span className={lbl}>帧率</span>{textInput("fps", data.fps ?? "30")}</label>
-          <label className={wrap}><span className={lbl}>画面比例</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}><option value="16:9">16:9 横屏</option><option value="9:16">9:16 竖屏</option><option value="1:1">1:1 方形</option></select></label>
+          <label className={wrap}><span className={lbl}>Agent edit plan JSON (advanced)</span>{textArea("editPlan", data.editPlan, 5)}</label>
+          <label className={wrap}><span className={lbl}>Natural-language edit instructions</span>{textArea("prompt", data.prompt, 2)}</label>
+          <label className={wrap}><span className={lbl}>Preserve original audio</span><select className={sel} value={data.preserveAudio === false ? "false" : "true"} onChange={e => set({ preserveAudio: e.target.value === "true" })}><option value="true">Preserve</option><option value="false">Mute</option></select></label>
+          <label className={wrap}><span className={lbl}>Original audio volume</span>{textInput("originalVolume", String(data.originalVolume ?? 1))}</label>
+          <label className={wrap}><span className={lbl}>Background music volume</span>{textInput("backgroundVolume", String(data.backgroundVolume ?? 0.2))}</label>
+          <label className={wrap}><span className={lbl}>Resolution</span><select className={sel} value={data.resolution ?? "720p"} onChange={e => set({ resolution: e.target.value })}>{["480p","720p","1080p"].map(o=><option key={o}>{o}</option>)}</select></label>
+          <label className={wrap}><span className={lbl}>Frame rate</span>{textInput("fps", data.fps ?? "30")}</label>
+          <label className={wrap}><span className={lbl}>Aspect ratio</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}><option value="16:9">16:9 landscape</option><option value="9:16">9:16 portrait</option><option value="1:1">1:1 square</option></select></label>
         </>}
         {data.nodeType === "motion" && <>
           <label className={wrap}>
@@ -161,19 +167,19 @@ function NodeSettingsPanel({ data, nodeId, onClose }: { data: CanvasNodeData; no
               className={`${ta} min-h-36`}
               rows={7}
               value={data.prompt ?? ""}
-              placeholder="用自然语言描述你想要的成片，例如：将已连接的视频剪成一支 15 秒竖屏广告，节奏明快，添加简洁字幕、柔和转场和结尾品牌定格。"
+              placeholder="Describe the final video in natural language, for example: Edit the connected videos into a fast-paced 15-second vertical ad with concise captions, soft transitions, and a final brand card."
               onValueChange={(prompt) => set({ prompt, motionMode: "codex-hyperframes", codexInstruction: "", templateId: "", motionVariablesJson: "" })}
             />
           </label>
           <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[10px] leading-4 text-blue-800 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200">
-            Codex 会使用已连接素材构建 HyperFrames 工程，并通过成片截图自动审片。再次修改 Prompt 后运行，会在上一次工程上继续调整。
+            Codex uses connected media to build the HyperFrames project and review rendered frames automatically. Edit the prompt and run again to continue from the previous project.
           </p>
         </>}
-        {data.nodeType === "audio" && <><label className={wrap}><span className={lbl}>音频提示词</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>模型覆盖</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>音色</span>{textInput("voice", data.voice)}</label><label className={wrap}><span className={lbl}>情绪</span>{textInput("emotion", data.emotion)}</label><label className={wrap}><span className={lbl}>时长（秒）</span><select className={sel} value={String(data.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}><option value="">默认</option>{[5,10,15,20,30,60].map(n=><option key={n} value={n}>{n}s</option>)}</select></label></>}
-        {data.nodeType === "storyboard" && <><label className={wrap}><span className={lbl}>故事概要</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>目标镜头数</span><select className={sel} value={String(clampStoryboardSceneCount(data.targetShotCount ?? data.numberOfScenes))} onChange={e => set({ targetShotCount: clampStoryboardSceneCount(e.target.value) })}>{[1,2,3].map(n=><option key={n}>{n}</option>)}</select></label></>}
-        {data.nodeType === "storyboardImage" && <><label className={wrap}><span className={lbl}>宽高比</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}>{["16:9","9:16","1:1"].map(o=><option key={o}>{o}</option>)}</select></label><label className={wrap}><span className={lbl}>排除</span>{textArea("negativePrompt", data.negativePrompt, 2)}</label></>}
-        {data.nodeType === "reference" && <label className={wrap}><span className={lbl}>备注</span>{textArea("notes", data.notes, 4)}</label>}
-        {data.nodeType === "output" && <label className={wrap}><span className={lbl}>交付格式</span><select className={sel} value={data.format ?? "Creative package"} onChange={e => set({ format: e.target.value })}>{["Creative package","Storyboard package","Campaign brief","Production sheet","JSON"].map(o=><option key={o}>{o}</option>)}</select></label>}
+        {data.nodeType === "audio" && <><label className={wrap}><span className={lbl}>Audio prompt</span>{textArea("prompt", data.prompt, 3)}</label><label className={wrap}><span className={lbl}>Model override</span>{textInput("model", data.model)}</label><label className={wrap}><span className={lbl}>Voice</span>{textInput("voice", data.voice)}</label><label className={wrap}><span className={lbl}>Emotion</span>{textInput("emotion", data.emotion)}</label><label className={wrap}><span className={lbl}>Duration (seconds)</span><select className={sel} value={String(data.duration ?? "")} onChange={e => set({ duration: e.target.value ? Number(e.target.value) : undefined })}><option value="">Default</option>{[5,10,15,20,30,60].map(n=><option key={n} value={n}>{n}s</option>)}</select></label></>}
+        {data.nodeType === "storyboard" && <><label className={wrap}><span className={lbl}>Story brief</span>{textArea("storyBrief", data.storyBrief, 4)}</label><label className={wrap}><span className={lbl}>Target shot count</span><select className={sel} value={String(clampStoryboardSceneCount(data.targetShotCount ?? data.numberOfScenes))} onChange={e => set({ targetShotCount: clampStoryboardSceneCount(e.target.value) })}>{[1,2,3].map(n=><option key={n}>{n}</option>)}</select></label></>}
+        {data.nodeType === "storyboardImage" && <><label className={wrap}><span className={lbl}>Aspect ratio</span><select className={sel} value={data.aspectRatio ?? "16:9"} onChange={e => set({ aspectRatio: e.target.value })}>{["16:9","9:16","1:1"].map(o=><option key={o}>{o}</option>)}</select></label><label className={wrap}><span className={lbl}>Exclude</span>{textArea("negativePrompt", data.negativePrompt, 2)}</label></>}
+        {data.nodeType === "reference" && <label className={wrap}><span className={lbl}>Notes</span>{textArea("notes", data.notes, 4)}</label>}
+        {data.nodeType === "output" && <label className={wrap}><span className={lbl}>Deliverable format</span><select className={sel} value={data.format ?? "Creative package"} onChange={e => set({ format: e.target.value })}>{["Creative package","Storyboard package","Campaign brief","Production sheet","JSON"].map(o=><option key={o}>{o}</option>)}</select></label>}
       </div>
       <div className="shrink-0 border-t border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
         <button onClick={onClose} className="w-full rounded-lg bg-[#030303] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#1a1a1a] dark:bg-cyan-600 dark:hover:bg-cyan-500">Done</button>
@@ -394,7 +400,7 @@ function ExpandIcon({ onClick, className }: { onClick(): void; className?: strin
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick(); }}
-      title="放大预览"
+      title="Open preview"
       className={`nodrag ${className || "absolute right-2 top-2"} grid h-7 w-7 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70`}
     >
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -437,7 +443,7 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
   const scriptCharacters = Array.isArray(scriptOutput.characters) ? scriptOutput.characters.map(record) : [];
   const generationProvider = text(scriptOutput.provider);
   const generationModel = text(scriptOutput.model);
-  const generationLabel = generationProvider || generationModel ? [generationProvider.toUpperCase(), generationModel].filter(Boolean).join(" · ") : "服务器默认模型";
+  const generationLabel = generationProvider || generationModel ? [generationProvider.toUpperCase(), generationModel].filter(Boolean).join(" · ") : "Server default model";
   const generatedText = isScript
     ? [text(scriptOutput.title), text(scriptOutput.logline), ...scriptScenes.map((scene, index) => [`Scene ${scene.sceneNumber || index + 1}`, text(scene.action), ...(Array.isArray(scene.dialogue) ? scene.dialogue.map(text) : [])].filter(Boolean).join("\n"))].filter(Boolean).join("\n\n")
     : text(scriptOutput.generatedText);
@@ -477,9 +483,9 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
             ) : isScript && scriptScenes.length ? (
               <div className="nodrag nowheel h-full min-h-0 w-full overflow-y-auto overscroll-contain px-4 py-3">
                 <div className="mb-3 border-b border-[#d9dce1] pb-3 dark:border-slate-700">
-                  <p className="text-[14px] font-bold leading-5 text-[#030303] dark:text-slate-100">{text(scriptOutput.title) || "未命名剧本"}</p>
+                  <p className="text-[14px] font-bold leading-5 text-[#030303] dark:text-slate-100">{text(scriptOutput.title) || "Untitled script"}</p>
                   {text(scriptOutput.logline) && <p className="mt-1.5 text-[11px] leading-4 text-[#535a64] dark:text-slate-300">{text(scriptOutput.logline)}</p>}
-                  {scriptCharacters.length > 0 && <p className="mt-2 truncate text-[10px] text-[#858b94] dark:text-slate-500">角色：{scriptCharacters.map((character) => text(character.name)).filter(Boolean).join("、")}</p>}
+                  {scriptCharacters.length > 0 && <p className="mt-2 truncate text-[10px] text-[#858b94] dark:text-slate-500">Characters: {scriptCharacters.map((character) => text(character.name)).filter(Boolean).join(", ")}</p>}
                 </div>
                 <div className="space-y-3">
                   {scriptScenes.map((scene, index) => {
@@ -492,7 +498,7 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
                         </div>
                         <p className="mt-1.5 text-[11px] leading-4 text-[#404040] dark:text-slate-300">{text(scene.action)}</p>
                         {dialogue.length > 0 && <div className="mt-2 border-l-2 border-[#3eedb8] pl-2 text-[10px] leading-4 text-[#535a64] dark:text-slate-400">{dialogue.map((line, lineIndex) => <p key={`${lineIndex}-${line}`}>{line}</p>)}</div>}
-                        {text(scene.visualDirection) && <p className="mt-2 text-[9px] leading-3.5 text-[#858b94] dark:text-slate-500">镜头：{text(scene.visualDirection)}</p>}
+                        {text(scene.visualDirection) && <p className="mt-2 text-[9px] leading-3.5 text-[#858b94] dark:text-slate-500">Camera: {text(scene.visualDirection)}</p>}
                       </section>
                     );
                   })}
@@ -502,7 +508,7 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
               <ImeTextarea
                 value={textContent}
                 onValueChange={(value) => updateNodeData(id, { textContent: value })}
-                placeholder="在这里直接写作，或使用下方 Agent Prompt 生成内容…"
+                placeholder="Write here directly, or use the Agent Prompt below to generate content…"
                 className="h-full w-full resize-none overflow-y-auto rounded-[14px] border-0 bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_33px,rgba(148,163,184,0.18)_34px,transparent_35px)] px-5 py-3 text-[13px] leading-[35px] text-[#1a1a1a] outline-none placeholder:text-[#a8abae] dark:bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_33px,rgba(148,163,184,0.22)_34px,transparent_35px)] dark:text-slate-200 dark:placeholder:text-slate-500"
               />
             )}
@@ -515,19 +521,19 @@ function TextNodeLayout({ id, data, selected, isGenerating, runNode }: any) {
           <AutoGrowTextarea
             value={isScript ? data.storyBrief ?? "" : data.instruction ?? ""}
             onChange={(v) => updateNodeData(id, isScript ? { storyBrief: v } : { instruction: v })}
-            placeholder={isScript ? "输入故事概要，让 Agent 编写或重写剧本…" : "输入给 Agent 的修改、扩写或重写指令…"}
+            placeholder={isScript ? "Enter a story brief for the Agent to write or rewrite the script…" : "Enter instructions for the Agent to revise, expand, or rewrite the text…"}
             minHeight={80}
           />
         </div>
         <div className="flex items-center justify-between px-6 pb-6">
           <div className="flex gap-2">
-            <span title="实际提供商和模型由服务端环境变量决定" className="nodrag flex h-9 max-w-[220px] items-center truncate rounded-full bg-[#f0f1f3] px-3 text-[11px] font-semibold text-[#535a64] dark:bg-slate-800 dark:text-slate-300">{isScript ? "服务器模型" : generationLabel}</span>
+            <span title="The actual provider and model are determined by server environment variables" className="nodrag flex h-9 max-w-[220px] items-center truncate rounded-full bg-[#f0f1f3] px-3 text-[11px] font-semibold text-[#535a64] dark:bg-slate-800 dark:text-slate-300">{isScript ? "Server model" : generationLabel}</span>
             <PillDropdown
               value={isScript ? clampStoryboardSceneCount(data.numberOfScenes) : data.wordCount || 200}
               options={(isScript ? [1, 2, 3] : [100, 200, 500, 1000]).map((n) => ({ value: n, label: isScript ? `${n} scene` : `${n} words` }))}
               onChange={(v) => updateNodeData(id, isScript ? { numberOfScenes: clampStoryboardSceneCount(v) } : { wordCount: Number(v) })}
             />
-            <button type="button" title="语音输入（即将支持）" className="nodrag grid h-9 w-9 place-items-center rounded-full bg-[#f0f1f3] text-[#404040] dark:bg-slate-800 dark:text-slate-300">
+            <button type="button" title="Voice input (coming soon)" className="nodrag grid h-9 w-9 place-items-center rounded-full bg-[#f0f1f3] text-[#404040] dark:bg-slate-800 dark:text-slate-300">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
             </button>
           </div>
@@ -566,7 +572,7 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
   const requestedSceneCount = Number(storyboardOutput.requestedSceneCount) || sceneCount;
   const generationProvider = text(storyboardOutput.provider);
   const generationModel = text(storyboardOutput.model);
-  const generationLabel = generationProvider || generationModel ? [generationProvider.toUpperCase(), generationModel].filter(Boolean).join(" · ") : "服务器默认模型";
+  const generationLabel = generationProvider || generationModel ? [generationProvider.toUpperCase(), generationModel].filter(Boolean).join(" · ") : "Server default model";
 
   return (
     <>
@@ -586,7 +592,7 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
               <div className="nodrag nowheel h-full min-h-0 w-full overflow-y-auto overscroll-contain px-4 py-3">
                 <div className="sticky top-0 z-10 mb-1 flex items-center justify-between bg-[#f0f1f3] pb-2 text-[11px] font-semibold text-[#404040] dark:bg-slate-800 dark:text-slate-200">
                   <span>{scenes.length}/{requestedSceneCount} scenes</span>
-                  <span title={generationLabel} className={`max-w-[180px] truncate rounded-full bg-white px-2 py-0.5 text-[10px] shadow-sm dark:bg-slate-700 ${scenes.length < requestedSceneCount ? "text-amber-600 dark:text-amber-300" : "text-[#676f7b] dark:text-slate-300"}`}>{scenes.length < requestedSceneCount ? "输出不完整" : generationLabel}</span>
+                  <span title={generationLabel} className={`max-w-[180px] truncate rounded-full bg-white px-2 py-0.5 text-[10px] shadow-sm dark:bg-slate-700 ${scenes.length < requestedSceneCount ? "text-amber-600 dark:text-amber-300" : "text-[#676f7b] dark:text-slate-300"}`}>{scenes.length < requestedSceneCount ? "Incomplete output" : generationLabel}</span>
                 </div>
                 <div className="divide-y divide-[#d9dce1] dark:divide-slate-700">
                   {scenes.map((scene: Record<string, unknown>, index: number) => (
@@ -598,8 +604,8 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
                         {Number(scene.duration) > 0 && <span className="shrink-0 text-[10px] font-medium text-[#858b94] dark:text-slate-500">{Number(scene.duration)}s</span>}
                       </div>
                       <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-[#404040] dark:text-slate-300">{text(scene.description) || text(scene.action) || text(scene.visualPrompt)}</p>
-                      {text(scene.visualPrompt) && text(scene.visualPrompt) !== text(scene.description) && <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[#6e7580] dark:text-slate-400">画面：{text(scene.visualPrompt)}</p>}
-                      {text(scene.camera) && <p className="mt-1 truncate text-[10px] text-[#858b94] dark:text-slate-500">镜头：{text(scene.camera)}</p>}
+                      {text(scene.visualPrompt) && text(scene.visualPrompt) !== text(scene.description) && <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[#6e7580] dark:text-slate-400">Visual: {text(scene.visualPrompt)}</p>}
+                      {text(scene.camera) && <p className="mt-1 truncate text-[10px] text-[#858b94] dark:text-slate-500">Camera: {text(scene.camera)}</p>}
                     </div>
                   ))}
                 </div>
@@ -614,13 +620,13 @@ function StoryboardNodeLayout({ id, data, selected, isGenerating, runNode }: any
           <AutoGrowTextarea
             value={data.storyBrief ?? ""}
             onChange={(value) => updateNodeData(id, { storyBrief: value })}
-            placeholder="描述故事、角色、风格和希望发生的情节…"
+            placeholder="Describe the story, characters, style, and desired events…"
             minHeight={80}
           />
         </div>
         <div className="flex items-center justify-between px-6 pb-6">
           <div className="flex gap-2">
-            <span title="实际提供商和模型由服务端 AI_TEXT_PROVIDER、HKGAI_* 或 AI_302_* 环境变量决定" className="nodrag flex h-9 max-w-[260px] items-center truncate rounded-full bg-[#f0f1f3] px-3 text-[11px] font-semibold text-[#535a64] dark:bg-slate-800 dark:text-slate-300">{generationLabel}</span>
+            <span title="The actual provider and model are determined by the server AI_TEXT_PROVIDER, HKGAI_*, or AI_302_* environment variables" className="nodrag flex h-9 max-w-[260px] items-center truncate rounded-full bg-[#f0f1f3] px-3 text-[11px] font-semibold text-[#535a64] dark:bg-slate-800 dark:text-slate-300">{generationLabel}</span>
             <PillDropdown
               value={sceneCount}
               options={[1, 2, 3].map((value) => ({ value, label: `${value} scene` }))}
@@ -696,7 +702,7 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
                 <img src={imageUrl} alt="Generated result" className="absolute inset-0 h-full w-full bg-[#f0f1f3] object-contain dark:bg-slate-800" />
                 <div className="nodrag absolute right-2 top-2 flex gap-1.5">
                   <ExpandIcon onClick={() => setViewUrl(imageUrl)} className="static" />
-                  <button onClick={() => setAnnotatingUrl(imageUrl)} title="标注 / 局部重绘" className="grid h-7 w-7 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70">
+                  <button onClick={() => setAnnotatingUrl(imageUrl)} title="Annotate / inpaint" className="grid h-7 w-7 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                   </button>
                 </div>
@@ -715,8 +721,8 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
                 type="button"
                 onClick={() => updateNodeData(id, { imageHistory: imageHistory.slice(0, 1), activeImageUrl: undefined })}
                 className="grid h-8 w-8 place-items-center rounded-full bg-black/55 text-white opacity-0 shadow-sm backdrop-blur-sm transition hover:bg-black/75 focus:opacity-100 group-hover:opacity-100"
-                title="清空生成历史"
-                aria-label="清空生成历史"
+                title="Clear generation history"
+                aria-label="Clear generation history"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v5M14 11v5" /></svg>
               </button>
@@ -729,7 +735,7 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
                     type="button"
                     onClick={() => updateNodeData(id, { activeImageUrl: url })}
                     className={`relative aspect-square w-full overflow-hidden bg-black transition-all duration-200 ${url === imageUrl ? "opacity-100" : "opacity-40 hover:opacity-75"}`}
-                    title={`查看第 ${imageHistory.length - index} 张生成图片`}
+                    title={`View generated image ${imageHistory.length - index}`}
                   >
                     <img src={url} alt={`Generated image ${imageHistory.length - index}`} className="absolute inset-0 h-full w-full object-cover" />
                   </button>
@@ -748,7 +754,7 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
               onClick={(e) => { e.stopPropagation(); setMaterialPickerOpen((open) => !open); }}
               className="nodrag rounded-full border border-[#c9ccd1] px-3 py-1.5 text-[12px] font-semibold text-[#030303] hover:border-[#030303] dark:border-slate-600 dark:text-slate-100 dark:hover:border-cyan-300"
             >
-              @引用素材
+              @Reference media
             </button>
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
               {selectedMaterials.map((item, index) => (
@@ -763,7 +769,7 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
                   <span className="absolute right-0.5 top-0.5 rounded-full bg-[#030303]/85 px-1.5 py-0.5 text-[10px] font-bold text-white">@{index + 1}</span>
                 </button>
               ))}
-              {!selectedMaterials.length && <span className="text-[12px] text-[#676f7b] dark:text-slate-400">Nano Banana 可选择最多 4 张参考图</span>}
+              {!selectedMaterials.length && <span className="text-[12px] text-[#676f7b] dark:text-slate-400">Nano Banana supports up to 4 reference images</span>}
             </div>
           </div>
           {materialPickerOpen && (
@@ -784,19 +790,31 @@ function ImageNodeLayout({ id, data, selected, isGenerating, runNode, createImag
                   </button>
                 );
               })}
-              {!materialOptions.length && <div className="col-span-6 px-2 py-6 text-center text-[12px] text-[#676f7b] dark:text-slate-400">请先把图片或素材节点连到 Reference image</div>}
+              {!materialOptions.length && <div className="col-span-6 px-2 py-6 text-center text-[12px] text-[#676f7b] dark:text-slate-400">Connect an image or media node to Reference image first</div>}
             </div>
           )}
           <AutoGrowTextarea
             value={data.prompt ?? ""}
             onChange={(v) => updateNodeData(id, { prompt: v })}
-            placeholder="描述你想生成的图像，可用 @1、@2 引用素材..."
+            placeholder="Describe the image you want to generate. Use @1 or @2 to reference media…"
             minHeight={96}
             maxHeight={220}
           />
         </div>
         <div className="flex items-center justify-between px-6 pb-6">
           <div className="flex gap-2">
+            {data.imageGenerationMode === "specialized" && <PillDropdown
+              value={data.imagePromptPreset || "character-turnaround"}
+              options={[
+                { value: "character-turnaround", label: "Four-View Character Sheet" },
+                { value: "scene-nine-grid", label: "Nine-Panel Scene Sheet" },
+                { value: "scene-top-view", label: "Indoor Top-Down View" },
+              ]}
+              onChange={(value) => {
+                const presetId = String(value) as ImagePromptPresetId;
+                updateNodeData(id, { imagePromptPreset: presetId, size: imagePromptPresets[presetId].size });
+              }}
+            />}
             <PillDropdown
               value={imageModelValue(data.model)}
               options={[
@@ -865,8 +883,12 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const [promptEnhanceMessage, setPromptEnhanceMessage] = useState("");
   const [promptEnhanceFailed, setPromptEnhanceFailed] = useState(false);
   const promptEnhanceRequestRef = useRef(0);
-  const isVideoEdit = data.nodeType === "videoEdit";
+  const isQuickEdit = data.nodeType === "videoEdit";
+  const isAICreativeEdit = data.nodeType === "motion";
+  const isVideoEdit = isQuickEdit || isAICreativeEdit;
   const activeVideoModel = videoModelPresetIdFromData(data);
+  const videoGenerationMode = digitalHumanVideoModelIds.has(activeVideoModel) ? "digital-human" : "general";
+  const availableVideoModels = videoModelOptions.filter((option) => digitalHumanVideoModelIds.has(option.id) === (videoGenerationMode === "digital-human"));
   const videoAspectRatios = videoAspectRatiosForPreset(activeVideoModel);
   const videoAspectRatio = videoAspectRatioForPreset(activeVideoModel, data.aspectRatio);
   const sourceControlsVideoRatio = videoAspectRatioControlForPreset(activeVideoModel) === "source";
@@ -876,11 +898,17 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
   const isDigitalHumanModel = activeVideoModel === "digital-human-video" || isOmniHuman;
   const videoPromptMaxLength = videoPromptMaxLengthForPreset(activeVideoModel);
   const activeVideoDurationOptions = videoDurationOptionsForPreset(activeVideoModel) || videoDurationOptions;
-  const inputPorts = isVideoEdit
+  const inputPorts = isQuickEdit
     ? [
         { id: "video", label: "Video", kind: "video" as const },
         { id: "audio", label: "Audio", kind: "audio" as const },
       ]
+    : isAICreativeEdit
+      ? [
+          { id: "image", label: "Image", kind: "image" as const },
+          { id: "video", label: "Video", kind: "video" as const },
+          { id: "audio", label: "Audio", kind: "audio" as const },
+        ]
     : videoInputPortsForPreset(activeVideoModel);
   const inputPortKey = inputPorts.map((port) => port.id).join(",");
   const supportedMaterialKinds = new Set(inputPorts.map((port) => port.kind).filter((kind): kind is VideoMaterialKind => kind === "image" || kind === "video" || kind === "audio"));
@@ -937,14 +965,14 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
     const sourcePrompt = String(data.prompt || "").trim();
     if (!sourcePrompt) {
       setPromptEnhanceFailed(true);
-      setPromptEnhanceMessage("请先输入需要增强的视频提示词。");
+      setPromptEnhanceMessage("Enter a video prompt to enhance first.");
       return;
     }
     const requestId = promptEnhanceRequestRef.current + 1;
     promptEnhanceRequestRef.current = requestId;
     setIsEnhancingPrompt(true);
     setPromptEnhanceFailed(false);
-    setPromptEnhanceMessage("正在创建 MiniMax Context IR 任务…");
+    setPromptEnhanceMessage("Creating the MiniMax Context IR task…");
     const readResponse = async (response: Response) => {
       const payload = await response.json() as ContextIRApiResponse;
       if (!response.ok || payload.ok !== true) throw new Error(payload.error?.message || `Context IR request failed (${response.status}).`);
@@ -972,20 +1000,20 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
         const output = queried.output;
         if (output?.status === "queued" || output?.status === "running") {
           intervalMs = Math.max(1000, Number(queried.polling?.intervalMs) || intervalMs);
-          setPromptEnhanceMessage(output.status === "queued" ? "Context IR 正在排队…" : "Context IR 正在分析提示词和参考图…");
+          setPromptEnhanceMessage(output.status === "queued" ? "Context IR is queued…" : "Context IR is analyzing the prompt and reference images…");
           continue;
         }
         if (output?.status !== "succeeded" || !output.enhancedPrompt) throw new Error(output?.errorMessage || `Context IR task ${output?.status || "failed"}.`);
         updateNodeData(id, { prompt: output.enhancedPrompt });
         setPromptEnhanceFailed(false);
-        setPromptEnhanceMessage(output.truncated ? "增强完成，结果已裁剪至 minimax_h3 的 7,000 字符上限。" : "提示词增强完成，可继续编辑或直接生成视频。");
+        setPromptEnhanceMessage(output.truncated ? "Enhancement complete. The result was trimmed to the minimax_h3 7,000-character limit." : "Prompt enhancement complete. Continue editing or generate the video now.");
         return;
       }
       throw new Error("Context IR task timed out after 5 minutes.");
     } catch (error) {
       if (promptEnhanceRequestRef.current !== requestId) return;
       setPromptEnhanceFailed(true);
-      setPromptEnhanceMessage(error instanceof Error ? error.message : "提示词增强失败，请稍后重试。");
+      setPromptEnhanceMessage(error instanceof Error ? error.message : "Prompt enhancement failed. Try again later.");
     } finally {
       if (promptEnhanceRequestRef.current === requestId) setIsEnhancingPrompt(false);
     }
@@ -1097,7 +1125,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                  <button
                    type="button"
                    onClick={(event) => { event.stopPropagation(); togglePlayback(); }}
-                   title={isPlaying ? "暂停视频" : "播放视频"}
+                   title={isPlaying ? "Pause video" : "Play video"}
                    className={`nodrag absolute left-1/2 top-1/2 z-10 grid h-11 w-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-sm transition-opacity hover:bg-black/70 ${isPlaying ? "opacity-0 group-hover:opacity-100" : "opacity-100"}`}
                  >
                    {isPlaying ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zm6 0h4v14h-4z" /></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="ml-0.5"><path d="M8 5v14l11-7z" /></svg>}
@@ -1119,14 +1147,23 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
 
       <div className={`nodrag nowheel absolute left-1/2 top-[calc(100%+8px)] z-50 flex ${isVideoEdit ? "max-h-[min(720px,calc(100vh-40px))] w-[960px]" : "max-h-[560px] w-[800px]"} max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-visible rounded-[28px] border-[1.5px] border-[#3f3f46] bg-white shadow-2xl transition-all duration-300 dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
          <div className="min-h-0 flex-1 overflow-y-auto p-6 pb-4">
-            {isVideoEdit ? <VideoEditComposer data={data} videoSources={editVideoSources} audioSources={editAudioSources} onChange={(patch) => updateNodeData(id, patch)} /> : <>
+            {isQuickEdit ? <VideoEditComposer data={data} videoSources={editVideoSources} audioSources={editAudioSources} onChange={(patch) => updateNodeData(id, patch)} /> : isAICreativeEdit ? <div>
+              <p className="mb-3 text-[12px] leading-5 text-[#676f7b] dark:text-slate-400">Describe your edit to automatically add animated captions, visual effects, title cards, and other creative treatments.</p>
+              <AutoGrowTextarea
+                value={data.prompt ?? ""}
+                onChange={(value) => updateNodeData(id, { prompt: value, codexInstruction: value })}
+                placeholder="Describe the creative edit, timing, captions, effects, and title cards…"
+                minHeight={160}
+                maxHeight={320}
+              />
+            </div> : <>
             {supportedMaterialKinds.size > 0 && <div className="mb-3 flex items-center gap-2">
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setMaterialPickerOpen((open) => !open); }}
                 className="nodrag rounded-full border border-[#c9ccd1] px-3 py-1.5 text-[12px] font-semibold text-[#030303] hover:border-[#030303] dark:border-slate-600 dark:text-slate-100 dark:hover:border-cyan-300"
               >
-                @引用素材
+                @Reference media
               </button>
               <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
                 {selectedMaterials.map((item, index) => (
@@ -1141,7 +1178,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                     <span className="absolute right-0.5 top-0.5 rounded-full bg-[#030303]/85 px-1.5 py-0.5 text-[10px] font-bold text-white">@{index + 1}</span>
                   </button>
                 ))}
-                {!selectedMaterials.length && <span className="text-[12px] text-[#676f7b] dark:text-slate-400">{isDigitalHumanModel ? "请选择一张人物图和一段音频" : "输入 @ 可选择连接的图片、视频或音频素材"}</span>}
+                {!selectedMaterials.length && <span className="text-[12px] text-[#676f7b] dark:text-slate-400">{isDigitalHumanModel ? "Select one character image and one audio clip" : "Type @ to select connected image, video, or audio media"}</span>}
               </div>
             </div>}
             {supportedMaterialKinds.size > 0 && materialPickerOpen && (
@@ -1157,19 +1194,19 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                       title={item.label}
                     >
                       {item.kind === "image" ? <img src={item.url} alt={item.label} className="h-full w-full object-cover" /> : item.kind === "video" ? <video src={item.url} muted playsInline preload="metadata" className="h-full w-full object-cover" /> : <span className="grid h-full w-full place-items-center bg-orange-50 text-orange-600 dark:bg-orange-950/40 dark:text-orange-300"><AudioMaterialIcon /></span>}
-                      <span className={`absolute left-1 top-1 rounded px-1 py-0.5 text-[9px] font-bold ${item.kind === "image" ? "bg-lime-100/95 text-lime-800" : item.kind === "video" ? "bg-violet-100/95 text-violet-800" : "bg-orange-100/95 text-orange-800"}`}>{item.kind === "image" ? "图片" : item.kind === "video" ? "视频" : "音频"}</span>
+                      <span className={`absolute left-1 top-1 rounded px-1 py-0.5 text-[9px] font-bold ${item.kind === "image" ? "bg-lime-100/95 text-lime-800" : item.kind === "video" ? "bg-violet-100/95 text-violet-800" : "bg-orange-100/95 text-orange-800"}`}>{item.kind === "image" ? "Image" : item.kind === "video" ? "Video" : "Audio"}</span>
                       <div className="absolute inset-x-0 bottom-0 truncate bg-black/65 px-1.5 py-1 text-[10px] font-medium text-white">{item.label}</div>
                       {selectedIndex >= 0 && <span className="absolute right-1 top-1 rounded-full bg-[#030303] px-1.5 py-0.5 text-[10px] font-bold text-white dark:bg-cyan-400 dark:text-[#030303]">@{selectedIndex + 1}</span>}
                     </button>
                   );
                 })}
-                {!materialOptions.length && <div className="col-span-6 px-2 py-6 text-center text-[12px] text-[#676f7b] dark:text-slate-400">{isDigitalHumanModel ? "请先连接一张人物图和一段音频" : "请先把图片、视频或音频节点连到这个 VideoNode"}</div>}
+                {!materialOptions.length && <div className="col-span-6 px-2 py-6 text-center text-[12px] text-[#676f7b] dark:text-slate-400">{isDigitalHumanModel ? "Connect one character image and one audio clip first" : "Connect an image, video, or audio node to this Video node first"}</div>}
               </div>
             )}
             <AutoGrowTextarea
                value={data.prompt ?? ""}
                onChange={(v) => updateNodeData(id, { prompt: v })}
-               placeholder="描述你想要生成的画面内容，可用 @1、@2 引用上方素材..."
+               placeholder="Describe the scene you want to generate. Use @1 or @2 to reference the media above…"
                minHeight={96}
                maxHeight={220}
                maxLength={videoPromptMaxLength}
@@ -1182,22 +1219,57 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                   disabled={isEnhancingPrompt || !String(data.prompt || "").trim()}
                   className="nodrag rounded-full bg-violet-100 px-3 py-1.5 text-[11px] font-bold text-violet-800 transition hover:bg-violet-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-violet-950/60 dark:text-violet-200 dark:hover:bg-violet-900/70"
                 >
-                  {isEnhancingPrompt ? "增强中…" : "增强提示词"}
+                  {isEnhancingPrompt ? "Enhancing…" : "Enhance prompt"}
                 </button>
-                <span>MiniMax Context IR · 最多 2 张参考图</span>
+                <span>MiniMax Context IR · Up to 2 reference images</span>
               </div>
               <span className="tabular-nums">{Array.from(data.prompt || "").length} / 7000</span>
             </div>}
             {isHKGAIMinimax && promptEnhanceMessage && <p className={`mt-2 text-[11px] leading-4 ${promptEnhanceFailed ? "text-red-600 dark:text-red-300" : "text-violet-700 dark:text-violet-300"}`}>{promptEnhanceMessage}</p>}
-            {isHKGAIRef2va && <div className="mt-2 rounded-xl bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">选择 1 张图片 + 1 段音频，或选择 1–3 段自带音轨的视频。选择视频时会自动移除已选图片/音频，反之亦然。</div>}
-            {isOmniHuman && <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#676f7b] dark:text-slate-400"><span>必须连接 1 张图片 + 1 段音频；音频需少于 60 秒，建议 15 秒以内。</span><span className="tabular-nums">{Array.from(data.prompt || "").length} / 300</span></div>}
+            {isHKGAIRef2va && <div className="mt-2 rounded-xl bg-violet-50 px-3 py-2 text-[10px] leading-4 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">Select 1 image and 1 audio clip, or 1–3 videos with audio. Selecting videos automatically removes selected images and audio, and vice versa.</div>}
+            {isOmniHuman && <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#676f7b] dark:text-slate-400"><span>Connect exactly 1 image and 1 audio clip. Audio must be under 60 seconds; 15 seconds or less is recommended.</span><span className="tabular-nums">{Array.from(data.prompt || "").length} / 300</span></div>}
             </>}
          </div>
          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[#e7eaf0] px-6 py-4 dark:border-slate-800">
             <div className="flex min-w-0 flex-wrap gap-2">
+              {isVideoEdit && <PillDropdown
+                value={isAICreativeEdit ? "ai-creative" : "quick"}
+                options={[
+                  { value: "quick", label: "Quick Edit" },
+                  { value: "ai-creative", label: "AI Creative Edit" },
+                ]}
+                onChange={(value) => {
+                  const nextMode = String(value) as "quick" | "ai-creative";
+                  updateNodeData(id, nextMode === "ai-creative"
+                    ? {
+                        nodeType: "motion",
+                        title: "Video* Video Edit",
+                        videoEditMode: nextMode,
+                        motionMode: "codex-hyperframes",
+                        compositionJson: data.compositionJson || motionCompositionToJson(defaultMotionComposition("AI Creative Edit")),
+                      }
+                    : { nodeType: "videoEdit", title: "Video* Video Edit", videoEditMode: nextMode });
+                }}
+              />}
+              {!isVideoEdit && <PillDropdown
+                value={videoGenerationMode}
+                options={[
+                  { value: "general", label: "General Video Generation" },
+                  { value: "digital-human", label: "Digital Human Video" },
+                ]}
+                onChange={(value) => {
+                  const nextMode = String(value) as "general" | "digital-human";
+                  const presetId: VideoModelPresetId = nextMode === "digital-human" ? "digital-human-video" : DEFAULT_VIDEO_MODEL_PRESET_ID;
+                  updateNodeData(id, {
+                    videoGenerationMode: nextMode,
+                    ...videoModelSelectionPatch(presetId, data.aspectRatio),
+                    ...(nextMode === "digital-human" ? { prompt: DIGITAL_HUMAN_VIDEO_PROMPT, videoReferenceNodeIds: [], videoReferenceSelectionActive: false } : {}),
+                  });
+                }}
+              />}
               {!isVideoEdit && <PillDropdown
                 value={activeVideoModel}
-                options={videoModelOptions.map(option => ({ value: option.id, label: option.label }))}
+                options={availableVideoModels.map(option => ({ value: option.id, label: option.label }))}
                  onChange={v => {
                    const presetId = String(v) as VideoModelPresetId;
                    updateNodeData(id, {
@@ -1215,7 +1287,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
               />}
               {!isVideoEdit && !isOmniHuman && <PillDropdown
                  value={data.duration || (isHKGAIRef2va ? 4 : isHKGAIMinimax ? 5 : 15)}
-                 options={activeVideoDurationOptions.map((value) => ({ value, label: `${value}s` }))}
+                 options={activeVideoDurationOptions.map((value) => ({ value, label: value === -1 ? "Auto" : `${value}s` }))}
                  onChange={v => updateNodeData(id, { duration: Number(v) })}
               />}
               {!isVideoEdit && !isHKGAIMinimax && !isHKGAIRef2va && !isOmniHuman && <PillDropdown
@@ -1228,7 +1300,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
                  options={[{value: "1080p", label: "1080p"}, {value: "720p", label: "720p Fast"}]}
                  onChange={v => updateNodeData(id, { resolution: String(v) })}
               />}
-              {isVideoEdit && <span className="rounded-full bg-[#f1eafd] px-3 py-1.5 text-[11px] font-bold text-[#5f18c8] dark:bg-violet-950/50 dark:text-violet-200">{editVideoSources.length} 段视频 · {editAudioSources.length} 条音频</span>}
+              {isVideoEdit && <span className="rounded-full bg-[#f1eafd] px-3 py-1.5 text-[11px] font-bold text-[#5f18c8] dark:bg-violet-950/50 dark:text-violet-200">{editVideoSources.length} videos · {editAudioSources.length} audio clips</span>}
             </div>
             <button 
               onClick={(e) => { e.stopPropagation(); void runNode(id); }}
@@ -1238,7 +1310,7 @@ function VideoNodeLayout({ id, data, selected, isGenerating, node, runNode }: an
               Run
             </button>
          </div>
-         {!isVideoEdit && sourceControlsVideoRatio && <p className="shrink-0 border-t border-[#e7eaf0] px-6 py-2 text-[11px] text-amber-700 dark:border-slate-800 dark:text-amber-300">{isOmniHuman ? "OmniHuman 输出比例由输入图片决定；720p 自动启用快速模式，1080p 使用标准模式。" : isHKGAIRef2va ? "minimax_ref2va 的画面比例由所选图片或参考视频决定。" : "该模型的比例由首帧决定。首帧与所选比例不一致时会在提交前停止。"}</p>}
+         {!isVideoEdit && sourceControlsVideoRatio && <p className="shrink-0 border-t border-[#e7eaf0] px-6 py-2 text-[11px] text-amber-700 dark:border-slate-800 dark:text-amber-300">{isOmniHuman ? "OmniHuman determines the output ratio from the input image. 720p enables fast mode automatically; 1080p uses standard mode." : isHKGAIRef2va ? "minimax_ref2va determines the aspect ratio from the selected image or reference video." : "This model determines the ratio from the first frame. Submission stops if the first-frame ratio does not match the selected ratio."}</p>}
       </div>
 
       {previewOpen && videoUrl && typeof document !== "undefined" && createPortal(
@@ -1272,7 +1344,7 @@ function ReferenceNodeLayout({ id, data, selected }: { id: string; data: CanvasN
             {imageUrl ? <img src={imageUrl} alt="Reference material" className="absolute inset-0 h-full w-full object-contain" /> : <ImagePlaceholderIcon />}
             {imageUrl && <ExpandIcon onClick={() => setViewUrl(imageUrl)} />}
           </div>
-          <p className="mt-3 line-clamp-2 text-[11px] leading-4 text-[#676f7b] dark:text-slate-400">{data.notes || "可连接到图像或视频节点作为参考图"}</p>
+          <p className="mt-3 line-clamp-2 text-[11px] leading-4 text-[#676f7b] dark:text-slate-400">{data.notes || "Connect this to an image or video node as a reference image"}</p>
         </div>
         <div className="nodrag flex justify-end gap-1 border-t border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
           <button onClick={() => duplicateNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-400 dark:hover:bg-slate-800">Duplicate</button>
@@ -1283,7 +1355,7 @@ function ReferenceNodeLayout({ id, data, selected }: { id: string; data: CanvasN
         <div className="fixed inset-0 z-[9999] grid place-items-center bg-black/85 p-8" onClick={() => setViewUrl("")}>
           <div className="relative max-h-full max-w-5xl" onClick={(event) => event.stopPropagation()}>
             <img src={viewUrl} alt="Full reference material" className="max-h-[80vh] max-w-full rounded-lg object-contain" />
-            <button onClick={() => setViewUrl("")} aria-label="关闭预览" title="关闭预览" className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-sm transition hover:scale-105 hover:bg-black/75 focus:outline-none focus:ring-2 focus:ring-white/80">
+            <button onClick={() => setViewUrl("")} aria-label="Close preview" title="Close preview" className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-sm transition hover:scale-105 hover:bg-black/75 focus:outline-none focus:ring-2 focus:ring-white/80">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="m6 6 12 12M18 6 6 18" /></svg>
             </button>
           </div>
@@ -1299,20 +1371,21 @@ function AudioNodeLayout({ id, data, selected, runNode }: { id: string; data: Ca
   const output = record(data.output?.value);
   const audioUrl = text(output.audioUrl) || text(output.url) || text(output.resultUrl) || data.audioUrl || "";
   const isRunning = data.status === "running" || data.status === "waiting";
+  const isTextToSpeech = data.ttsMode === "quick";
 
   return (
     <>
       <div className={`relative flex h-[280px] w-[380px] flex-col rounded-[24px] border bg-white shadow-sm transition-colors dark:bg-[#101c29] ${selected ? "z-50 border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"}`}>
         {isRunning && <div className="running-glow-wrapper !rounded-[24px]" style={{ "--glow-color": GLOW_COLORS.audio } as React.CSSProperties} />}
-        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{data.title || "Audio"}</div>
+        <div className="absolute -top-8 left-1 text-[20px] font-bold tracking-tight text-[#030303] dark:text-slate-100">{isTextToSpeech ? "Text-to-Speech" : data.title || "Audio"}</div>
         <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#030303] dark:!border-[#101c29] dark:!bg-cyan-400" />
         <Handle type="source" id="audio" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-white !bg-[#f5510b] dark:!border-[#101c29]" />
         <div className="flex flex-1 flex-col justify-between p-5">
           <div>
-            <p className="line-clamp-3 text-[15px] leading-6 text-[#404040] dark:text-slate-200">{data.prompt || data.output?.summary || "描述你想生成的音频"}</p>
+            <p className="line-clamp-3 text-[15px] leading-6 text-[#404040] dark:text-slate-200">{data.prompt || data.output?.summary || (isTextToSpeech ? "Enter text to generate speech" : "Describe the audio you want to generate")}</p>
             {data.error && <p className="mt-2 text-[11px] text-rose-600 dark:text-rose-300">{data.error}</p>}
           </div>
-          {audioUrl ? <audio controls src={audioUrl} className="w-full" /> : <div className="rounded-2xl border border-dashed border-[#c9ccd1] px-3 py-5 text-center text-[11px] text-[#676f7b] dark:border-slate-700 dark:text-slate-400">音频将在此处播放</div>}
+          {audioUrl ? <audio controls src={audioUrl} className="w-full" /> : <div className="rounded-2xl border border-dashed border-[#c9ccd1] px-3 py-5 text-center text-[11px] text-[#676f7b] dark:border-slate-700 dark:text-slate-400">Audio will play here</div>}
         </div>
         <div className="nodrag flex items-center justify-end gap-1 border-t border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
           <button onClick={() => duplicateNode(id)} className="rounded px-1.5 py-1 text-[10px] text-[#676f7b] hover:bg-[#f0f1f3] hover:text-[#030303] dark:text-slate-400 dark:hover:bg-slate-800">Duplicate</button>
@@ -1321,7 +1394,17 @@ function AudioNodeLayout({ id, data, selected, runNode }: { id: string; data: Ca
         </div>
       </div>
       <div className={`absolute left-1/2 top-[calc(100%+8px)] z-50 w-[560px] -translate-x-1/2 rounded-[24px] border border-[#3f3f46] bg-white p-5 shadow-2xl transition-all dark:border-cyan-400 dark:bg-[#101c29] ${selected ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-4 opacity-0 pointer-events-none"}`}>
-        <AutoGrowTextarea value={data.prompt || ""} onChange={(prompt) => updateNodeData(id, { prompt })} placeholder="描述想要生成的音乐、环境音或语音…" minHeight={80} />
+        {isTextToSpeech && <div className="mb-4">
+          <PillDropdown
+            value="quick"
+            options={[{ value: "quick", label: "Quick TTS" }, { value: "advanced", label: "Advanced TTS (HKGAI)" }]}
+            onChange={(value) => {
+              if (value !== "advanced") return;
+              updateNodeData(id, { nodeType: "hkgaiTTS", title: "Audio* Text-to-Speech", ttsMode: "advanced", ttsText: data.prompt || "", voice: "Mandarin_治愈女声", language: "auto", ttsInstructions: "Warm, natural, and conversational", xVectorOnly: true });
+            }}
+          />
+        </div>}
+        <AutoGrowTextarea value={data.prompt || ""} onChange={(prompt) => updateNodeData(id, { prompt })} placeholder={isTextToSpeech ? "Enter text to convert into speech…" : "Describe the music, ambience, or speech you want to generate…"} minHeight={80} />
         <div className="mt-4 flex items-center justify-between gap-3">
           <div className="flex gap-2"><PillDropdown value={data.model || "Default"} options={["Default", "Music", "TTS"].map((value) => ({ value, label: value }))} onChange={(model) => updateNodeData(id, { model: String(model) })} /><PillDropdown value={data.duration || 30} options={[5, 10, 15, 30, 60].map((value) => ({ value, label: `${value}s` }))} onChange={(duration) => updateNodeData(id, { duration: Number(duration) })} /></div>
           <button onClick={() => void runNode(id)} disabled={isRunning} className="nodrag flex h-11 items-center justify-center rounded-full bg-[#030303] px-6 text-[15px] font-bold text-white transition hover:bg-[#1a1a1a] disabled:opacity-50 dark:bg-cyan-500 dark:text-[#030303] dark:hover:bg-cyan-400">Run</button>
@@ -1343,7 +1426,7 @@ export function AnnotatedCustomNode({ id, data, selected }: NodeProps<CanvasNode
   const visualGroupColor = data.workflowId ? undefined : data.groupColor;
   const detailSelected = Boolean(selected && selectedNodeCount === 1);
 
-  if (data.nodeType === "video" || data.nodeType === "videoEdit") {
+  if (data.nodeType === "video" || data.nodeType === "videoEdit" || data.nodeType === "motion") {
     return <VideoNodeLayout id={id} data={data} selected={detailSelected} node={node} isGenerating={isGenerating} runNode={runNode} />;
   }
   if (data.nodeType === "videoRegeneration") {

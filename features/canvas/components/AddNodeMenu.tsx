@@ -2,11 +2,8 @@
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { archiveAudioFile, archiveImageFile, archiveVideoFile } from "@/features/canvas/services/mediaArchiveClient";
 import { useLang } from "@/components/providers/LangProvider";
-import { imagePromptPresets } from "@/shared/workflow/imagePromptPresets";
-import { defaultMotionComposition, motionCompositionToJson } from "@/shared/motion/composition";
-import { DEFAULT_VIDEO_MODEL_PRESET_ID, DIGITAL_HUMAN_VIDEO_PROMPT, videoModelPatch } from "@/shared/workflow/videoModelPresets";
+import { DEFAULT_VIDEO_MODEL_PRESET_ID, videoModelPatch } from "@/shared/workflow/videoModelPresets";
 import type { CanvasNodeData, NodeType } from "@/shared/canvas";
-import type { Strings } from "@/shared/i18n/strings";
 
 export function getIcon(type: string) {
   const map: Record<string, string> = { prompt: "\u2726", text: "T", image: "\u25C8", video: "\u25B6", videoRegeneration: "2K", videoFrame: "\u25A3", videoEdit: "\u2702", motion: "\u25A3", audio: "\u266B", musicGeneration: "M", hkgaiTTS: "H", voiceClone: "V", voiceTTS: "\u266A", storyboard: "\u25A6", reference: "\u2141", output: "\u2197", upload_image: "+", upload_video: "+", upload_audio: "+" };
@@ -14,47 +11,68 @@ export function getIcon(type: string) {
 }
 
 // 视频 1.png, 图像 2.png, 音频 3.png, 文本 4.png, 分镜系列 5.png, 参考图类 normal.png
-const ALL_CATEGORIES = ["New nodes", "Recently used", "Video", "Image", "Audio", "Text", "Storyboard"];
+const ALL_CATEGORIES = ["Upload", "Text", "Image", "Video", "Audio", "Story"] as const;
 
-const getTools = (t: Strings) => [
-  { id: "upload-video", type: "upload_video", cat: "Video", title: "Upload Video", desc: "Use a local video file as editable canvas footage", iconSrc: "/icons/1.png" },
-  { id: "video-frame", type: "videoFrame", cat: "Video", title: "视频抽帧", desc: "连接视频，抽取当前画面或最后一帧", iconSrc: "/icons/1.png", data: { title: "Video* 视频抽帧", frameMode: "last" as const } },
-  { id: "minimax-h3-video-regeneration", type: "videoRegeneration", cat: "Video", title: "MiniMax H3 2K 再生成", desc: "将符合 H3 768P 规格的视频再生为 2K", iconSrc: "/icons/1.png", data: { title: "Video* MiniMax H3 2K 再生成", regenerationMode: "base-video" as const, resolution: "2K", aigcWatermark: false } },
-  { id: DEFAULT_VIDEO_MODEL_PRESET_ID, type: "video", cat: "Video", title: "Seedance Asset Fast", desc: t.toolDescSeedance, iconSrc: "/icons/1.png", data: { title: "Seedance Asset Fast", ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID) } },
-  { id: "digital-human-video", type: "video", cat: "Video", title: "数字人视频", desc: "人物图 + 音频生成口型同步视频", iconSrc: "/icons/1.png", data: { title: "数字人视频", prompt: DIGITAL_HUMAN_VIDEO_PROMPT, aspectRatio: "9:16", ...videoModelPatch("digital-human-video") } },
-  { id: "omnihuman-1.5-volcengine", type: "video", cat: "Video", title: "OmniHuman 1.5", desc: "Seedance 即梦同源数字人：单张图片 + 音频生成表演视频", iconSrc: "/icons/1.png", data: { title: "Video* OmniHuman 1.5", prompt: DIGITAL_HUMAN_VIDEO_PROMPT, aspectRatio: "9:16", ...videoModelPatch("omnihuman-1.5-volcengine") } },
-  { id: "gen-4.5", type: "video", cat: "Video", title: "Gen-4.5", desc: t.toolDescGen45, iconSrc: "/icons/1.png", data: { title: "Gen-4.5", ...videoModelPatch("gen-4.5") } },
-  { id: "kling-v3-omni", type: "video", cat: "Video", title: "Kling v3 Omni", desc: "TokenStar multi-reference image/element/video generation", iconSrc: "/icons/1.png", data: { title: "Kling v3 Omni", ...videoModelPatch("kling-v3-omni-tokenstar") } },
-{ id: "video-edit", type: "videoEdit", cat: "Video", title: "Video Edit", desc: "可视化排序、裁剪、淡入淡出、配乐、字幕和转码", iconSrc: "/icons/1.png", data: { title: "Video Edit", editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" } },
-  { id: "motion-compose", type: "motion", cat: "Video", title: "Codex + HyperFrames", desc: "Describe the edit in natural language; Codex builds and renders the HyperFrames composition", iconSrc: "/icons/1.png", data: { title: "Motion* Codex + HyperFrames", prompt: "", motionMode: "codex-hyperframes", compositionJson: motionCompositionToJson(defaultMotionComposition("HyperFrames Composition")) } },
-  { id: "gpt-image-2-tokenstar", type: "image", cat: "Image", title: "GPT Image 2 (TokenStar)", desc: "TokenStar GPT Image 2 text/image generation", iconSrc: "/icons/2.png", data: { title: "GPT Image 2 (TokenStar)", model: "gpt-image-2(tokenstar)", size: "2048x2048" } },
-  ...Object.entries(imagePromptPresets).map(([id, preset]) => ({
-    id: `gpt-image-2-tokenstar-${id}`,
-    type: "image",
-    cat: "Image",
-    title: preset.label,
-    desc: `TokenStar GPT Image 2 · ${preset.desc}`,
-    iconSrc: "/icons/2.png",
-    data: { title: preset.label, model: "gpt-image-2(tokenstar)", imagePromptPreset: id, size: preset.size, prompt: "" },
-  })),
-  { id: "nano-banana-tokenstar", type: "image", cat: "Image", title: "Nano Banana (TokenStar)", desc: "TokenStar Nano Banana image generation/editing", iconSrc: "/icons/2.png", data: { title: "Nano Banana (TokenStar)", model: "nano banana(tokenstar)", size: "1024x1024" } },
-  { id: "upload-image", type: "upload_image", cat: "Image", title: t.uploadImage, desc: t.toolDescUploadImage, iconSrc: "/icons/normal.png" },
-  { id: "upload-audio", type: "upload_audio", cat: "Audio", title: "Upload Audio", desc: "Use a local audio file as BGM or reference audio", iconSrc: "/icons/3.png" },
-  { id: "audio-gen", type: "audio", cat: "Audio", title: t.nodeNames["audio"], desc: t.toolDescAudio, iconSrc: "/icons/3.png" },
-  { id: "hkgai-music", type: "musicGeneration", cat: "Audio", title: "HKGAI Music", desc: "Use tags and song sections to generate a WAV music track", iconSrc: "/icons/3.png", data: { title: "Audio* HKGAI Music", musicName: "mindverse_track", musicTags: "cinematic, warm, mid tempo, instrumental", prompt: "[intro];[verse] A gentle theme begins;[chorus] The melody opens into a memorable hook;[outro];" } },
-  { id: "hkgai-tts", type: "hkgaiTTS", cat: "Audio", title: "HKGAI TTS", desc: "Generate speech with a built-in voice or an uploaded reference voice", iconSrc: "/icons/3.png", data: { title: "Audio* HKGAI TTS", voice: "Mandarin_治愈女声", language: "auto", ttsInstructions: "温柔、自然、像在聊天", xVectorOnly: true, consentConfirmed: false } },
-  { id: "voice-clone", type: "voiceClone", cat: "Audio", title: t.nodeNames["voiceClone"] || "Voice Clone", desc: "Clone an authorized reference voice with QwenCloud", iconSrc: "/icons/3.png" },
-  { id: "voice-tts", type: "voiceTTS", cat: "Audio", title: t.nodeNames["voiceTTS"] || "Cloned Voice TTS", desc: "Generate audio from text using a cloned voice", iconSrc: "/icons/3.png" },
-  { id: "text", type: "text", cat: "Text", title: t.nodeNames["text"] || "Text", desc: t.toolDescText, iconSrc: "/icons/4.png" },
-  { id: "prompt", type: "prompt", cat: "Text", title: t.nodeNames["prompt"], desc: t.toolDescPrompt, iconSrc: "/icons/4.png" },
-  { id: "script", type: "script", cat: "Storyboard", title: t.nodeNames["script"], desc: t.toolDescScript, iconSrc: "/icons/5.png" },
-  { id: "storyboard", type: "storyboard", cat: "Storyboard", title: t.nodeNames["storyboard"], desc: t.toolDescStoryboard, iconSrc: "/icons/5.png" },
-  { id: "reference", type: "reference", cat: "Image", title: t.nodeNames["reference"], desc: t.toolDescReference, iconSrc: "/icons/normal.png" },
-  { id: "output", type: "output", cat: "Text", title: t.nodeNames["output"], desc: t.toolDescOutput, iconSrc: "/icons/4.png" },
+const menuCopy = {
+  en: {
+    categories: { Upload: "Upload", Text: "Text", Image: "Image", Video: "Video", Audio: "Audio", Story: "Story" },
+    tools: {
+      "prompt-enhancer": ["Prompt Enhancer", "Turn simple ideas into detailed, generation-ready prompts."], "image-to-prompt": ["Image to Prompt", "Turn a reference image into a detailed generation prompt."], "upload-image": ["Upload Image", "Use a local image file in your canvas."], "image-generation": ["Image Generation", "Create images from text prompts or reference images."], "specialized-image-tools": ["Specialized Image Tools", "Create consistent character, scene, and spatial reference images."], "upload-video": ["Upload Video", "Use a local video file in your canvas."], "video-generation": ["Video Generation", "Create videos from text, images, or audio."], "video-edit": ["Video Edit", "Visual sequencing, trimming, transitions, music, subtitles, and transcoding."], "extract-frames": ["Extract Frames", "Connect a video and extract the current or final frame."], "upload-audio": ["Upload Audio", "Use a local audio file as BGM or reference audio."], "voice-cloning": ["Voice Cloning", "Create a voice from authorized audio."], "text-to-speech": ["Text-to-Speech", "Convert text into natural-sounding speech."], "music-generation": ["Music Generation", "Create music from styles, tags, and song sections."], "story-generator": ["Story Generator", "Develop an original story and script from a creative idea."], "storyboard-generator": ["Storyboard Generator", "Turn a script into structured shots with visual and motion directions."],
+    },
+  },
+  "zh-Hans": {
+    categories: { Upload: "上传", Text: "文本", Image: "图像", Video: "视频", Audio: "音频", Story: "故事创作" },
+    tools: {
+      "prompt-enhancer": ["提示词增强", "将简单想法扩展为可直接生成的详细提示词。"], "image-to-prompt": ["图片转提示词", "将参考图片转换为详细的生成提示词。"], "upload-image": ["上传图片", "将本地图片文件添加到画布。"], "image-generation": ["图像生成", "根据文本提示词或参考图片生成图像。"], "specialized-image-tools": ["专业图像工具", "创建角色、场景和空间的一致性参考图。"], "upload-video": ["上传视频", "将本地视频文件添加到画布。"], "video-generation": ["视频生成", "根据文本、图像或音频生成视频。"], "video-edit": ["视频编辑", "进行片段排序、裁剪、转场、音乐、字幕和转码。"], "extract-frames": ["提取帧", "连接视频并提取当前帧或最后一帧。"], "upload-audio": ["上传音频", "上传本地音频作为背景音乐或参考音频。"], "voice-cloning": ["声音克隆", "使用已获授权的音频创建声音。"], "text-to-speech": ["文本转语音", "将文本转换为自然流畅的语音。"], "music-generation": ["音乐生成", "根据风格、标签和歌曲段落创作音乐。"], "story-generator": ["故事生成器", "根据创意构思原创故事和剧本。"], "storyboard-generator": ["分镜生成器", "将剧本转换为包含画面与运动指引的结构化镜头。"],
+    },
+  },
+  "zh-Hant": {
+    categories: { Upload: "上傳", Text: "文字", Image: "圖像", Video: "影片", Audio: "音訊", Story: "故事創作" },
+    tools: {
+      "prompt-enhancer": ["提示詞增強", "將簡單想法擴展為可直接生成的詳細提示詞。"], "image-to-prompt": ["圖片轉提示詞", "將參考圖片轉換為詳細的生成提示詞。"], "upload-image": ["上傳圖片", "將本機圖片檔案加入畫布。"], "image-generation": ["圖像生成", "根據文字提示詞或參考圖片生成圖像。"], "specialized-image-tools": ["專業圖像工具", "建立角色、場景與空間的一致性參考圖。"], "upload-video": ["上傳影片", "將本機影片檔案加入畫布。"], "video-generation": ["影片生成", "根據文字、圖像或音訊生成影片。"], "video-edit": ["影片編輯", "進行片段排序、裁剪、轉場、音樂、字幕與轉碼。"], "extract-frames": ["擷取影格", "連接影片並擷取目前影格或最後一格。"], "upload-audio": ["上傳音訊", "上傳本機音訊作為背景音樂或參考音訊。"], "voice-cloning": ["聲音複製", "使用已獲授權的音訊建立聲音。"], "text-to-speech": ["文字轉語音", "將文字轉換為自然流暢的語音。"], "music-generation": ["音樂生成", "根據風格、標籤與歌曲段落創作音樂。"], "story-generator": ["故事生成器", "根據創意構思原創故事與劇本。"], "storyboard-generator": ["分鏡生成器", "將劇本轉換為包含畫面與運動指引的結構化鏡頭。"],
+    },
+  },
+  ko: {
+    categories: { Upload: "업로드", Text: "텍스트", Image: "이미지", Video: "비디오", Audio: "오디오", Story: "스토리 개발" },
+    tools: {
+      "prompt-enhancer": ["프롬프트 향상", "간단한 아이디어를 생성 준비가 된 상세 프롬프트로 확장합니다."], "image-to-prompt": ["이미지를 프롬프트로", "참조 이미지를 상세 생성 프롬프트로 변환합니다."], "upload-image": ["이미지 업로드", "로컬 이미지 파일을 캔버스에 추가합니다."], "image-generation": ["이미지 생성", "텍스트 프롬프트나 참조 이미지로 이미지를 만듭니다."], "specialized-image-tools": ["전문 이미지 도구", "일관된 캐릭터, 장면, 공간 참조 이미지를 만듭니다."], "upload-video": ["비디오 업로드", "로컬 비디오 파일을 캔버스에 추가합니다."], "video-generation": ["비디오 생성", "텍스트, 이미지 또는 오디오로 비디오를 만듭니다."], "video-edit": ["비디오 편집", "클립 순서, 자르기, 전환, 음악, 자막 및 트랜스코딩을 설정합니다."], "extract-frames": ["프레임 추출", "비디오를 연결해 현재 또는 마지막 프레임을 추출합니다."], "upload-audio": ["오디오 업로드", "로컬 오디오를 배경 음악이나 참조 오디오로 사용합니다."], "voice-cloning": ["음성 복제", "권한이 있는 오디오로 음성을 만듭니다."], "text-to-speech": ["텍스트 음성 변환", "텍스트를 자연스러운 음성으로 변환합니다."], "music-generation": ["음악 생성", "스타일, 태그 및 곡 구간으로 음악을 만듭니다."], "story-generator": ["스토리 생성기", "창의적인 아이디어로 독창적인 이야기와 대본을 개발합니다."], "storyboard-generator": ["스토리보드 생성기", "대본을 시각 및 동작 지시가 있는 구조화된 샷으로 변환합니다."],
+    },
+  },
+  th: {
+    categories: { Upload: "อัปโหลด", Text: "ข้อความ", Image: "รูปภาพ", Video: "วิดีโอ", Audio: "เสียง", Story: "พัฒนาเรื่องราว" },
+    tools: {
+      "prompt-enhancer": ["ปรับปรุงพรอมต์", "เปลี่ยนไอเดียง่าย ๆ ให้เป็นพรอมต์ละเอียดพร้อมสร้าง"], "image-to-prompt": ["รูปภาพเป็นพรอมต์", "เปลี่ยนรูปภาพอ้างอิงให้เป็นพรอมต์การสร้างแบบละเอียด"], "upload-image": ["อัปโหลดรูปภาพ", "เพิ่มไฟล์รูปภาพจากเครื่องลงในแคนวาส"], "image-generation": ["สร้างรูปภาพ", "สร้างรูปภาพจากพรอมต์ข้อความหรือรูปภาพอ้างอิง"], "specialized-image-tools": ["เครื่องมือรูปภาพเฉพาะทาง", "สร้างภาพอ้างอิงตัวละคร ฉาก และพื้นที่ให้สอดคล้องกัน"], "upload-video": ["อัปโหลดวิดีโอ", "เพิ่มไฟล์วิดีโอจากเครื่องลงในแคนวาส"], "video-generation": ["สร้างวิดีโอ", "สร้างวิดีโอจากข้อความ รูปภาพ หรือเสียง"], "video-edit": ["ตัดต่อวิดีโอ", "จัดลำดับ ตัดแต่ง ใส่ทรานซิชัน เพลง คำบรรยาย และแปลงไฟล์"], "extract-frames": ["แยกเฟรม", "เชื่อมต่อวิดีโอแล้วแยกเฟรมปัจจุบันหรือเฟรมสุดท้าย"], "upload-audio": ["อัปโหลดเสียง", "ใช้ไฟล์เสียงจากเครื่องเป็นเพลงพื้นหลังหรือเสียงอ้างอิง"], "voice-cloning": ["โคลนเสียง", "สร้างเสียงจากไฟล์เสียงที่ได้รับอนุญาต"], "text-to-speech": ["ข้อความเป็นเสียงพูด", "เปลี่ยนข้อความเป็นเสียงพูดที่เป็นธรรมชาติ"], "music-generation": ["สร้างเพลง", "สร้างเพลงจากสไตล์ แท็ก และส่วนต่าง ๆ ของเพลง"], "story-generator": ["เครื่องมือสร้างเรื่องราว", "พัฒนาเรื่องและบทต้นฉบับจากไอเดียสร้างสรรค์"], "storyboard-generator": ["เครื่องมือสร้างสตอรี่บอร์ด", "เปลี่ยนบทเป็นช็อตแบบมีโครงสร้างพร้อมคำสั่งภาพและการเคลื่อนไหว"],
+    },
+  },
+  km: {
+    categories: { Upload: "ផ្ទុកឡើង", Text: "អត្ថបទ", Image: "រូបភាព", Video: "វីដេអូ", Audio: "សំឡេង", Story: "អភិវឌ្ឍរឿង" },
+    tools: {
+      "prompt-enhancer": ["កែលម្អពាក្យបញ្ជា", "បម្លែងគំនិតសាមញ្ញទៅជាពាក្យបញ្ជាលម្អិតដែលត្រៀមសម្រាប់បង្កើត។"], "image-to-prompt": ["រូបភាពទៅពាក្យបញ្ជា", "បម្លែងរូបភាពយោងទៅជាពាក្យបញ្ជាបង្កើតលម្អិត។"], "upload-image": ["ផ្ទុករូបភាពឡើង", "បន្ថែមឯកសាររូបភាពក្នុងម៉ាស៊ីនទៅផ្ទាំងក្រណាត់។"], "image-generation": ["បង្កើតរូបភាព", "បង្កើតរូបភាពពីពាក្យបញ្ជាអត្ថបទ ឬរូបភាពយោង។"], "specialized-image-tools": ["ឧបករណ៍រូបភាពឯកទេស", "បង្កើតរូបភាពយោងតួអង្គ ឈុតឆាក និងលំហដែលមានសង្គតិភាព។"], "upload-video": ["ផ្ទុកវីដេអូឡើង", "បន្ថែមឯកសារវីដេអូក្នុងម៉ាស៊ីនទៅផ្ទាំងក្រណាត់។"], "video-generation": ["បង្កើតវីដេអូ", "បង្កើតវីដេអូពីអត្ថបទ រូបភាព ឬសំឡេង។"], "video-edit": ["កែសម្រួលវីដេអូ", "រៀបលំដាប់ កាត់ត បន្ថែមការផ្លាស់ប្តូរ តន្ត្រី ចំណងជើងរង និងបម្លែងទ្រង់ទ្រាយ។"], "extract-frames": ["ស្រង់ហ្វ្រេម", "ភ្ជាប់វីដេអូ ហើយស្រង់ហ្វ្រេមបច្ចុប្បន្ន ឬចុងក្រោយ។"], "upload-audio": ["ផ្ទុកសំឡេងឡើង", "ប្រើឯកសារសំឡេងក្នុងម៉ាស៊ីនជាតន្ត្រីផ្ទៃក្រោយ ឬសំឡេងយោង។"], "voice-cloning": ["ចម្លងសំឡេង", "បង្កើតសំឡេងពីអូឌីយ៉ូដែលមានការអនុញ្ញាត។"], "text-to-speech": ["អត្ថបទទៅជាសំឡេង", "បម្លែងអត្ថបទទៅជាសំឡេងធម្មជាតិ។"], "music-generation": ["បង្កើតតន្ត្រី", "បង្កើតតន្ត្រីពីរចនាប័ទ្ម ស្លាក និងផ្នែកបទចម្រៀង។"], "story-generator": ["កម្មវិធីបង្កើតរឿង", "អភិវឌ្ឍរឿងដើម និងស្គ្រីបពីគំនិតច្នៃប្រឌិត។"], "storyboard-generator": ["កម្មវិធីបង្កើតស្តូរីបត", "បម្លែងស្គ្រីបទៅជាឈុតដែលមានរចនាសម្ព័ន្ធ និងការណែនាំរូបភាពនិងចលនា។"],
+    },
+  },
+} as const;
+
+const getTools = () => [
+  { id: "prompt-enhancer", type: "prompt", cat: "Text", title: "Prompt Enhancer", desc: "Turn simple ideas into detailed, generation-ready prompts.", iconSrc: "/icons/4.png", data: { title: "Text* Prompt Enhancer" } },
+  { id: "image-to-prompt", type: "text", cat: "Text", title: "Image to Prompt", desc: "Turn a reference image into a detailed generation prompt.", iconSrc: "/icons/4.png", data: { title: "Text* Image to Prompt", instruction: "Analyze the connected reference image and write a detailed generation prompt." } },
+  { id: "upload-image", type: "upload_image", cat: "Upload", title: "Upload Image", desc: "Use a local image file in your canvas.", iconSrc: "/icons/normal.png" },
+  { id: "image-generation", type: "image", cat: "Image", title: "Image Generation", desc: "Create images from text prompts or reference images.", iconSrc: "/icons/2.png", data: { title: "Image* Image Generation", imageGenerationMode: "generation" as const, model: "gpt-image-2(tokenstar)", size: "2048x2048" } },
+  { id: "specialized-image-tools", type: "image", cat: "Image", title: "Specialized Image Tools", desc: "Create consistent character, scene, and spatial reference images.", iconSrc: "/icons/2.png", data: { title: "Image* Specialized Image Tools", imageGenerationMode: "specialized" as const, imagePromptPreset: "character-turnaround" as const, model: "gpt-image-2(tokenstar)", size: "2048x2048", prompt: "" } },
+  { id: "upload-video", type: "upload_video", cat: "Upload", title: "Upload Video", desc: "Use a local video file in your canvas.", iconSrc: "/icons/1.png" },
+  { id: "video-generation", type: "video", cat: "Video", title: "Video Generation", desc: "Create videos from text, images, or audio.", iconSrc: "/icons/1.png", data: { title: "Video* Video Generation", videoGenerationMode: "general" as const, ...videoModelPatch(DEFAULT_VIDEO_MODEL_PRESET_ID) } },
+  { id: "video-edit", type: "videoEdit", cat: "Video", title: "Video Edit", desc: "Visual sequencing, trimming, transitions, music, subtitles, and transcoding.", iconSrc: "/icons/1.png", data: { title: "Video* Video Edit", videoEditMode: "quick" as const, editPlan: "", preserveAudio: true, originalVolume: 1, backgroundVolume: 0.2, fadeIn: 0, fadeOut: 0, transition: "none", resolution: "720p", fps: "30", aspectRatio: "16:9" } },
+  { id: "extract-frames", type: "videoFrame", cat: "Video", title: "Extract Frames", desc: "Connect a video and extract the current or final frame.", iconSrc: "/icons/1.png", data: { title: "Video* Extract Frames", frameMode: "last" as const } },
+  { id: "upload-audio", type: "upload_audio", cat: "Upload", title: "Upload Audio", desc: "Use a local audio file as BGM or reference audio", iconSrc: "/icons/3.png" },
+  { id: "voice-cloning", type: "voiceClone", cat: "Audio", title: "Voice Cloning", desc: "Create a voice from authorized audio.", iconSrc: "/icons/3.png", data: { title: "Audio* Voice Cloning" } },
+  { id: "text-to-speech", type: "audio", cat: "Audio", title: "Text-to-Speech", desc: "Convert text into natural-sounding speech.", iconSrc: "/icons/3.png", data: { title: "Audio* Text-to-Speech", ttsMode: "quick" as const, prompt: "", model: "TTS" } },
+  { id: "music-generation", type: "musicGeneration", cat: "Audio", title: "Music Generation", desc: "Create music from styles, tags, and song sections.", iconSrc: "/icons/3.png", data: { title: "Audio* Music Generation", musicName: "mindverse_track", musicTags: "cinematic, warm, mid tempo, instrumental", prompt: "[intro];[verse] A gentle theme begins;[chorus] The melody opens into a memorable hook;[outro];" } },
+  { id: "story-generator", type: "script", cat: "Story", title: "Story Generator", desc: "Develop an original story and script from a creative idea.", iconSrc: "/icons/5.png", data: { title: "Story* Story Generator" } },
+  { id: "storyboard-generator", type: "storyboard", cat: "Story", title: "Storyboard Generator", desc: "Turn a script into structured shots with visual and motion directions.", iconSrc: "/icons/5.png", data: { title: "Story* Storyboard Generator" } },
 ];
 
 export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
-  const { t } = useLang();
+  const { lang, t } = useLang();
+  const localized = menuCopy[lang];
   const [activeCat, setActiveCat] = useState("Video");
   const [search, setSearch] = useState("");
   const [keepOpen, setKeepOpen] = useState(false);
@@ -65,13 +83,15 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
   const videoFileRef = useRef<HTMLInputElement>(null);
   const audioFileRef = useRef<HTMLInputElement>(null);
 
-  const allTools = useMemo(() => getTools(t), [t]);
+  const allTools = useMemo(() => getTools(), []);
 
   const filtered = useMemo(() => {
-    if (search.trim()) return allTools.filter(tool => tool.title.toLowerCase().includes(search.toLowerCase()) || tool.desc.toLowerCase().includes(search.toLowerCase()));
-    if (activeCat === "New nodes" || activeCat === "Recently used") return allTools.slice(0, 6); // Mock
+    if (search.trim()) return allTools.filter(tool => {
+      const copy = localized.tools[tool.id as keyof typeof localized.tools];
+      return `${copy?.[0] || tool.title} ${copy?.[1] || tool.desc}`.toLowerCase().includes(search.toLowerCase());
+    });
     return allTools.filter(tool => tool.cat === activeCat);
-  }, [activeCat, search, allTools]);
+  }, [activeCat, search, allTools, localized]);
 
   const handleToolClick = (tool: ReturnType<typeof getTools>[0]) => {
     if (tool.type === "upload_image") {
@@ -105,7 +125,7 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
           setGhostMedia(url);
         } catch (error) {
           console.error("Local image archive failed", error);
-          useCanvasStore.setState({ lastError: "图片归档失败，未写入画布。请检查 Bunny Storage 配置后重试。" });
+          useCanvasStore.setState({ lastError: "Image archiving failed, so it was not added to the canvas. Check the Bunny Storage configuration and try again." });
         }
       })();
     });
@@ -206,7 +226,6 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
         {/* Left Categories */}
         <div className="w-40 shrink-0 overflow-y-auto py-2">
           {ALL_CATEGORIES.map(c => {
-            const catMap: Record<string, string> = { "New nodes": t.menuCategoryNew, "Recently used": t.menuCategoryRecent, "Video": t.menuCategoryVideo, "Image": t.menuCategoryImage, "Audio": t.menuCategoryAudio, "Text": t.menuCategoryText, "Storyboard": t.menuCategoryStoryboard };
             return (
               <button key={c} onClick={() => { setActiveCat(c); setSearch(""); }}
                 className={`flex w-full items-center px-4 py-2 text-xs font-semibold ${
@@ -214,7 +233,7 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
                 }`}
               >
                 {activeCat === c && <div className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 bg-[#030303] dark:bg-cyan-400"/>}
-                {catMap[c] || c}
+                {localized.categories[c]}
               </button>
             )
           })}
@@ -224,20 +243,22 @@ export function AddNodeMenu({ x, y, onClose }: { x: number; y: number; onClose: 
         <div className="flex-1 overflow-y-auto bg-white p-3 dark:bg-[#101c29]">
           {filtered.length === 0 && <p className="mt-10 text-center text-xs text-slate-400">{t.menuNoResults}</p>}
           <div className="space-y-2">
-            {filtered.map(tool => (
+            {filtered.map(tool => {
+              const display = localized.tools[tool.id as keyof typeof localized.tools];
+              return (
               <button key={tool.id} onClick={() => handleToolClick(tool)} className="flex w-full items-center gap-3 rounded-xl border border-[#e7eaf0] p-2.5 text-left transition hover:border-[#c9ccd1] hover:shadow-sm dark:border-slate-700 dark:hover:border-slate-500">
                 <div className="shrink-0 overflow-hidden rounded-lg">
                   <img src={tool.iconSrc} alt="" className="h-10 w-10 object-cover" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="truncate text-xs font-bold text-[#030303] dark:text-slate-100">{tool.title}</p>
-                  <p className="truncate text-[10px] text-[#676f7b] dark:text-slate-500">{tool.desc}</p>
+                  <p className="truncate text-xs font-bold text-[#030303] dark:text-slate-100">{display?.[0] || tool.title}</p>
+                  <p className="truncate text-[10px] text-[#676f7b] dark:text-slate-500">{display?.[1] || tool.desc}</p>
                 </div>
                 <svg width="8" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#c9ccd1] dark:text-slate-600">
                   <polyline points="9 18 15 12 9 6"/>
                 </svg>
               </button>
-            ))}
+            )})}
           </div>
         </div>
       </div>

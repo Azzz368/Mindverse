@@ -12,6 +12,7 @@ const dataUrlPattern = /^data:([^;,]+);base64,(.+)$/i;
 const mediaFields: Array<{ key: string; originalKey?: string; mediaType: MediaType | "hint" }> = [
   { key: "imageUrl", originalKey: "originalImageUrl", mediaType: "image" },
   { key: "revisedImageUrl", originalKey: "originalImageUrl", mediaType: "image" },
+  { key: "lastFrameUrl", originalKey: "originalLastFrameUrl", mediaType: "image" },
   { key: "videoUrl", originalKey: "originalVideoUrl", mediaType: "video" },
   { key: "finalVideoUrl", originalKey: "originalVideoUrl", mediaType: "video" },
   { key: "audioUrl", originalKey: "originalAudioUrl", mediaType: "audio" },

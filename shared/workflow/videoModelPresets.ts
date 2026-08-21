@@ -11,13 +11,14 @@ export type VideoModelPresetId =
   | "kling-v3-text-tokenstar"
   | "minimax-h3-hkgai"
   | "minimax-ref2va-hkgai"
-  | "sora-2";
+  | "sora-2"
+  | "talkingdata-yunzhu81";
 
 export const DEFAULT_VIDEO_MODEL_PRESET_ID: VideoModelPresetId = "seedance-asset-fast";
 
 export type VideoModelPatch = {
   videoModelPreset: VideoModelPresetId;
-  videoProvider: "302ai" | "302-sora2" | "tokenstar" | "kling" | "hkgai" | "volcengine";
+  videoProvider: "302ai" | "302-sora2" | "tokenstar" | "kling" | "hkgai" | "volcengine" | "talkingdata";
   model: string;
   videoInputMode?: "text-to-video" | "image-to-video";
   tokenstarMode?: "text-to-video" | "asset-video" | "kling-image" | "kling-text" | "kling-omni";
@@ -27,7 +28,7 @@ export type VideoModelPatch = {
   generateAudio?: boolean;
 };
 
-export type VideoAspectRatio = "16:9" | "9:16" | "1:1";
+export type VideoAspectRatio = "16:9" | "4:3" | "1:1" | "3:4" | "9:16" | "21:9" | "adaptive";
 export type VideoAspectRatioControl = "native" | "source";
 
 export type VideoInputPortKind = "text" | "image" | "video" | "audio";
@@ -88,8 +89,8 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
   },
   "digital-human-video": {
     id: "digital-human-video",
-    label: "数字人视频",
-    desc: "人物图与音频生成口型同步视频",
+    label: "Digital Human Video",
+    desc: "Generate a lip-synced video from a character image and audio",
     patch: { videoModelPreset: "digital-human-video", videoProvider: "tokenstar", model: "seedance-2.0-asset-fast", tokenstarMode: "asset-video", videoInputMode: "image-to-video", duration: 5, resolution: "720p", generateAudio: false },
     inputPorts: [imagePort, audioPort],
     aspectRatios: ["9:16", "16:9", "1:1"],
@@ -121,7 +122,7 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     label: "Kling v2.6",
     desc: "Official Kling image-to-video",
     patch: { videoModelPreset: "kling-v2.6", videoProvider: "kling", model: "kling-v2-6", videoInputMode: "image-to-video", klingMode: "image-to-video", duration: 5, resolution: "720p" },
-    inputPorts: [textPort, imagePort],
+    inputPorts: [textPort, imagePort, videoPort, audioPort],
     aspectRatios: ["16:9", "9:16", "1:1"],
     aspectRatioControl: "source",
   },
@@ -161,7 +162,7 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     aspectRatios: ["16:9", "9:16", "1:1"],
     aspectRatioControl: "native",
     promptMaxLength: 7000,
-    referenceLimits: { image: 2, video: 0, audio: 0 },
+    referenceLimits: { image: 1, video: 0, audio: 0 },
   },
   "minimax-ref2va-hkgai": {
     id: "minimax-ref2va-hkgai",
@@ -182,6 +183,17 @@ export const videoModelPresets: Record<VideoModelPresetId, VideoModelPreset> = {
     inputPorts: [textPort, imagePort],
     aspectRatios: ["16:9", "9:16"],
     aspectRatioControl: "source",
+  },
+  "talkingdata-yunzhu81": {
+    id: "talkingdata-yunzhu81",
+    label: "TalkingData Yunzhu 81 (Seedance-2.5)",
+    desc: "TalkingData official full model · text/image-to-video · 480p/720p/1080p",
+    patch: { videoModelPreset: "talkingdata-yunzhu81", videoProvider: "talkingdata", model: "T0601002", videoInputMode: "image-to-video", duration: 5, resolution: "720p", generateAudio: false },
+    inputPorts: [textPort, imagePort],
+    aspectRatios: ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"],
+    aspectRatioControl: "native",
+    durationOptions: [-1, ...Array.from({ length: 27 }, (_, index) => index + 4)],
+    referenceLimits: { image: 30, video: 10, audio: 10 },
   },
 };
 
@@ -249,6 +261,7 @@ export const videoModelPresetIdFromData = (data: {
 }): VideoModelPresetId => {
   if (data.videoModelPreset && data.videoModelPreset in videoModelPresets) return data.videoModelPreset as VideoModelPresetId;
   if (data.videoProvider === "302-sora2") return "sora-2";
+  if (data.videoProvider === "talkingdata") return "talkingdata-yunzhu81";
   if (data.videoProvider === "hkgai" && data.model === "t2_minimax-h3_bf16_ref2va") return "minimax-ref2va-hkgai";
   if (data.videoProvider === "hkgai" && data.model === "t2_minimax-h3_bf16_7k2p") return "minimax-h3-hkgai";
   if (data.videoProvider === "volcengine" && data.model === "jimeng_realman_avatar_picture_omni_v15") return "omnihuman-1.5-volcengine";

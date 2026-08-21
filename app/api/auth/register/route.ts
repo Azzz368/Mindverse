@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     response.cookies.set(cookie.name, cookie.value, cookie.options);
     return response;
   } catch (error) {
-    const failure = authErrorResponse(error, "注册失败。");
+    const failure = authErrorResponse(error, "Registration failed.");
     return NextResponse.json(failure.body, { status: failure.status });
   }
 }

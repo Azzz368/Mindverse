@@ -21,7 +21,7 @@ function buildFields(t: Strings): Record<string, Field[]> {
     text: [{ key: "title", label: t.fieldTitle }, { key: "instruction", label: t.fieldInstruction, kind: "textarea" }, { key: "inputText", label: t.fieldInputText, kind: "textarea" }, { key: "temperature", label: t.fieldTemperature, kind: "number" }],
     script: [{ key: "title", label: t.fieldTitle }, { key: "storyBrief", label: t.fieldCreativeBrief, kind: "textarea" }, { key: "scriptTone", label: t.fieldTone }, { key: "numberOfScenes", label: t.fieldSceneCount, kind: "number" }],
     image: [{ key: "title", label: t.fieldTitle }, { key: "prompt", label: t.fieldImagePrompt, kind: "textarea" }, { key: "model", label: t.fieldModelNote, kind: "select", options: ["gpt-image-2(tokenstar)", "nano banana(tokenstar)"] }, { key: "aspectRatio", label: t.fieldAspectRatio, kind: "select", options: ["16:9", "21:9", "9:16", "3:2", "1:1"] }, { key: "resolution", label: t.fieldResolution, kind: "select", options: ["1K", "2K", "4K"] }, { key: "size", label: t.fieldSize, kind: "select", options: ["1024x1024", "1536x1024", "1024x1536", "2048x2048", "auto"] }],
-    video: [{ key: "title", label: t.fieldTitle }, { key: "videoProvider", label: t.fieldVideoProvider, kind: "select", options: ["kling", "302ai", "tokenstar", "hkgai"] }, { key: "prompt", label: t.fieldMotionPrompt, kind: "textarea" }, { key: "referenceImageUrl", label: t.fieldFirstFrameUrl }, { key: "model", label: t.fieldModelKlingNote }, { key: "klingMode", label: t.fieldKlingMode, kind: "select", options: ["image-to-video", "reference-image", "text-to-video", "omni"] }, { key: "klingElementId", label: t.fieldKlingElementId }, { key: "referenceVideoUrl", label: t.fieldReferenceVideoUrl }, { key: "tokenstarMode", label: t.fieldTokenstarMode, kind: "select", options: ["text-to-video", "asset-video", "kling-image", "kling-text", "kling-omni"] }, { key: "referenceImageAssetUrl", label: t.fieldImageAssetUrl, kind: "textarea" }, { key: "referenceVideoAssetUrl", label: t.fieldVideoAssetUrl, kind: "textarea" }, { key: "referenceAudioAssetUrl", label: t.fieldAudioAssetUrl, kind: "textarea" }, { key: "videoInputMode", label: t.field302Mode, kind: "select", options: ["text-to-video", "image-to-video"] }, { key: "duration", label: t.fieldDuration, kind: "number" }, { key: "resolution", label: t.fieldResolution }, { key: "fps", label: t.fieldFps }, { key: "aspectRatio", label: t.fieldAspectRatio, kind: "select", options: ["16:9", "9:16", "1:1"] }, { key: "generateAudio", label: t.fieldGenerateAudio, kind: "select", options: ["true", "false"] }],
+    video: [{ key: "title", label: t.fieldTitle }, { key: "videoProvider", label: t.fieldVideoProvider, kind: "select", options: ["kling", "302ai", "tokenstar", "hkgai", "talkingdata"] }, { key: "prompt", label: t.fieldMotionPrompt, kind: "textarea" }, { key: "referenceImageUrl", label: t.fieldFirstFrameUrl }, { key: "model", label: t.fieldModelKlingNote }, { key: "klingMode", label: t.fieldKlingMode, kind: "select", options: ["image-to-video", "reference-image", "text-to-video", "omni"] }, { key: "klingElementId", label: t.fieldKlingElementId }, { key: "referenceVideoUrl", label: t.fieldReferenceVideoUrl }, { key: "tokenstarMode", label: t.fieldTokenstarMode, kind: "select", options: ["text-to-video", "asset-video", "kling-image", "kling-text", "kling-omni"] }, { key: "referenceImageAssetUrl", label: t.fieldImageAssetUrl, kind: "textarea" }, { key: "referenceVideoAssetUrl", label: t.fieldVideoAssetUrl, kind: "textarea" }, { key: "referenceAudioAssetUrl", label: t.fieldAudioAssetUrl, kind: "textarea" }, { key: "videoInputMode", label: t.field302Mode, kind: "select", options: ["text-to-video", "image-to-video"] }, { key: "duration", label: t.fieldDuration, kind: "number" }, { key: "resolution", label: t.fieldResolution }, { key: "fps", label: t.fieldFps }, { key: "aspectRatio", label: t.fieldAspectRatio, kind: "select", options: ["16:9", "9:16", "1:1"] }, { key: "generateAudio", label: t.fieldGenerateAudio, kind: "select", options: ["true", "false"] }],
     videoEdit: [{ key: "title", label: t.fieldTitle }, { key: "editPlan", label: "Agent edit plan JSON (advanced)", kind: "textarea" }, { key: "prompt", label: "Natural-language edit notes", kind: "textarea" }, { key: "preserveAudio", label: "Preserve audio", kind: "select", options: ["true", "false"] }, { key: "originalVolume", label: "Original volume", kind: "number" }, { key: "backgroundVolume", label: "BGM volume", kind: "number" }, { key: "resolution", label: t.fieldResolution, kind: "select", options: ["480p", "720p", "1080p"] }, { key: "fps", label: t.fieldFps }, { key: "aspectRatio", label: t.fieldAspectRatio, kind: "select", options: ["16:9", "9:16", "1:1"] }],
     motion: [{ key: "prompt", label: "Prompt", kind: "textarea" }],
     audio: [{ key: "title", label: t.fieldTitle }, { key: "prompt", label: t.fieldAudioPrompt, kind: "textarea" }, { key: "model", label: t.fieldModel }, { key: "voice", label: t.fieldVoice }, { key: "emotion", label: t.fieldEmotion }, { key: "volume", label: t.fieldVolume, kind: "number" }, { key: "duration", label: t.fieldDurationSec, kind: "number" }],
@@ -40,7 +40,7 @@ const text = (value: unknown) => typeof value === "string" ? value : "";
 function GenerationBadge({ value }: { value: unknown }) {
   const details = record(value);
   const label = [text(details.provider).toUpperCase(), text(details.model)].filter(Boolean).join(" · ");
-  return label ? <p title={label} className="mt-2 truncate text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-300">真实调用：{label}</p> : null;
+  return label ? <p title={label} className="mt-2 truncate text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-300">Provider call: {label}</p> : null;
 }
 
 function ScriptOutputPreview({ value }: { value: unknown }) {
@@ -79,12 +79,12 @@ function StoryboardOutputPreview({ value }: { value: unknown }) {
   return (
     <div className="mt-3 space-y-2">
       <GenerationBadge value={value} />
-      <p className={`text-xs font-semibold ${scenes.length < requested ? "text-amber-600 dark:text-amber-300" : "text-[#404040] dark:text-slate-300"}`}>已生成 {scenes.length}/{requested} 个分镜</p>
+      <p className={`text-xs font-semibold ${scenes.length < requested ? "text-amber-600 dark:text-amber-300" : "text-[#404040] dark:text-slate-300"}`}>Generated {scenes.length}/{requested} storyboard scenes</p>
       {scenes.map((scene, index) => (
         <div key={`${String(scene.sceneNumber || index + 1)}-${index}`} className="rounded-lg border border-[#e7eaf0] bg-[#f7f9fc] p-3 dark:border-slate-800 dark:bg-slate-900/40">
           <p className="text-xs font-semibold text-[#030303] dark:text-slate-100">Scene {String(scene.sceneNumber || index + 1)}</p>
           <p className="mt-1 text-xs leading-5 text-[#404040] dark:text-slate-300">{text(scene.description) || text(scene.visualPrompt)}</p>
-          {text(scene.camera) && <p className="mt-1 text-[11px] leading-4 text-[#939393] dark:text-slate-500">镜头：{text(scene.camera)}</p>}
+          {text(scene.camera) && <p className="mt-1 text-[11px] leading-4 text-[#939393] dark:text-slate-500">Camera: {text(scene.camera)}</p>}
         </div>
       ))}
     </div>
@@ -120,7 +120,7 @@ export function PropertyPanel() {
       .then((referenceImageUrl) => updateNodeData(node.id, { referenceImageUrl }))
       .catch((error) => {
         console.error("Image reference archive failed", error);
-        useCanvasStore.setState({ lastError: "参考图归档失败，未写入画布。请检查 Bunny Storage 配置后重试。" });
+        useCanvasStore.setState({ lastError: "Reference image archiving failed, so it was not added to the canvas. Check the Bunny Storage configuration and try again." });
       });
   };
 
@@ -165,25 +165,25 @@ export function PropertyPanel() {
       </div>
       {node.data.nodeType === "motion" && (
         <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-[11px] leading-5 text-blue-800 dark:border-blue-400/20 dark:bg-blue-400/10 dark:text-blue-200">
-          用自然语言描述成片要求。Codex 会使用已连接素材构建工程并自动截图审片；再次修改 Prompt 后运行，会在上一次工程上继续调整。
+          Describe the final video in natural language. Codex uses connected media to build the project and review rendered frames automatically. Edit the prompt and run again to continue from the previous project.
         </div>
       )}
       {node.data.nodeType === "image" && (
         <div className="mt-5 rounded-lg border border-[#e7eaf0] bg-[#f7f9fc] p-3 dark:border-slate-800 dark:bg-slate-900/40">
-          <p className="text-xs font-semibold text-[#404040] dark:text-slate-200">图生图参考图</p>
-          <p className="mt-1 text-[11px] leading-4 text-[#676f7b] dark:text-slate-500">上传一张图片后，运行该 ImageNode 会基于这张图进行编辑生成。</p>
+          <p className="text-xs font-semibold text-[#404040] dark:text-slate-200">Image-to-image reference</p>
+          <p className="mt-1 text-[11px] leading-4 text-[#676f7b] dark:text-slate-500">Upload an image, then run this Image node to generate an edited version based on it.</p>
           {node.data.referenceImageUrl && (
             <div className="mt-3 overflow-hidden rounded-md border border-[#dde3ec] bg-white dark:border-slate-700 dark:bg-slate-950">
               <img src={node.data.referenceImageUrl} alt="Image reference" className="max-h-40 w-full object-contain" />
             </div>
           )}
           <label className="mt-3 block">
-            <span className="mb-1.5 block text-xs text-[#676f7b] dark:text-slate-400">上传图片</span>
+            <span className="mb-1.5 block text-xs text-[#676f7b] dark:text-slate-400">Upload image</span>
             <Input type="file" accept="image/*" onChange={(event) => uploadImageReference(event.target.files?.[0])} />
           </label>
           <label className="mt-3 block">
-            <span className="mb-1.5 block text-xs text-[#676f7b] dark:text-slate-400">或填写图片 URL</span>
-            <ImeInput className={imeInputClass} value={node.data.referenceImageUrl?.startsWith("data:") ? "" : String(node.data.referenceImageUrl ?? "")} placeholder={node.data.referenceImageUrl?.startsWith("data:") ? "已使用本地上传图片" : "https://..."} onValueChange={(value) => updateNodeData(node.id, { referenceImageUrl: value })} />
+            <span className="mb-1.5 block text-xs text-[#676f7b] dark:text-slate-400">Or enter an image URL</span>
+            <ImeInput className={imeInputClass} value={node.data.referenceImageUrl?.startsWith("data:") ? "" : String(node.data.referenceImageUrl ?? "")} placeholder={node.data.referenceImageUrl?.startsWith("data:") ? "Using a locally uploaded image" : "https://..."} onValueChange={(value) => updateNodeData(node.id, { referenceImageUrl: value })} />
           </label>
           {node.data.referenceImageUrl && (
             <button
@@ -191,7 +191,7 @@ export function PropertyPanel() {
               onClick={() => updateNodeData(node.id, { referenceImageUrl: "" })}
               className="mt-3 w-full rounded-md border border-[#d9e1ec] bg-white px-3 py-2 text-xs font-semibold text-[#404040] hover:bg-[#f2f5f9] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
             >
-              清除参考图
+              Clear reference image
             </button>
           )}
         </div>

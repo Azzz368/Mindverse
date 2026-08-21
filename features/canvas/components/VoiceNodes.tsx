@@ -2,7 +2,7 @@
 
 import { Handle, Position } from "@xyflow/react";
 import { useEffect, useMemo, useState } from "react";
-import { createQwenVoice, deleteQwenVoice, listQwenVoices } from "@/features/canvas/services/qwenClient";
+import { createQwenVoice, deleteQwenVoice, listQwenVoices, synthesizeQwenVoice } from "@/features/canvas/services/qwenClient";
 import { useCanvasStore } from "@/features/canvas/state/canvasStore";
 import { DEFAULT_QWEN_VOICE_MODEL, DEFAULT_QWEN_VOICE_PROVIDER, qwenTtsLanguageTypes, qwenVoiceLanguageCodes, type ClonedVoice, type CreateVoiceResult } from "@/shared/api/qwenContracts";
 import type { CanvasNodeData, NodeOutput } from "@/shared/canvas";
@@ -82,6 +82,7 @@ export function VoiceCloneNodeLayout({ id, data, selected }: { id: string; data:
   const [voices, setVoices] = useState<ClonedVoice[]>([]);
   const [loadingVoices, setLoadingVoices] = useState(false);
   const [working, setWorking] = useState(false);
+  const [generatingSpeech, setGeneratingSpeech] = useState(false);
   const connected = new Set(edges.filter((edge) => edge.target === id).map((edge) => edge.targetHandle || ""));
   const isRunning = data.status === "running" || data.status === "waiting";
 
@@ -171,6 +172,23 @@ export function VoiceCloneNodeLayout({ id, data, selected }: { id: string; data:
     }
   };
 
+  const generateSpeech = async () => {
+    if (!data.voice || !data.ttsText?.trim()) {
+      updateNodeData(id, { status: "error", error: "Create or select a voice, then enter the speech text." });
+      return;
+    }
+    setGeneratingSpeech(true);
+    updateNodeData(id, { status: "running", error: undefined });
+    try {
+      const result = await synthesizeQwenVoice({ text: data.ttsText, voice: data.voice, targetModel: data.targetModel || DEFAULT_QWEN_VOICE_MODEL, voiceProvider: data.voiceProvider || DEFAULT_QWEN_VOICE_PROVIDER, languageType: "Auto" });
+      updateNodeData(id, { status: "success", audioUrl: result.audioUrl, output: { kind: "audio", summary: "Cloned voice audio generated", value: { ...result, audioUrl: result.audioUrl, url: result.audioUrl }, createdAt: new Date().toISOString() } });
+    } catch (error) {
+      updateNodeData(id, { status: "error", error: error instanceof Error ? error.message : "Cloned voice TTS failed." });
+    } finally {
+      setGeneratingSpeech(false);
+    }
+  };
+
   return (
     <>
       <div className={`relative flex h-[260px] w-[380px] flex-col rounded-[24px] border bg-white shadow-sm dark:bg-[#101c29] ${selected ? "border-[#030303] dark:border-cyan-400" : "border-[#e7eaf0] dark:border-slate-700"}`}>
@@ -185,7 +203,7 @@ export function VoiceCloneNodeLayout({ id, data, selected }: { id: string; data:
             {data.fallbackMode && <p className="mt-2 rounded-lg bg-amber-50 px-2 py-1 text-[10px] text-amber-700 dark:bg-amber-400/10 dark:text-amber-200">{data.fallbackReason || "QwenCloud used fallback voice mode."}</p>}
             {data.error && <p className="mt-2 text-[11px] text-rose-600 dark:text-rose-300">{data.error}</p>}
           </div>
-          {previewUrl ? <audio controls src={previewUrl} className="w-full" /> : <div className="rounded-2xl border border-dashed border-[#c9ccd1] px-3 py-5 text-center text-[11px] text-[#676f7b] dark:border-slate-700 dark:text-slate-400">Reference audio</div>}
+          {audioUrlFromOutput(data) ? <audio controls src={audioUrlFromOutput(data)} className="w-full" /> : previewUrl ? <audio controls src={previewUrl} className="w-full" /> : <div className="rounded-2xl border border-dashed border-[#c9ccd1] px-3 py-5 text-center text-[11px] text-[#676f7b] dark:border-slate-700 dark:text-slate-400">Reference audio</div>}
         </div>
         <div className="nodrag flex justify-end gap-1 border-t border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
           <button onClick={() => duplicateNode(id)} className="text-[10px] text-[#676f7b] hover:text-[#030303] dark:text-slate-400">Duplicate</button>
@@ -222,7 +240,7 @@ export function VoiceCloneNodeLayout({ id, data, selected }: { id: string; data:
         </label>
         <label className="mt-3 flex items-start gap-2 text-xs leading-5 text-[#404040] dark:text-slate-200">
           <input className="mt-1" type="checkbox" checked={data.consentConfirmed === true} onChange={(event) => updateNodeData(id, { consentConfirmed: event.target.checked })} />
-          <span>我确认已获得该声音所有者的明确授权，并有权使用该录音创建合成声音。</span>
+          <span>I confirm that I have explicit authorization from the voice owner to use this recording to create a synthetic voice.</span>
         </label>
         <div className="mt-4 flex items-center gap-2">
           <button className={buttonClass} disabled={working || !data.consentConfirmed} onClick={() => void createVoice()}>{working ? "Working..." : "Create voice"}</button>
@@ -239,6 +257,11 @@ export function VoiceCloneNodeLayout({ id, data, selected }: { id: string; data:
             Copy ID
           </button>
         </div>
+        <label className="mt-3 block">
+          <span className={labelClass}>Speech text</span>
+          <textarea className={`${inputClass} min-h-16 resize-y`} value={data.ttsText || ""} placeholder="Enter the text to speak after cloning." onChange={(event) => updateNodeData(id, { ttsText: event.target.value })} />
+        </label>
+        <button className={`${buttonClass} mt-3`} disabled={generatingSpeech || !data.voice || !data.ttsText?.trim()} onClick={() => void generateSpeech()}>{generatingSpeech ? "Generating..." : "Generate speech"}</button>
         {connected.size > 0 && <p className="mt-2 text-[10px] text-[#676f7b] dark:text-slate-400">Connected handles: {[...connected].join(", ")}</p>}
       </div>
     </>
@@ -308,7 +331,7 @@ export function VoiceTTSNodeLayout({ id, data, selected, runNode }: { id: string
             <p className="mt-1 text-[11px] text-[#676f7b] dark:text-slate-400">{data.targetModel || DEFAULT_QWEN_VOICE_MODEL}</p>
             {data.error && <p className="mt-2 text-[11px] text-rose-600 dark:text-rose-300">{data.error}</p>}
           </div>
-          {audioUrl ? <audio controls src={audioUrl} className="w-full" /> : <div className="rounded-2xl border border-dashed border-[#c9ccd1] px-3 py-5 text-center text-[11px] text-[#676f7b] dark:border-slate-700 dark:text-slate-400">AI 合成声音</div>}
+          {audioUrl ? <audio controls src={audioUrl} className="w-full" /> : <div className="rounded-2xl border border-dashed border-[#c9ccd1] px-3 py-5 text-center text-[11px] text-[#676f7b] dark:border-slate-700 dark:text-slate-400">AI-generated voice</div>}
         </div>
         <div className="nodrag flex justify-end gap-1 border-t border-[#e7eaf0] px-3 py-2 dark:border-slate-800">
           <button onClick={() => duplicateNode(id)} className="text-[10px] text-[#676f7b] hover:text-[#030303] dark:text-slate-400">Duplicate</button>
@@ -324,7 +347,7 @@ export function VoiceTTSNodeLayout({ id, data, selected, runNode }: { id: string
             value={data.ttsText || ""}
             maxLength={600}
             onChange={(event) => updateNodeData(id, { ttsText: event.target.value })}
-            placeholder="留空时使用上游文本"
+            placeholder="Leave blank to use upstream text"
           />
           <span className="mt-1 block text-right text-[10px] text-[#676f7b] dark:text-slate-500">{textLength}/600</span>
         </label>

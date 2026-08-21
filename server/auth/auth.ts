@@ -12,6 +12,17 @@ const developmentAuthSecret = "mindverse-local-development-secret-change-before-
 const demoMode = () => process.env.NODE_ENV !== "production" && process.env.MINDVERSE_DEMO_MODE === "true";
 const demoEmail = "demo@mindverse.local";
 const demoPassword = "MindverseDemo123!";
+const localAuthBypassEnabled = () =>
+  process.env.NODE_ENV !== "production" && process.env.MINDVERSE_LOCAL_AUTH_BYPASS === "true";
+const localAuthContext = (): AuthContext => ({
+  userId: "local-test-user",
+  email: "local@example.test",
+  name: "Local Tester",
+  workspaceId: "local-test-workspace",
+  workspaceName: "Local test workspace",
+  role: "owner",
+  sessionExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+});
 
 export type AuthContext = {
   userId: string;
@@ -181,6 +192,7 @@ export async function sessionFromHeaders(headers: Headers): Promise<AuthContext 
       if (cookieToken(headers) === "demo-session") return { userId: "demo-user", email: demoEmail, name: "Demo User", workspaceId: "demo-workspace", workspaceName: "Demo Workspace", role: "owner", sessionExpiresAt: new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000).toISOString() };
     } catch { return null; }
   }
+  if (localAuthBypassEnabled()) return localAuthContext();
   if (!postgresConfigured()) return null;
   let token = "";
   try { token = cookieToken(headers); } catch { return null; }
@@ -214,6 +226,7 @@ export async function sessionFromHeaders(headers: Headers): Promise<AuthContext 
 }
 
 export async function requireSession(request: Request) {
+  if (localAuthBypassEnabled()) return localAuthContext();
   const session = await sessionFromHeaders(request.headers);
   if (!session) throw new AuthError("请先登录。", 401, "UNAUTHORIZED");
   return session;

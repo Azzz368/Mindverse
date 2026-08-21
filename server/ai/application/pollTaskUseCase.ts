@@ -3,6 +3,7 @@ import { getAIProvider, getImageAIProvider } from "@/server/ai/provider";
 import { pollKlingImageVideo } from "@/server/ai/klingVideoProvider";
 import { pollKlingOmniVideo, pollKlingVideo, pollSeedanceVideo } from "@/server/ai/tokenstar/tokenstarVideoProvider";
 import { pollSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
+import { pollTalkingDataVideo } from "@/server/ai/talkingDataVideoProvider";
 import { pollHKGAIMinimaxVideo } from "@/server/ai/hkgaiVideoProvider";
 import { pollVolcengineOmniHuman } from "@/server/ai/volcengineOmniHumanProvider";
 import { queryMiniMaxH3VideoRegeneration } from "@/server/ai/minimaxH3VideoRegeneration";
@@ -40,6 +41,12 @@ export async function pollTaskUseCase(params: PollTaskParams): Promise<RunNodeRe
     const output = await pollSora2ImageVideo(pollUrl, taskId);
     const verified = await verifyCompletedVideoAspectRatio(output, expectedAspectRatio);
     return { ok: true, provider: "302-sora2", output: await archiveResultMedia(verified, { sourceProvider: "302-sora2", sourceTaskId: taskId, mediaTypeHint: "video" }), polling: { intervalMs: 5000 } };
+  }
+
+  if (type === "video" && videoProvider === "talkingdata") {
+    const output = await pollTalkingDataVideo(taskId);
+    const verified = await verifyCompletedVideoAspectRatio(output, expectedAspectRatio);
+    return { ok: true, provider: "talkingdata", output: await archiveResultMedia(verified, { sourceProvider: "talkingdata", sourceTaskId: taskId, mediaTypeHint: "video" }), polling: { intervalMs: output.status === "completed" || output.status === "failed" ? 0 : Number(process.env.TALKINGDATA_VIDEO_POLL_INTERVAL_MS || 5000) } };
   }
 
   if (type === "video" && videoProvider === "volcengine") {

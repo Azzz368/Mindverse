@@ -5,6 +5,7 @@ import type { KlingVideoMode } from "@/server/ai/tokenstar/klingVideoProvider";
 import { generateTokenStarImage, generateTokenStarImageRevision, isTokenStarImageModel } from "@/server/ai/tokenstar/tokenstarImageProvider";
 import { createKlingImageVideo as tsKlingImage, createKlingTextVideo, createKlingOmniVideo, createSeedanceAssetVideo, createSeedanceVideo } from "@/server/ai/tokenstar/tokenstarVideoProvider";
 import { createSora2ImageVideo } from "@/server/ai/sora2VideoProvider";
+import { createTalkingDataVideo } from "@/server/ai/talkingDataVideoProvider";
 import { createHKGAIMinimaxVideo } from "@/server/ai/hkgaiVideoProvider";
 import { createHKGAIMinimaxRef2vaVideo } from "@/server/ai/hkgaiMinimaxRef2vaProvider";
 import { createVolcengineOmniHuman } from "@/server/ai/volcengineOmniHumanProvider";
@@ -65,6 +66,19 @@ async function runSora2Video(input: Record<string, unknown>): Promise<RunNodeRes
   const output = await createSora2ImageVideo({ prompt, image, duration: optionalNumber(input.duration), resolution: optionalText(input.resolution) });
   const verified = await verifyCompletedVideoAspectRatio(output, input.aspectRatio);
   return { ok: true, provider: "302-sora2", output: await archiveResultMedia(verified, { sourceProvider: "302-sora2", mediaTypeHint: "video" }), polling: { intervalMs: 5000 } };
+}
+
+async function runTalkingDataVideo(input: Record<string, unknown>): Promise<RunNodeResult> {
+  try {
+    const imageMode = input.talkingDataImageMode === "first-last-frame" || input.talkingDataImageMode === "reference" ? input.talkingDataImageMode : "first-frame";
+    const taskType = input.talkingDataOmniReferenceTaskType === "reference" || input.talkingDataOmniReferenceTaskType === "edit" || input.talkingDataOmniReferenceTaskType === "extend" ? input.talkingDataOmniReferenceTaskType : "auto";
+    const outputFormat = input.talkingDataOutputFormat === "mov" ? "mov" : "mp4";
+    const output = await createTalkingDataVideo({ prompt: text(input.prompt), model: optionalText(input.model), image: optionalText(input.image), referenceImageUrls: urls(input.referenceImageUrls), referenceVideoUrls: urls(input.referenceVideoUrls), referenceAudioUrls: urls(input.referenceAudioUrls), referenceImageAssetUrl: optionalText(input.referenceImageAssetUrl), referenceVideoAssetUrl: optionalText(input.referenceVideoAssetUrl), referenceAudioAssetUrl: optionalText(input.referenceAudioAssetUrl), duration: optionalNumber(input.duration), ratio: optionalText(input.aspectRatio), resolution: optionalText(input.resolution), generateAudio: typeof input.generateAudio === "boolean" ? input.generateAudio : false, imageMode, endImage: optionalText(input.talkingDataEndImageUrl), omniReferenceTaskType: taskType, outputFormat, watermark: input.talkingDataWatermark === true, returnLastFrame: input.talkingDataReturnLastFrame === true, webSearch: input.talkingDataWebSearch === true });
+    return { ok: true, provider: "talkingdata", output, polling: { intervalMs: Number(process.env.TALKINGDATA_VIDEO_POLL_INTERVAL_MS || 5000) } };
+  } catch (error) {
+    if (error instanceof AIProviderError) return fail(error.message, error.status, error.code);
+    return fail(error instanceof Error ? error.message : "TalkingData video request failed.", 500, "TALKINGDATA_VIDEO_ERROR");
+  }
 }
 
 async function runHKGAIMinimaxVideo(input: Record<string, unknown>): Promise<RunNodeResult> {
@@ -347,6 +361,7 @@ export async function runNodeUseCase(nodeType: RunnableNodeType, rawInput: Recor
   }
 
   if (nodeType === "video" && rawInput.videoProvider === "302-sora2") return runSora2Video(rawInput);
+  if (nodeType === "video" && rawInput.videoProvider === "talkingdata") return runTalkingDataVideo(rawInput);
   if (nodeType === "video" && rawInput.videoProvider === "volcengine") return runVolcengineOmniHuman(rawInput);
   if (nodeType === "video" && (rawInput.videoProvider === "hkgai" || (!rawInput.videoProvider && process.env.AI_VIDEO_PROVIDER === "hkgai"))) return runHKGAIMinimaxVideo(rawInput);
   if (nodeType === "video" && (rawInput.videoProvider === "kling" || rawInput.videoProvider === "" || (!rawInput.videoProvider && process.env.AI_VIDEO_PROVIDER !== "302ai" && process.env.AI_VIDEO_PROVIDER !== "tokenstar" && process.env.AI_VIDEO_PROVIDER !== "hkgai"))) return runKlingVideo(rawInput);

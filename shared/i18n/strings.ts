@@ -5,6 +5,7 @@ export interface Strings {
   projectNamePlaceholder: string;
   exportJson: string;
   importJson: string;
+  saveAsSkill: string;
   // TemplateGallery
   templates: string;
   // NodeToolbar
@@ -131,6 +132,7 @@ const zh: Strings = {
   projectNamePlaceholder: "未命名创作流程",
   exportJson: "导出 JSON",
   importJson: "导入 JSON",
+  saveAsSkill: "保存为 Skill",
   templates: "模板",
   addNode: "添加节点",
   addPrefix: "添加",
@@ -249,6 +251,7 @@ const en: Strings = {
   projectNamePlaceholder: "Untitled creative flow",
   exportJson: "Export JSON",
   importJson: "Import JSON",
+  saveAsSkill: "Save as Skill",
   templates: "Templates",
   addNode: "Add node",
   addPrefix: "Add",
@@ -363,11 +366,63 @@ const en: Strings = {
   serverDefault: "Server default",
 };
 
+const toTraditional = (value: string) => {
+  const pairs = "创創导導图圖频頻视視语語画畫节節点點设設选選择擇编編辑輯结結关關闭閉复複制製删刪运運组組颜顏锁鎖启啟发發载載连連资資产產无無标標注註说說请請将將这這个個为為与與后後从從来來务務实實现現时時間間声聲场場镜鏡头頭数數网網页頁风風温溫输輸过過滤濾长長宽寬体體应應览覽写寫层層条條线線圆圓边邊总總单單录錄类類别別获獲张張帧幀仅僅该該让讓达達终終远遠码碼显顯缩縮拟擬优優级級调調质質态態听聽动動义義则則对對称稱内內换換夹夾据據经經统統约約续續处處识識觉覺戏戲术術区區块塊国國响響压壓预預认認证證额額权權并並两兩尽盡驱驅齐齊观觀项項报報错錯库庫档檔历歷签簽号號断斷确確会會种種纪紀鉴鑑临臨净淨进進转轉读讀闪閃寻尋异異盖蓋阶階负負销銷钱錢费費厂廠门門万萬气氣乐樂云雲构構桥橋归歸纳納里裡尝嘗试試误誤护護简簡杂雜释釋残殘补補触觸词詞剧劇帮幫审審阅閱叙敘叠疊轴軸烧燒减減赠贈习習兴興征徵冲衝须須独獨当當还還么麼摇搖稳穩轻輕强強静靜缓緩骤驟渐漸离離随隨满滿络絡储儲";
+  const map = new Map<string, string>();
+  for (let index = 0; index < pairs.length; index += 2) map.set(pairs[index], pairs[index + 1]);
+  return [...value].map((character) => map.get(character) || character).join("");
+};
+
+const zhHant = Object.fromEntries(Object.entries(zh).map(([key, value]) => {
+  if (typeof value === "string") return [key, toTraditional(value)];
+  if (typeof value === "function") return [key, (count: number) => toTraditional(value(count))];
+  return [key, Object.fromEntries(Object.entries(value).map(([itemKey, itemValue]) => [itemKey, toTraditional(String(itemValue))]))];
+})) as unknown as Strings;
+
+zhHant.langToggle = "English";
+zhHant.saveAsSkill = "儲存為 Skill";
+
+const koStrings: Strings = {
+  ...en,
+  projectNamePlaceholder: "제목 없는 창작 워크플로", exportJson: "JSON 내보내기", importJson: "JSON 가져오기", saveAsSkill: "Skill로 저장", templates: "템플릿", addNode: "노드 추가", addPrefix: "추가",
+  nodeNames: { prompt: "프롬프트", text: "텍스트", image: "이미지", video: "비디오", videoFrame: "비디오 프레임", audio: "오디오", musicGeneration: "HKGAI 음악", hkgaiTTS: "HKGAI TTS", voiceClone: "음성 복제", voiceTTS: "복제 음성 TTS", storyboard: "스토리보드", storyboardImage: "스토리보드 이미지", reference: "참조", output: "출력" },
+  inspector: "속성", inspectorHint: "노드를 선택해 설정을 편집하고 생성 결과를 확인하세요.", lastOutput: "최근 출력", generateKeyframes: (n) => `키프레임 ${n}개 생성`, runSelected: "선택 항목 실행", runWorkflow: "워크플로 실행", save: "저장", load: "불러오기", clear: "지우기", mockProviderNote: "Mock AI 제공자 · 로컬 우선 캔버스",
+  duplicate: "복제", delete: "삭제", runNode: "실행", uploadImage: "이미지 에셋 추가", placementHint: "왼쪽 클릭으로 노드 배치\n오른쪽 클릭으로 취소", groupColor: "그룹 색상", runGroup: "그룹 실행", lockGroup: "그룹 잠금", unlockGroup: "그룹 잠금 해제", settingsTitle: "설정", waitingGeneration: "생성 대기 중…", revisionOf: "원본 이미지 수정본",
+  menuSearch: "이름 또는 유형으로 검색", menuCategoryNew: "새 노드", menuCategoryRecent: "최근 사용", menuCategoryVideo: "비디오", menuCategoryImage: "이미지", menuCategoryAudio: "오디오", menuCategoryText: "텍스트", menuCategoryStoryboard: "스토리보드", menuKeepOpen: "여러 노드를 추가하려면 계속 열어 두기", menuNoResults: "검색 결과가 없습니다.",
+  toolDescSeedance: "텍스트/이미지/비디오/오디오를 비디오로", toolDescGen45: "텍스트를 비디오로", toolDescStoryboardImage: "키프레임 생성", toolDescGptImage: "텍스트/이미지를 이미지로", toolDescUploadImage: "로컬 파일을 캔버스로", toolDescAudio: "텍스트를 오디오로", toolDescText: "텍스트 생성", toolDescPrompt: "창작 방향", toolDescScript: "가상 이야기", toolDescStoryboard: "빛과 움직임", toolDescReference: "시각 참조", toolDescOutput: "출력 형식 지정",
+  viewFullImage: "전체 이미지 보기", annotateRefine: "주석 및 개선", configureNode: "속성 패널에서 이 노드를 설정하세요.", scene: "장면", connectedAssets: (n) => `연결된 에셋 ${n}개`, noConnectedAssets: "연결된 에셋 없음", close: "닫기", annotateTitle: "주석 및 개선", annotateSubtitle: "화살표 도구를 선택하고 원본에서 대상으로 드래그한 뒤 변경 내용을 설명하세요.", toolSelect: "선택", toolArrow: "화살표", toolBox: "상자", toolCircle: "원", toolText: "텍스트", deleteAnnotation: "삭제", undo: "실행 취소", clearAnnotations: "모두 지우기", newTextNote: "새 텍스트 메모", selectedInstruction: "선택한 {type} 지침", overallInstruction: "전체 수정 지침", generateRevision: "수정본 생성",
+  fieldTitle: "제목", fieldPrompt: "프롬프트", fieldNegativePrompt: "제외 항목", fieldStyle: "스타일", fieldAspectRatio: "화면 비율", fieldInstruction: "지침", fieldInputText: "시작 텍스트", fieldModel: "모델 재정의", fieldModelNote: "모델 재정의 (비워 두면 서버 기본값)", fieldModelKlingNote: "모델 재정의 (Kling/302-sora2에는 사용 안 함)", fieldTemperature: "온도", fieldCreativeBrief: "창작 개요", fieldTone: "톤", fieldSceneCount: "목표 장면 수", fieldVideoProvider: "비디오 제공자 (Kling / 302.ai / TokenStar / HKGAI)", fieldFirstFrameUrl: "첫 프레임 URL (Kling, 선택 사항)", fieldTokenstarMode: "TokenStar 모드", fieldImageAssetUrl: "기존 이미지 에셋 URL", fieldVideoAssetUrl: "기존 비디오 에셋 URL", fieldAudioAssetUrl: "기존 오디오 에셋 URL", field302Mode: "302 생성 모드", fieldDuration: "길이", fieldResolution: "해상도", fieldFps: "프레임률", fieldGenerateAudio: "오디오 생성", fieldAudioPrompt: "오디오 프롬프트", fieldVoice: "음성", fieldEmotion: "감정", fieldVolume: "볼륨", fieldDurationSec: "길이(초)", fieldStoryBrief: "스토리 개요", fieldShotCount: "목표 샷 수", fieldNotes: "메모", fieldFormat: "출력 형식", fieldMotionPrompt: "모션 프롬프트", fieldImagePrompt: "이미지 프롬프트", fieldSize: "크기", fieldReferenceImageUrl: "참조 이미지 URL", fieldKlingMode: "Kling 모드", fieldKlingElementId: "피사체 요소 ID", fieldReferenceVideoUrl: "참조 비디오 URL", langToggle: "English", serverDefault: "서버 기본값",
+};
+
+const thStrings: Strings = {
+  ...en,
+  projectNamePlaceholder: "เวิร์กโฟลว์สร้างสรรค์ไม่มีชื่อ", exportJson: "ส่งออก JSON", importJson: "นำเข้า JSON", saveAsSkill: "บันทึกเป็น Skill", templates: "เทมเพลต", addNode: "เพิ่มโหนด", addPrefix: "เพิ่ม",
+  nodeNames: { prompt: "พรอมต์", text: "ข้อความ", image: "รูปภาพ", video: "วิดีโอ", videoFrame: "เฟรมวิดีโอ", audio: "เสียง", musicGeneration: "เพลง HKGAI", hkgaiTTS: "HKGAI TTS", voiceClone: "โคลนเสียง", voiceTTS: "TTS เสียงโคลน", storyboard: "สตอรี่บอร์ด", storyboardImage: "ภาพสตอรี่บอร์ด", reference: "อ้างอิง", output: "ผลลัพธ์" },
+  inspector: "คุณสมบัติ", inspectorHint: "เลือกโหนดเพื่อแก้ไขการตั้งค่าและดูผลลัพธ์ที่สร้าง", lastOutput: "ผลลัพธ์ล่าสุด", generateKeyframes: (n) => `สร้างคีย์เฟรม ${n} เฟรม`, runSelected: "เรียกใช้ที่เลือก", runWorkflow: "เรียกใช้เวิร์กโฟลว์", save: "บันทึก", load: "โหลด", clear: "ล้าง", mockProviderNote: "ผู้ให้บริการ Mock AI · แคนวาสแบบเก็บในเครื่องก่อน",
+  duplicate: "ทำสำเนา", delete: "ลบ", runNode: "เรียกใช้", uploadImage: "เพิ่มแอสเซตรูปภาพ", placementHint: "คลิกซ้ายเพื่อวางโหนด\nคลิกขวาเพื่อยกเลิก", groupColor: "สีกลุ่ม", runGroup: "เรียกใช้กลุ่มนี้", lockGroup: "ล็อกกลุ่ม", unlockGroup: "ปลดล็อกกลุ่ม", settingsTitle: "การตั้งค่า", waitingGeneration: "กำลังรอสร้าง…", revisionOf: "เวอร์ชันแก้ไขของรูปต้นฉบับ",
+  menuSearch: "ค้นหาตามชื่อหรือประเภท", menuCategoryNew: "โหนดใหม่", menuCategoryRecent: "ใช้ล่าสุด", menuCategoryVideo: "วิดีโอ", menuCategoryImage: "รูปภาพ", menuCategoryAudio: "เสียง", menuCategoryText: "ข้อความ", menuCategoryStoryboard: "สตอรี่บอร์ด", menuKeepOpen: "เปิดค้างไว้เพื่อเพิ่มหลายโหนด", menuNoResults: "ไม่พบผลลัพธ์",
+  toolDescSeedance: "ข้อความ/รูปภาพ/วิดีโอ/เสียงเป็นวิดีโอ", toolDescGen45: "ข้อความเป็นวิดีโอ", toolDescStoryboardImage: "สร้างคีย์เฟรม", toolDescGptImage: "ข้อความ/รูปภาพเป็นรูปภาพ", toolDescUploadImage: "ไฟล์ในเครื่องไปยังแคนวาส", toolDescAudio: "ข้อความเป็นเสียง", toolDescText: "สร้างข้อความ", toolDescPrompt: "ทิศทางสร้างสรรค์", toolDescScript: "เรื่องแต่ง", toolDescStoryboard: "แสงและการเคลื่อนไหว", toolDescReference: "ภาพอ้างอิง", toolDescOutput: "จัดรูปแบบผลลัพธ์",
+  viewFullImage: "ดูรูปเต็ม", annotateRefine: "ใส่คำอธิบายและปรับปรุง", configureNode: "ตั้งค่าโหนดนี้ในแผงคุณสมบัติ", scene: "ฉาก", connectedAssets: (n) => `แอสเซตที่เชื่อมต่อ ${n} รายการ`, noConnectedAssets: "ไม่มีแอสเซตที่เชื่อมต่อ", close: "ปิด", annotateTitle: "ใส่คำอธิบายและปรับปรุง", annotateSubtitle: "เลือกเครื่องมือลูกศร ลากจากต้นทางไปยังเป้าหมาย แล้วอธิบายการเปลี่ยนแปลง", toolSelect: "เลือก", toolArrow: "ลูกศร", toolBox: "กล่อง", toolCircle: "วงกลม", toolText: "ข้อความ", deleteAnnotation: "ลบ", undo: "เลิกทำ", clearAnnotations: "ล้างทั้งหมด", newTextNote: "บันทึกข้อความใหม่", selectedInstruction: "คำสั่ง {type} ที่เลือก", overallInstruction: "คำสั่งแก้ไขโดยรวม", generateRevision: "สร้างเวอร์ชันแก้ไข",
+  fieldTitle: "ชื่อ", fieldPrompt: "พรอมต์", fieldNegativePrompt: "หลีกเลี่ยง", fieldStyle: "สไตล์", fieldAspectRatio: "อัตราส่วนภาพ", fieldInstruction: "คำสั่ง", fieldInputText: "ข้อความเริ่มต้น", fieldModel: "แทนที่โมเดล", fieldModelNote: "แทนที่โมเดล (ว่าง = ค่าเริ่มต้นเซิร์ฟเวอร์)", fieldModelKlingNote: "แทนที่โมเดล (ไม่ใช้กับ Kling/302-sora2)", fieldTemperature: "อุณหภูมิ", fieldCreativeBrief: "สรุปแนวคิด", fieldTone: "โทน", fieldSceneCount: "จำนวนฉากเป้าหมาย", fieldVideoProvider: "ผู้ให้บริการวิดีโอ (Kling / 302.ai / TokenStar / HKGAI)", fieldFirstFrameUrl: "URL เฟรมแรก (Kling, ไม่บังคับ)", fieldTokenstarMode: "โหมด TokenStar", fieldImageAssetUrl: "URL แอสเซตรูปภาพ", fieldVideoAssetUrl: "URL แอสเซตวิดีโอ", fieldAudioAssetUrl: "URL แอสเซตเสียง", field302Mode: "โหมดการสร้าง 302", fieldDuration: "ระยะเวลา", fieldResolution: "ความละเอียด", fieldFps: "อัตราเฟรม", fieldGenerateAudio: "สร้างเสียง", fieldAudioPrompt: "พรอมต์เสียง", fieldVoice: "เสียง", fieldEmotion: "อารมณ์", fieldVolume: "ระดับเสียง", fieldDurationSec: "ระยะเวลา (วินาที)", fieldStoryBrief: "สรุปเรื่อง", fieldShotCount: "จำนวนช็อตเป้าหมาย", fieldNotes: "หมายเหตุ", fieldFormat: "รูปแบบผลลัพธ์", fieldMotionPrompt: "พรอมต์การเคลื่อนไหว", fieldImagePrompt: "พรอมต์รูปภาพ", fieldSize: "ขนาด", fieldReferenceImageUrl: "URL รูปภาพอ้างอิง", fieldKlingMode: "โหมด Kling", fieldKlingElementId: "ID องค์ประกอบตัวแบบ", fieldReferenceVideoUrl: "URL วิดีโออ้างอิง", langToggle: "English", serverDefault: "ค่าเริ่มต้นเซิร์ฟเวอร์",
+};
+
+const kmStrings: Strings = {
+  ...en,
+  projectNamePlaceholder: "លំហូរការងារច្នៃប្រឌិតគ្មានចំណងជើង", exportJson: "នាំចេញ JSON", importJson: "នាំចូល JSON", saveAsSkill: "រក្សាទុកជា Skill", templates: "គំរូ", addNode: "បន្ថែមថ្នាំង", addPrefix: "បន្ថែម",
+  nodeNames: { prompt: "ពាក្យបញ្ជា", text: "អត្ថបទ", image: "រូបភាព", video: "វីដេអូ", videoFrame: "ហ្វ្រេមវីដេអូ", audio: "សំឡេង", musicGeneration: "តន្ត្រី HKGAI", hkgaiTTS: "HKGAI TTS", voiceClone: "ចម្លងសំឡេង", voiceTTS: "TTS សំឡេងចម្លង", storyboard: "ស្តូរីបត", storyboardImage: "រូបភាពស្តូរីបត", reference: "យោង", output: "លទ្ធផល" },
+  inspector: "លក្ខណសម្បត្តិ", inspectorHint: "ជ្រើសថ្នាំងដើម្បីកែការកំណត់ និងពិនិត្យលទ្ធផលដែលបានបង្កើត។", lastOutput: "លទ្ធផលចុងក្រោយ", generateKeyframes: (n) => `បង្កើតហ្វ្រេមគន្លឹះ ${n}`, runSelected: "ដំណើរការដែលបានជ្រើស", runWorkflow: "ដំណើរការលំហូរការងារ", save: "រក្សាទុក", load: "ផ្ទុក", clear: "សម្អាត", mockProviderNote: "អ្នកផ្តល់ Mock AI · ផ្ទាំងក្រណាត់រក្សាទុកក្នុងម៉ាស៊ីនជាមុន",
+  duplicate: "ស្ទួន", delete: "លុប", runNode: "ដំណើរការ", uploadImage: "បន្ថែមទ្រព្យរូបភាព", placementHint: "ចុចឆ្វេងដើម្បីដាក់ថ្នាំង\nចុចស្តាំដើម្បីបោះបង់", groupColor: "ពណ៌ក្រុម", runGroup: "ដំណើរការក្រុមនេះ", lockGroup: "ចាក់សោក្រុម", unlockGroup: "ដោះសោក្រុម", settingsTitle: "ការកំណត់", waitingGeneration: "កំពុងរង់ចាំបង្កើត…", revisionOf: "កំណែកែសម្រួលនៃរូបភាពដើម",
+  menuSearch: "ស្វែងរកតាមឈ្មោះ ឬប្រភេទ", menuCategoryNew: "ថ្នាំងថ្មី", menuCategoryRecent: "បានប្រើថ្មីៗ", menuCategoryVideo: "វីដេអូ", menuCategoryImage: "រូបភាព", menuCategoryAudio: "សំឡេង", menuCategoryText: "អត្ថបទ", menuCategoryStoryboard: "ស្តូរីបត", menuKeepOpen: "ទុកឱ្យបើកដើម្បីបន្ថែមថ្នាំងច្រើន", menuNoResults: "រកមិនឃើញលទ្ធផល។",
+  toolDescSeedance: "អត្ថបទ/រូបភាព/វីដេអូ/សំឡេងទៅវីដេអូ", toolDescGen45: "អត្ថបទទៅវីដេអូ", toolDescStoryboardImage: "បង្កើតហ្វ្រេមគន្លឹះ", toolDescGptImage: "អត្ថបទ/រូបភាពទៅរូបភាព", toolDescUploadImage: "ឯកសារក្នុងម៉ាស៊ីនទៅផ្ទាំងក្រណាត់", toolDescAudio: "អត្ថបទទៅសំឡេង", toolDescText: "បង្កើតអត្ថបទ", toolDescPrompt: "ទិសដៅច្នៃប្រឌិត", toolDescScript: "រឿងប្រឌិត", toolDescStoryboard: "ពន្លឺ និងចលនា", toolDescReference: "រូបភាពយោង", toolDescOutput: "កំណត់ទ្រង់ទ្រាយលទ្ធផល",
+  viewFullImage: "មើលរូបភាពពេញ", annotateRefine: "កំណត់ចំណាំ និងកែលម្អ", configureNode: "កំណត់ថ្នាំងនេះក្នុងផ្ទាំងលក្ខណសម្បត្តិ។", scene: "ឈុតឆាក", connectedAssets: (n) => `ទ្រព្យដែលបានភ្ជាប់ ${n}`, noConnectedAssets: "គ្មានទ្រព្យបានភ្ជាប់", close: "បិទ", annotateTitle: "កំណត់ចំណាំ និងកែលម្អ", annotateSubtitle: "ជ្រើសឧបករណ៍ព្រួញ អូសពីប្រភពទៅគោលដៅ ហើយពណ៌នាការផ្លាស់ប្តូរ។", toolSelect: "ជ្រើស", toolArrow: "ព្រួញ", toolBox: "ប្រអប់", toolCircle: "រង្វង់", toolText: "អត្ថបទ", deleteAnnotation: "លុប", undo: "មិនធ្វើវិញ", clearAnnotations: "សម្អាតទាំងអស់", newTextNote: "កំណត់ចំណាំអត្ថបទថ្មី", selectedInstruction: "សេចក្តីណែនាំ {type} ដែលបានជ្រើស", overallInstruction: "សេចក្តីណែនាំកែសម្រួលទាំងមូល", generateRevision: "បង្កើតកំណែកែសម្រួល",
+  fieldTitle: "ចំណងជើង", fieldPrompt: "ពាក្យបញ្ជា", fieldNegativePrompt: "ជៀសវាង", fieldStyle: "រចនាប័ទ្ម", fieldAspectRatio: "សមាមាត្រ", fieldInstruction: "សេចក្តីណែនាំ", fieldInputText: "អត្ថបទចាប់ផ្តើម", fieldModel: "ប្ដូរម៉ូដែល", fieldModelNote: "ប្ដូរម៉ូដែល (ទទេ = លំនាំដើមម៉ាស៊ីនមេ)", fieldModelKlingNote: "ប្ដូរម៉ូដែល (មិនប្រើសម្រាប់ Kling/302-sora2)", fieldTemperature: "សីតុណ្ហភាព", fieldCreativeBrief: "សង្ខេបគំនិត", fieldTone: "សំនៀង", fieldSceneCount: "ចំនួនឈុតគោលដៅ", fieldVideoProvider: "អ្នកផ្តល់វីដេអូ (Kling / 302.ai / TokenStar / HKGAI)", fieldFirstFrameUrl: "URL ហ្វ្រេមដំបូង (Kling, ជាជម្រើស)", fieldTokenstarMode: "របៀប TokenStar", fieldImageAssetUrl: "URL ទ្រព្យរូបភាព", fieldVideoAssetUrl: "URL ទ្រព្យវីដេអូ", fieldAudioAssetUrl: "URL ទ្រព្យសំឡេង", field302Mode: "របៀបបង្កើត 302", fieldDuration: "រយៈពេល", fieldResolution: "គុណភាពបង្ហាញ", fieldFps: "អត្រាហ្វ្រេម", fieldGenerateAudio: "បង្កើតសំឡេង", fieldAudioPrompt: "ពាក្យបញ្ជាសំឡេង", fieldVoice: "សំឡេង", fieldEmotion: "អារម្មណ៍", fieldVolume: "កម្រិតសំឡេង", fieldDurationSec: "រយៈពេល (វិនាទី)", fieldStoryBrief: "សង្ខេបរឿង", fieldShotCount: "ចំនួនឈុតគោលដៅ", fieldNotes: "កំណត់ចំណាំ", fieldFormat: "ទ្រង់ទ្រាយលទ្ធផល", fieldMotionPrompt: "ពាក្យបញ្ជាចលនា", fieldImagePrompt: "ពាក្យបញ្ជារូបភាព", fieldSize: "ទំហំ", fieldReferenceImageUrl: "URL រូបភាពយោង", fieldKlingMode: "របៀប Kling", fieldKlingElementId: "ID ធាតុប្រធានបទ", fieldReferenceVideoUrl: "URL វីដេអូយោង", langToggle: "English", serverDefault: "លំនាំដើមម៉ាស៊ីនមេ",
+};
+
 export const strings: Record<Lang, Strings> = {
-  "zh-Hant": zh,
+  "zh-Hant": zhHant,
   "zh-Hans": zh,
-  ko: en,
-  th: en,
-  km: en,
+  ko: koStrings,
+  th: thStrings,
+  km: kmStrings,
   en,
 };

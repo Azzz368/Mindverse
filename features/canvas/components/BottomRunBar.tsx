@@ -21,7 +21,7 @@ export function BottomRunBar() {
         {t.runWorkflow}
       </Button>
       <div className="mx-2 h-6 w-px bg-[#e7eaf0] dark:bg-slate-800" />
-      <Button disabled={!canUndo} onClick={undoLastCanvasMutation} title="撤回上一步创建或删除节点操作">{t.undo}</Button>
+      <Button disabled={!canUndo} onClick={undoLastCanvasMutation} title="Undo the last node creation or deletion">{t.undo}</Button>
       <Button onClick={saveCanvas}>{t.save}</Button>
       <Button onClick={loadCanvas}>{t.load}</Button>
       <Button onClick={clearCanvas}>{t.clear}</Button>

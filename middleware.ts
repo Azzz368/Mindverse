@@ -22,6 +22,7 @@ export async function middleware(request: NextRequest) {
   if (path === "/") return NextResponse.redirect(new URL("/login", request.url));
   if (workerPaths.some((pattern) => pattern.test(path))) return NextResponse.next();
   if (!protectedApiPrefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) return NextResponse.next();
+  if (process.env.NODE_ENV !== "production" && process.env.MINDVERSE_LOCAL_AUTH_BYPASS === "true") return NextResponse.next();
   const cookie = request.cookies.get(SESSION_COOKIE)?.value || "";
   if (cookie && await validSessionCookie(cookie)) return NextResponse.next();
   return NextResponse.json(

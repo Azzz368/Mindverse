@@ -10,8 +10,8 @@ export function ThemeToggle() {
     <button
       type="button"
       onClick={toggle}
-      title={isDark ? "切换到浅色模式" : "切换到深色模式"}
-      aria-label={isDark ? "切换到浅色模式" : "切换到深色模式"}
+      title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
       className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-[#dfe3e8] bg-white/75 text-[#67707d] shadow-sm backdrop-blur transition duration-200 hover:border-[#c8ccd3] hover:bg-white hover:text-[#111318] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7c3aed] focus-visible:ring-offset-2 dark:border-white/[0.1] dark:bg-white/[0.05] dark:text-slate-400 dark:hover:border-white/[0.18] dark:hover:bg-white/[0.08] dark:hover:text-white dark:focus-visible:ring-cyan-300 dark:focus-visible:ring-offset-[#071018]"
     >
       {isDark ? (

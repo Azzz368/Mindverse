@@ -18,7 +18,7 @@ import { storyboardScenesFromValue } from "@/shared/workflow/storyPipeline";
 
 const MAX_REMOTE_WORKFLOW_BYTES = 3 * 1024 * 1024;
 const MAX_LOCAL_DRAFT_BYTES = 3 * 1024 * 1024;
-const REMOTE_SAVE_ERROR_PREFIX = "远程工作流保存";
+const REMOTE_SAVE_ERROR_PREFIX = "Remote workflow save";
 const workflowDraftKey = (workspaceId: string, workflowId: string) => `mindverse-workflow-draft:${workspaceId}:${workflowId}`;
 
 type WorkflowDraft = { savedAt: number; snapshot: CanvasSnapshot };
@@ -54,16 +54,16 @@ const saveWorkflowDraft = (workspaceId: string, workflowId: string, snapshot: Ca
 
 const remoteSaveErrorMessage = (error: unknown) => {
   if (error instanceof ApiRequestError) {
-    if (error.status === 401) return `${REMOTE_SAVE_ERROR_PREFIX}失败：登录状态已失效。当前修改仍在此浏览器草稿中，请重新登录后再打开项目。`;
-    if (error.status === 404) return `${REMOTE_SAVE_ERROR_PREFIX}失败：该项目不存在或当前账户无权访问。当前修改仍在此浏览器草稿中。`;
-    if (error.status === 409) return `${REMOTE_SAVE_ERROR_PREFIX}发生版本冲突：项目已在另一个页面更新。当前修改仍在此浏览器草稿中，请刷新页面后确认最新版本。`;
-    if (error.status === 413) return `${REMOTE_SAVE_ERROR_PREFIX}失败：画布数据超过服务器允许的大小。请拆分工作流或移除过大的节点内容。`;
-    return `${REMOTE_SAVE_ERROR_PREFIX}失败（${error.status}）：${error.message} 当前修改仍在此浏览器草稿中。`;
+    if (error.status === 401) return `${REMOTE_SAVE_ERROR_PREFIX} failed: your session has expired. Current changes remain in this browser draft. Sign in again, then reopen the project.`;
+    if (error.status === 404) return `${REMOTE_SAVE_ERROR_PREFIX} failed: the project does not exist or this account cannot access it. Current changes remain in this browser draft.`;
+    if (error.status === 409) return `${REMOTE_SAVE_ERROR_PREFIX} conflict: the project was updated in another page. Current changes remain in this browser draft. Refresh to review the latest version.`;
+    if (error.status === 413) return `${REMOTE_SAVE_ERROR_PREFIX} failed: the canvas exceeds the server size limit. Split the workflow or remove oversized node content.`;
+    return `${REMOTE_SAVE_ERROR_PREFIX} failed (${error.status}): ${error.message} Current changes remain in this browser draft.`;
   }
   const offline = typeof navigator !== "undefined" && !navigator.onLine;
   return offline
-    ? `${REMOTE_SAVE_ERROR_PREFIX}失败：当前设备处于离线状态。修改已保存在此浏览器草稿中，联网后继续编辑即可重试。`
-    : `${REMOTE_SAVE_ERROR_PREFIX}失败：无法连接服务器。当前修改已保存在此浏览器草稿中，请稍后继续编辑以重试。`;
+    ? `${REMOTE_SAVE_ERROR_PREFIX} failed: this device is offline. Changes are saved in this browser draft; reconnect and continue editing to retry.`
+    : `${REMOTE_SAVE_ERROR_PREFIX} failed: the server could not be reached. Current changes are saved in this browser draft; continue editing later to retry.`;
 };
 
 function PendingTaskRecovery() {
@@ -105,13 +105,13 @@ function LocalCanvasPersistence() {
     if (!snapshot) return;
     try {
       if (hasInlineMedia(snapshot) || snapshotJsonSize(snapshot) > MAX_LOCAL_DRAFT_BYTES) {
-        useCanvasStore.setState({ lastError: "本地画布包含未归档媒体或超过 3MB，无法自动保存。请重新上传该媒体或拆分画布。" });
+        useCanvasStore.setState({ lastError: "The local canvas contains unarchived media or exceeds 3 MB and cannot be auto-saved. Upload the media again or split the canvas." });
         return;
       }
       canvasStorage.save(snapshot);
     } catch (error) {
       console.error("Local canvas save failed", error);
-      useCanvasStore.setState({ lastError: "本地画布保存失败；请检查浏览器存储空间。" });
+      useCanvasStore.setState({ lastError: "Local canvas save failed. Check available browser storage." });
     }
   };
 
@@ -127,7 +127,7 @@ function LocalCanvasPersistence() {
       }
     } catch (error) {
       console.error("Local canvas load failed", error);
-      useCanvasStore.setState({ lastError: "本地画布无法加载，已创建空白画布。" });
+      useCanvasStore.setState({ lastError: "The local canvas could not be loaded. A blank canvas was created." });
       setCanvas([], [], null);
     } finally {
       setHydrated(true);
@@ -141,7 +141,7 @@ function LocalCanvasPersistence() {
     const snapshot = snapshotForWorkflowPersistence(rawSnapshot);
     latestSnapshotRef.current = snapshot;
     if (hadInlineMedia) {
-      useCanvasStore.setState({ lastError: "已保存画布结构；其中未归档的内嵌媒体无法长期保存，请重新上传该素材。" });
+      useCanvasStore.setState({ lastError: "The canvas structure was saved, but unarchived embedded media cannot be stored permanently. Upload that media again." });
     }
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(saveLocal, 300);
@@ -226,7 +226,7 @@ export function Workspace({ workflowId, workspaceId = "local" }: { workflowId?: 
           setCanvas(draft.snapshot.nodes, draft.snapshot.edges, draft.snapshot.agentMemory || null);
           lastSavedJsonRef.current = "";
           loadedRemoteWorkflow.current = true;
-          useCanvasStore.setState({ lastError: "远程工作流暂时无法加载，已恢复此浏览器中的本地草稿；联网后会自动重试保存。" });
+          useCanvasStore.setState({ lastError: "The remote workflow is temporarily unavailable. The local browser draft was restored and saving will retry after reconnection." });
           return;
         }
         console.error("Remote workflow load failed", error);
@@ -282,11 +282,11 @@ export function Workspace({ workflowId, workspaceId = "local" }: { workflowId?: 
     const hadInlineMedia = hasInlineMedia(rawSnapshot);
     const snapshot = snapshotForWorkflowPersistence(rawSnapshot);
     if (hadInlineMedia) {
-      useCanvasStore.setState({ lastError: "已保存画布结构；其中未归档的内嵌媒体无法长期保存，请重新上传该素材。" });
+      useCanvasStore.setState({ lastError: "The canvas structure was saved, but unarchived embedded media cannot be stored permanently. Upload that media again." });
     }
     if (snapshotJsonSize(snapshot) > MAX_REMOTE_WORKFLOW_BYTES) {
       latestSaveRef.current = null;
-      useCanvasStore.setState({ lastError: `画布快照超过 ${MAX_REMOTE_WORKFLOW_BYTES / 1024 / 1024}MB，无法保存。请拆分工作流或移除过大的节点内容。` });
+      useCanvasStore.setState({ lastError: `The canvas snapshot exceeds ${MAX_REMOTE_WORKFLOW_BYTES / 1024 / 1024} MB and cannot be saved. Split the workflow or remove oversized node content.` });
       return;
     }
     const payload = { name: projectName, snapshot, expectedRevision: revisionRef.current };
@@ -294,7 +294,7 @@ export function Workspace({ workflowId, workspaceId = "local" }: { workflowId?: 
     latestSaveRef.current = payload;
     if (payloadJson === lastSavedJsonRef.current) return;
     if (!saveWorkflowDraft(workspaceId, workflowId, snapshot)) {
-      useCanvasStore.setState({ lastError: "本地草稿保存失败；请避免使用内嵌 base64 媒体并检查浏览器存储空间。" });
+      useCanvasStore.setState({ lastError: "Local draft save failed. Avoid embedded base64 media and check available browser storage." });
     }
 
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
